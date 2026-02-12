@@ -1,10 +1,16 @@
 package com.mrpowergamerbr.kgmsruntime.graphics
 
 import com.mrpowergamerbr.kgmsruntime.data.GameData
+import org.joml.Matrix4f
+import org.lwjgl.BufferUtils
 import org.lwjgl.opengl.GL11.*
+import org.lwjgl.opengl.GL15.*
+import org.lwjgl.opengl.GL20.*
+import org.lwjgl.opengl.GL30.*
 import org.lwjgl.stb.STBImage.*
 import org.lwjgl.system.MemoryStack
 import java.nio.ByteBuffer
+import java.nio.FloatBuffer
 
 class Renderer(val gameData: GameData) {
     // OpenGL textures for each TXTR page
@@ -28,10 +34,128 @@ class Renderer(val gameData: GameData) {
     private var viewW = 640
     private var viewH = 480
 
+    // Shader program and uniform locations
+    private var shaderProgram = 0
+    private var uProjection = 0
+    private var uModel = 0
+    private var uHasTexture = 0
+    private var uTexture = 0
+
+    // VAO/VBO
+    private var vao = 0
+    private var vbo = 0
+
+    // Vertex data: 8 floats per vertex (pos.xy, tex.uv, color.rgba)
+    // Max 256 quads = 1536 vertices = 12288 floats
+    private val maxVertices = 1536
+    private val floatsPerVertex = 8
+    private val vertexData = FloatArray(maxVertices * floatsPerVertex)
+    private val vertexBuffer: FloatBuffer = BufferUtils.createFloatBuffer(maxVertices * floatsPerVertex)
+    private var vertexCount = 0
+
+    // Matrix instances (reused to avoid allocation)
+    private val projectionMatrix = Matrix4f()
+    private val modelMatrix = Matrix4f()
+    private val matrixBuffer: FloatBuffer = BufferUtils.createFloatBuffer(16)
+
+    companion object {
+        private const val VERTEX_SHADER_SOURCE = """
+#version 330 core
+layout (location = 0) in vec2 a_position;
+layout (location = 1) in vec2 a_texCoord;
+layout (location = 2) in vec4 a_color;
+
+uniform mat4 u_projection;
+uniform mat4 u_model;
+
+out vec2 v_texCoord;
+out vec4 v_color;
+
+void main() {
+    gl_Position = u_projection * u_model * vec4(a_position, 0.0, 1.0);
+    v_texCoord = a_texCoord;
+    v_color = a_color;
+}
+"""
+
+        private const val FRAGMENT_SHADER_SOURCE = """
+#version 330 core
+in vec2 v_texCoord;
+in vec4 v_color;
+
+uniform bool u_hasTexture;
+uniform sampler2D u_texture;
+
+out vec4 fragColor;
+
+void main() {
+    if (u_hasTexture) {
+        fragColor = texture(u_texture, v_texCoord) * v_color;
+    } else {
+        fragColor = v_color;
+    }
+}
+"""
+    }
+
     fun initialize() {
-        glEnable(GL_TEXTURE_2D)
+        shaderProgram = createShaderProgram()
+        glUseProgram(shaderProgram)
+
+        uProjection = glGetUniformLocation(shaderProgram, "u_projection")
+        uModel = glGetUniformLocation(shaderProgram, "u_model")
+        uHasTexture = glGetUniformLocation(shaderProgram, "u_hasTexture")
+        uTexture = glGetUniformLocation(shaderProgram, "u_texture")
+
+        // Texture unit 0
+        glUniform1i(uTexture, 0)
+
+        // Set model matrix to identity initially
+        modelMatrix.identity()
+        uploadModelMatrix()
+
+        // Create VAO/VBO
+        vao = glGenVertexArrays()
+        glBindVertexArray(vao)
+
+        vbo = glGenBuffers()
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferData(GL_ARRAY_BUFFER, (maxVertices * floatsPerVertex * 4).toLong(), GL_DYNAMIC_DRAW)
+
+        val stride = floatsPerVertex * 4 // 32 bytes
+        // a_position: location 0, vec2
+        glVertexAttribPointer(0, 2, GL_FLOAT, false, stride, 0L)
+        glEnableVertexAttribArray(0)
+        // a_texCoord: location 1, vec2
+        glVertexAttribPointer(1, 2, GL_FLOAT, false, stride, (2 * 4).toLong())
+        glEnableVertexAttribArray(1)
+        // a_color: location 2, vec4
+        glVertexAttribPointer(2, 4, GL_FLOAT, false, stride, (4 * 4).toLong())
+        glEnableVertexAttribArray(2)
+
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    }
+
+    fun dispose() {
+        if (shaderProgram != 0) {
+            glDeleteProgram(shaderProgram)
+            shaderProgram = 0
+        }
+        if (vbo != 0) {
+            glDeleteBuffers(vbo)
+            vbo = 0
+        }
+        if (vao != 0) {
+            glDeleteVertexArrays(vao)
+            vao = 0
+        }
+        for (i in textures.indices) {
+            if (textures[i] >= 0) {
+                glDeleteTextures(textures[i])
+                textures[i] = -1
+            }
+        }
     }
 
     fun setView(vx: Int, vy: Int, vw: Int, vh: Int, px: Int, py: Int, pw: Int, ph: Int) {
@@ -43,15 +167,21 @@ class Renderer(val gameData: GameData) {
             (pw * framebufferScaleX).toInt(),
             (ph * framebufferScaleY).toInt()
         )
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        glOrtho(vx.toDouble(), (vx + vw).toDouble(), (vy + vh).toDouble(), vy.toDouble(), -1.0, 1.0)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
+
+        // y-down orthographic: top=vy, bottom=vy+vh
+        projectionMatrix.identity().ortho(
+            vx.toFloat(), (vx + vw).toFloat(),
+            (vy + vh).toFloat(), vy.toFloat(),
+            -1f, 1f
+        )
+        uploadProjectionMatrix()
+
+        // Reset model matrix
+        modelMatrix.identity()
+        uploadModelMatrix()
     }
 
     fun clear(bgColor: Int) {
-        // bgColor is in ABGR or BGR format
         val r = (bgColor and 0xFF) / 255f
         val g = ((bgColor shr 8) and 0xFF) / 255f
         val b = ((bgColor shr 16) and 0xFF) / 255f
@@ -86,36 +216,35 @@ class Renderer(val gameData: GameData) {
         val ox = sprite.originX.toDouble()
         val oy = sprite.originY.toDouble()
 
-        // Target position with offset
         val dx = x - ox * xscale + tpag.targetX * xscale
         val dy = y - oy * yscale + tpag.targetY * yscale
         val dw = tpag.sourceWidth * xscale
         val dh = tpag.sourceHeight * yscale
 
-        // Color (BGR)
         val cr = (blend and 0xFF) / 255f
         val cg = ((blend shr 8) and 0xFF) / 255f
         val cb = ((blend shr 16) and 0xFF) / 255f
+        val ca = alpha.toFloat()
 
-        glBindTexture(GL_TEXTURE_2D, texId)
-        glColor4f(cr, cg, cb, alpha.toFloat())
-
+        // Set model matrix for rotation
         if (angle != 0.0) {
-            glPushMatrix()
-            glTranslated(x, y, 0.0)
-            glRotated(-angle, 0.0, 0.0, 1.0)
-            glTranslated(-x, -y, 0.0)
+            modelMatrix.identity()
+                .translate(x.toFloat(), y.toFloat(), 0f)
+                .rotateZ(Math.toRadians(-angle).toFloat())
+                .translate(-x.toFloat(), -y.toFloat(), 0f)
+            uploadModelMatrix()
         }
 
-        glBegin(GL_QUADS)
-        glTexCoord2f(u0, v0); glVertex2d(dx, dy)
-        glTexCoord2f(u1, v0); glVertex2d(dx + dw, dy)
-        glTexCoord2f(u1, v1); glVertex2d(dx + dw, dy + dh)
-        glTexCoord2f(u0, v1); glVertex2d(dx, dy + dh)
-        glEnd()
+        glBindTexture(GL_TEXTURE_2D, texId)
+        glUniform1i(uHasTexture, 1)
+
+        vertexCount = 0
+        putQuad(dx, dy, dx + dw, dy + dh, u0, v0, u1, v1, cr, cg, cb, ca)
+        flushVertices(GL_TRIANGLES)
 
         if (angle != 0.0) {
-            glPopMatrix()
+            modelMatrix.identity()
+            uploadModelMatrix()
         }
     }
 
@@ -136,7 +265,9 @@ class Renderer(val gameData: GameData) {
         val v1 = (tpag.sourceY + tpag.sourceHeight) / texH
 
         glBindTexture(GL_TEXTURE_2D, texId)
-        glColor4f(1f, 1f, 1f, 1f)
+        glUniform1i(uHasTexture, 1)
+
+        vertexCount = 0
 
         if (tileX || tileY) {
             val w = tpag.sourceWidth
@@ -150,43 +281,53 @@ class Renderer(val gameData: GameData) {
             while (cy < endY) {
                 var cx = startX
                 while (cx < endX) {
-                    glBegin(GL_QUADS)
-                    glTexCoord2f(u0, v0); glVertex2i(cx, cy)
-                    glTexCoord2f(u1, v0); glVertex2i(cx + w, cy)
-                    glTexCoord2f(u1, v1); glVertex2i(cx + w, cy + h)
-                    glTexCoord2f(u0, v1); glVertex2i(cx, cy + h)
-                    glEnd()
+                    // Flush if we're getting close to capacity
+                    if (vertexCount + 6 > maxVertices) {
+                        flushVertices(GL_TRIANGLES)
+                        vertexCount = 0
+                    }
+                    putQuad(
+                        cx.toDouble(), cy.toDouble(),
+                        (cx + w).toDouble(), (cy + h).toDouble(),
+                        u0, v0, u1, v1, 1f, 1f, 1f, 1f
+                    )
                     cx += w
                 }
                 cy += h
             }
         } else {
-            glBegin(GL_QUADS)
-            glTexCoord2f(u0, v0); glVertex2i(x, y)
-            glTexCoord2f(u1, v0); glVertex2i(x + tpag.sourceWidth, y)
-            glTexCoord2f(u1, v1); glVertex2i(x + tpag.sourceWidth, y + tpag.sourceHeight)
-            glTexCoord2f(u0, v1); glVertex2i(x, y + tpag.sourceHeight)
-            glEnd()
+            putQuad(
+                x.toDouble(), y.toDouble(),
+                (x + tpag.sourceWidth).toDouble(), (y + tpag.sourceHeight).toDouble(),
+                u0, v0, u1, v1, 1f, 1f, 1f, 1f
+            )
         }
+
+        flushVertices(GL_TRIANGLES)
     }
 
     fun drawRectangle(x1: Double, y1: Double, x2: Double, y2: Double, outline: Boolean) {
         glBindTexture(GL_TEXTURE_2D, 0)
+        glUniform1i(uHasTexture, 0)
+
         val cr = (drawColor and 0xFF) / 255f
         val cg = ((drawColor shr 8) and 0xFF) / 255f
         val cb = ((drawColor shr 16) and 0xFF) / 255f
-        glColor4f(cr, cg, cb, drawAlpha.toFloat())
+        val ca = drawAlpha.toFloat()
+
+        vertexCount = 0
 
         if (outline) {
-            glBegin(GL_LINE_LOOP)
+            // GL_LINE_LOOP: 4 vertices
+            putVertex(x1, y1, 0f, 0f, cr, cg, cb, ca)
+            putVertex(x2, y1, 0f, 0f, cr, cg, cb, ca)
+            putVertex(x2, y2, 0f, 0f, cr, cg, cb, ca)
+            putVertex(x1, y2, 0f, 0f, cr, cg, cb, ca)
+            flushVertices(GL_LINE_LOOP)
         } else {
-            glBegin(GL_QUADS)
+            putQuad(x1, y1, x2, y2, 0f, 0f, 0f, 0f, cr, cg, cb, ca)
+            flushVertices(GL_TRIANGLES)
         }
-        glVertex2d(x1, y1)
-        glVertex2d(x2, y1)
-        glVertex2d(x2, y2)
-        glVertex2d(x1, y2)
-        glEnd()
     }
 
     fun drawText(x: Double, y: Double, text: String) {
@@ -205,19 +346,22 @@ class Renderer(val gameData: GameData) {
         val cr = (drawColor and 0xFF) / 255f
         val cg = ((drawColor shr 8) and 0xFF) / 255f
         val cb = ((drawColor shr 16) and 0xFF) / 255f
+        val ca = drawAlpha.toFloat()
 
         glBindTexture(GL_TEXTURE_2D, texId)
-        glColor4f(cr, cg, cb, drawAlpha.toFloat())
+        glUniform1i(uHasTexture, 1)
 
         val lines = text.split("\n")
         val lineHeight = font.emSize.toDouble()
-        var textHeight = lines.size * lineHeight
+        val textHeight = lines.size * lineHeight
 
         var startY = when (drawValign) {
             1 -> y - textHeight / 2
             2 -> y - textHeight
             else -> y
         }
+
+        vertexCount = 0
 
         for (line in lines) {
             val lineWidth = measureLineWidth(font, line)
@@ -239,18 +383,19 @@ class Renderer(val gameData: GameData) {
                 val dx = cx + glyph.offset
                 val dy = startY
 
-                glBegin(GL_QUADS)
-                glTexCoord2f(gu0, gv0); glVertex2d(dx, dy)
-                glTexCoord2f(gu1, gv0); glVertex2d(dx + glyph.width, dy)
-                glTexCoord2f(gu1, gv1); glVertex2d(dx + glyph.width, dy + glyph.height)
-                glTexCoord2f(gu0, gv1); glVertex2d(dx, dy + glyph.height)
-                glEnd()
+                if (vertexCount + 6 > maxVertices) {
+                    flushVertices(GL_TRIANGLES)
+                    vertexCount = 0
+                }
 
+                putQuad(dx, dy, dx + glyph.width, dy + glyph.height, gu0, gv0, gu1, gv1, cr, cg, cb, ca)
                 cx += glyph.shift
             }
 
             startY += lineHeight
         }
+
+        flushVertices(GL_TRIANGLES)
     }
 
     fun drawTextTransformed(x: Double, y: Double, text: String, xscale: Double, yscale: Double, angle: Double) {
@@ -269,18 +414,21 @@ class Renderer(val gameData: GameData) {
         val cr = (drawColor and 0xFF) / 255f
         val cg = ((drawColor shr 8) and 0xFF) / 255f
         val cb = ((drawColor shr 16) and 0xFF) / 255f
+        val ca = drawAlpha.toFloat()
 
         glBindTexture(GL_TEXTURE_2D, texId)
-        glColor4f(cr, cg, cb, drawAlpha.toFloat())
+        glUniform1i(uHasTexture, 1)
 
         if (angle != 0.0 || xscale != 1.0 || yscale != 1.0) {
-            glPushMatrix()
-            glTranslated(x, y, 0.0)
-            if (angle != 0.0) glRotated(-angle, 0.0, 0.0, 1.0)
-            if (xscale != 1.0 || yscale != 1.0) glScaled(xscale, yscale, 1.0)
-            glTranslated(-x, -y, 0.0)
+            modelMatrix.identity()
+                .translate(x.toFloat(), y.toFloat(), 0f)
+            if (angle != 0.0) modelMatrix.rotateZ(Math.toRadians(-angle).toFloat())
+            if (xscale != 1.0 || yscale != 1.0) modelMatrix.scale(xscale.toFloat(), yscale.toFloat(), 1f)
+            modelMatrix.translate(-x.toFloat(), -y.toFloat(), 0f)
+            uploadModelMatrix()
         }
 
+        vertexCount = 0
         var cx = x
         for (ch in text) {
             val glyph = font.glyphs.find { it.character == ch.code } ?: continue
@@ -294,18 +442,20 @@ class Renderer(val gameData: GameData) {
             val dx = cx + glyph.offset
             val dy = y
 
-            glBegin(GL_QUADS)
-            glTexCoord2f(gu0, gv0); glVertex2d(dx, dy)
-            glTexCoord2f(gu1, gv0); glVertex2d(dx + glyph.width, dy)
-            glTexCoord2f(gu1, gv1); glVertex2d(dx + glyph.width, dy + glyph.height)
-            glTexCoord2f(gu0, gv1); glVertex2d(dx, dy + glyph.height)
-            glEnd()
+            if (vertexCount + 6 > maxVertices) {
+                flushVertices(GL_TRIANGLES)
+                vertexCount = 0
+            }
 
+            putQuad(dx, dy, dx + glyph.width, dy + glyph.height, gu0, gv0, gu1, gv1, cr, cg, cb, ca)
             cx += glyph.shift
         }
 
+        flushVertices(GL_TRIANGLES)
+
         if (angle != 0.0 || xscale != 1.0 || yscale != 1.0) {
-            glPopMatrix()
+            modelMatrix.identity()
+            uploadModelMatrix()
         }
     }
 
@@ -329,6 +479,105 @@ class Renderer(val gameData: GameData) {
         }
         return w
     }
+
+    // --- Vertex helpers ---
+
+    private fun putVertex(x: Double, y: Double, u: Float, v: Float, r: Float, g: Float, b: Float, a: Float) {
+        val offset = vertexCount * floatsPerVertex
+        vertexData[offset + 0] = x.toFloat()
+        vertexData[offset + 1] = y.toFloat()
+        vertexData[offset + 2] = u
+        vertexData[offset + 3] = v
+        vertexData[offset + 4] = r
+        vertexData[offset + 5] = g
+        vertexData[offset + 6] = b
+        vertexData[offset + 7] = a
+        vertexCount++
+    }
+
+    private fun putQuad(x1: Double, y1: Double, x2: Double, y2: Double,
+                        u0: Float, v0: Float, u1: Float, v1: Float,
+                        r: Float, g: Float, b: Float, a: Float) {
+        // Triangle 1: top-left, top-right, bottom-right
+        putVertex(x1, y1, u0, v0, r, g, b, a)
+        putVertex(x2, y1, u1, v0, r, g, b, a)
+        putVertex(x2, y2, u1, v1, r, g, b, a)
+        // Triangle 2: top-left, bottom-right, bottom-left
+        putVertex(x1, y1, u0, v0, r, g, b, a)
+        putVertex(x2, y2, u1, v1, r, g, b, a)
+        putVertex(x1, y2, u0, v1, r, g, b, a)
+    }
+
+    private fun flushVertices(mode: Int) {
+        if (vertexCount == 0) return
+
+        vertexBuffer.clear()
+        vertexBuffer.put(vertexData, 0, vertexCount * floatsPerVertex)
+        vertexBuffer.flip()
+
+        glBindBuffer(GL_ARRAY_BUFFER, vbo)
+        glBufferSubData(GL_ARRAY_BUFFER, 0, vertexBuffer)
+        glDrawArrays(mode, 0, vertexCount)
+
+        vertexCount = 0
+    }
+
+    // --- Matrix upload helpers ---
+
+    private fun uploadProjectionMatrix() {
+        matrixBuffer.clear()
+        projectionMatrix.get(matrixBuffer)
+        glUniformMatrix4fv(uProjection, false, matrixBuffer)
+    }
+
+    private fun uploadModelMatrix() {
+        matrixBuffer.clear()
+        modelMatrix.get(matrixBuffer)
+        glUniformMatrix4fv(uModel, false, matrixBuffer)
+    }
+
+    // --- Shader compilation ---
+
+    private fun createShaderProgram(): Int {
+        val vertexShader = compileShader(GL_VERTEX_SHADER, VERTEX_SHADER_SOURCE)
+        val fragmentShader = compileShader(GL_FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE)
+
+        val program = glCreateProgram()
+        glAttachShader(program, vertexShader)
+        glAttachShader(program, fragmentShader)
+        glLinkProgram(program)
+
+        if (glGetProgrami(program, GL_LINK_STATUS) == GL_FALSE) {
+            val log = glGetProgramInfoLog(program)
+            glDeleteProgram(program)
+            glDeleteShader(vertexShader)
+            glDeleteShader(fragmentShader)
+            throw RuntimeException("Shader program linking failed:\n$log")
+        }
+
+        // Shaders are linked, can delete the individual shader objects
+        glDeleteShader(vertexShader)
+        glDeleteShader(fragmentShader)
+
+        return program
+    }
+
+    private fun compileShader(type: Int, source: String): Int {
+        val shader = glCreateShader(type)
+        glShaderSource(shader, source)
+        glCompileShader(shader)
+
+        if (glGetShaderi(shader, GL_COMPILE_STATUS) == GL_FALSE) {
+            val log = glGetShaderInfoLog(shader)
+            glDeleteShader(shader)
+            val typeName = if (type == GL_VERTEX_SHADER) "vertex" else "fragment"
+            throw RuntimeException("$typeName shader compilation failed:\n$log")
+        }
+
+        return shader
+    }
+
+    // --- Texture loading ---
 
     private fun ensureTexture(pageId: Int): Int {
         if (pageId < 0 || pageId >= textures.size) return -1
