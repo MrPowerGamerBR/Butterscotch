@@ -516,7 +516,11 @@ class VM(val gameData: GameData) {
                             val cmp = a.value.compareTo(b.value)
                             compareBool(cmp, cmpType)
                         } else {
-                            val cmp = a.toReal().compareTo(b.toReal())
+                            val aR = a.toReal()
+                            val bR = b.toReal()
+                            // Use == first to handle -0.0 == 0.0 correctly
+                            // (Double.compareTo distinguishes them: (-0.0).compareTo(0.0) == -1)
+                            val cmp = if (aR == bR) 0 else aR.compareTo(bR)
                             compareBool(cmp, cmpType)
                         }
                         stack.addLast(GMLValue.of(result))
