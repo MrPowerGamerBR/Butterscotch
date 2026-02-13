@@ -24,6 +24,7 @@ Butterscotch has some CLI parameters and debug features that are useful when deb
 * `--trace-paths`: Traces path following for a specific object, example: `--trace-paths obj_toroverworld3`. Can also trace all objects with `--trace-paths *`
 * `--draw-paths`: Draw path overlays on screen for all instances following paths
 * `--always-log-unknown-instructions`: Always log unknown instructions instead of only logging once
+* `--seed`: Forces the game to always use a specific RNG seed, even if the game sets a custom seed with `random_set_seed` or if `randomize` is called, example `--seed 40028922`, useful for reproducing bugs
 
 ### Debug Features
 
