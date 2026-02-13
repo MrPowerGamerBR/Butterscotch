@@ -23,7 +23,8 @@ class Butterscotch(
     private val startRoom: String? = null,
     private val speedMultiplier: Double,
     private val recordInputsPath: String? = null,
-    private val playbackInputsPath: String? = null
+    private val playbackInputsPath: String? = null,
+    private val vsync: Boolean
 ) {
     companion object {
         // yay static abuse
@@ -236,7 +237,7 @@ class Butterscotch(
         }
 
         GLFW.glfwMakeContextCurrent(window)
-        GLFW.glfwSwapInterval(if (headless) 0 else 1)
+        GLFW.glfwSwapInterval(if (headless || !vsync) 0 else 1)
 
         if (!headless) {
             GLFW.glfwShowWindow(window)
