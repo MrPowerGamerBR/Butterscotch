@@ -210,6 +210,9 @@ class GameRunner(
             for ((viewIdx, view) in room.views.withIndex()) {
                 if (!view.enabled) continue
                 renderer.currentView = viewIdx
+                // Clamp view to room bounds
+                view.viewX = view.viewX.coerceIn(0, maxOf(0, room.width - view.viewW))
+                view.viewY = view.viewY.coerceIn(0, maxOf(0, room.height - view.viewH))
                 renderer.setView(view.viewX, view.viewY, view.viewW, view.viewH,
                     view.portX, view.portY, view.portW, view.portH)
 
