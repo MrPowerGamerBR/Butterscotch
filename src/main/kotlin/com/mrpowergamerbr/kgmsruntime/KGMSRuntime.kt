@@ -14,12 +14,16 @@ import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11
 import org.lwjgl.stb.STBImageWrite
 import org.lwjgl.system.MemoryUtil
+import kotlinx.serialization.json.*
+import java.io.File
 
 class KGMSRuntime(
     private val screenshotPattern: String? = null,
     private val screenshotAtFrames: Set<Int> = emptySet(),
     private val startRoom: String? = null,
-    private val speedMultiplier: Double
+    private val speedMultiplier: Double,
+    private val recordInputsPath: String? = null,
+    private val playbackInputsPath: String? = null
 ) {
     companion object {
         // yay static abuse
@@ -89,6 +93,16 @@ class KGMSRuntime(
         runner = GameRunner(gameData, vm, renderer)
         vm.initialize()
 
+        // Set up input playback/recording
+        if (playbackInputsPath != null) {
+            runner.inputPlayback = readInputJson(playbackInputsPath)
+            println("Input playback loaded from $playbackInputsPath (${runner.inputPlayback!!.size} frames with input)")
+        }
+        if (recordInputsPath != null) {
+            runner.inputRecording = mutableMapOf()
+            println("Input recording enabled, will save to $recordInputsPath")
+        }
+
         val startRoomIndex = resolveStartRoom(gameData)
         runner.initialize(startRoomIndex)
 
@@ -97,6 +111,12 @@ class KGMSRuntime(
             headlessLoop(gameData.gen8.windowWidth, gameData.gen8.windowHeight)
         } else {
             gameLoop()
+        }
+
+        // Save recorded inputs
+        if (recordInputsPath != null && runner.inputRecording != null) {
+            writeInputJson(recordInputsPath, runner.inputRecording!!)
+            println("Input recording saved to $recordInputsPath (${runner.inputRecording!!.size} frames with input)")
         }
 
         renderer.dispose()
@@ -175,6 +195,9 @@ class KGMSRuntime(
                     }
                 }
 
+                // Skip real input during playback mode
+                if (runner.inputPlayback != null) return@glfwSetKeyCallback
+
                 val gmKey = glfwToGMKey[key] ?: run {
                     // Letters A-Z: GLFW uses ASCII codes (65-90), GM uses same
                     if (key in GLFW.GLFW_KEY_A..GLFW.GLFW_KEY_Z) key
@@ -232,6 +255,7 @@ class KGMSRuntime(
 
         while (frameCount < maxFrame && !runner.shouldQuit) {
             runner.step()
+            runner.clearPerFrameInput()
             frameCount++
 
             GL11.glClear(GL11.GL_COLOR_BUFFER_BIT)
@@ -312,5 +336,23 @@ class KGMSRuntime(
         GL11.glReadPixels(0, 0, fbW, fbH, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, buffer)
         STBImageWrite.stbi_flip_vertically_on_write(true)
         STBImageWrite.stbi_write_png(filename, fbW, fbH, 4, buffer, fbW * 4)
+    }
+
+    private fun writeInputJson(path: String, data: Map<Int, List<Int>>) {
+        val jsonObj = JsonObject(
+            data.entries.sortedBy { it.key }.associate { (frame, keys) ->
+                frame.toString() to JsonArray(keys.map { JsonPrimitive(it) })
+            }
+        )
+        val json = Json { prettyPrint = true }
+        File(path).writeText(json.encodeToString(JsonObject.serializer(), jsonObj))
+    }
+
+    private fun readInputJson(path: String): Map<Int, List<Int>> {
+        val text = File(path).readText()
+        val jsonObj = Json.parseToJsonElement(text).jsonObject
+        return jsonObj.entries.associate { (key, value) ->
+            key.toInt() to value.jsonArray.map { it.jsonPrimitive.int }
+        }
     }
 }

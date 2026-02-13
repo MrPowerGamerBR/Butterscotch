@@ -19,6 +19,8 @@ class KGMSRuntimeCommand : CliktCommand(name = "kgmsruntime") {
     private val ignoreFunctionTracedCalls by option("--ignore-function-traced-calls", help = "Ignore specific function when tracing calls, useful to trim down logs").multiple()
     private val debug by option("--debug", help = "Enable debug mode").flag()
     private val speed by option("--speed", help = "Game speed multiplier (e.g. 2.0 = twice as fast)").double().default(1.0)
+    private val recordInputs by option("--record-inputs", help = "Record inputs to JSON file")
+    private val playbackInputs by option("--playback-inputs", help = "Playback inputs from JSON file")
 
     override fun run() {
         KGMSRuntime.debugObj = debugObj.toSet()
@@ -38,7 +40,9 @@ class KGMSRuntimeCommand : CliktCommand(name = "kgmsruntime") {
             screenshotPattern = screenshot,
             screenshotAtFrames = screenshotAtFrame.toSet(),
             startRoom = room,
-            speedMultiplier = speed
+            speedMultiplier = speed,
+            recordInputsPath = recordInputs,
+            playbackInputsPath = playbackInputs
         ).run()
     }
 }

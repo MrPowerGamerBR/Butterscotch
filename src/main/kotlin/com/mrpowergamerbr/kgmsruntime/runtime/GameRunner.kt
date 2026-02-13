@@ -34,6 +34,11 @@ class GameRunner(
     var gameStarted = false
     var frameCount = 0
 
+    // Input recording/playback
+    var inputRecording: MutableMap<Int, List<Int>>? = null
+    var inputPlayback: Map<Int, List<Int>>? = null
+    private var previousPlaybackKeys = emptySet<Int>()
+
     // Current event context for event_inherited() support
     data class EventContext(
         val eventType: Int,
@@ -76,6 +81,32 @@ class GameRunner(
 
     fun step() {
         frameCount++
+
+        // Playback: override all input state from recording
+        val inputPlayback = this.inputPlayback
+        if (inputPlayback != null) {
+            val currentKeys = (inputPlayback[frameCount] ?: emptyList()).toSet()
+            keysPressed.clear()
+            keysReleased.clear()
+            keysHeld.clear()
+            for (k in currentKeys) {
+                if (k !in previousPlaybackKeys) keysPressed.add(k)
+            }
+            for (k in previousPlaybackKeys) {
+                if (k !in currentKeys) keysReleased.add(k)
+            }
+            keysHeld.addAll(currentKeys)
+            if (keysPressed.isNotEmpty()) {
+                keyboardKey = keysPressed.last()
+                keyboardLastKey = keysPressed.last()
+            }
+            previousPlaybackKeys = currentKeys
+        }
+
+        // Record: save current input state
+        if (keysHeld.isNotEmpty()) {
+            inputRecording?.put(frameCount, keysHeld.toList().sorted())
+        }
 
         // Handle pending room transition
         if (pendingRoomGoto >= 0) {
