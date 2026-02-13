@@ -196,6 +196,21 @@ fun registerBuiltins(vm: VM) {
         }
         GMLValue.ZERO
     }
+    f["move_towards_point"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            val targetX = args[0].toReal()
+            val targetY = args[1].toReal()
+            val sp = args[2].toReal()
+            val dx = targetX - self.x
+            val dy = targetY - self.y
+            self.direction = (Math.toDegrees(atan2(-dy, dx)) + 360) % 360
+            self.speed = sp
+            self.hspeed = sp * cos(Math.toRadians(self.direction))
+            self.vspeed = -sp * sin(Math.toRadians(self.direction))
+        }
+        GMLValue.ZERO
+    }
 
     // ========== Room ==========
     f["room_goto"] = { _, args -> vm.runner!!.gotoRoom(args[0].toInt()); GMLValue.ZERO }

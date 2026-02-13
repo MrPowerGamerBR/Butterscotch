@@ -5,6 +5,7 @@ import com.mrpowergamerbr.kgmsruntime.data.RoomData
 import com.mrpowergamerbr.kgmsruntime.graphics.Renderer
 import com.mrpowergamerbr.kgmsruntime.vm.GMLValue
 import com.mrpowergamerbr.kgmsruntime.vm.VM
+import kotlin.math.*
 
 class GameRunner(
     val gameData: GameData,
@@ -110,6 +111,34 @@ class GameRunner(
 
         // 5. End Step
         dispatchEvent(EVENT_STEP, 2)
+
+        // Apply movement physics
+        for (inst in instances) {
+            if (inst.destroyed) continue
+            // Apply gravity
+            if (inst.gravity != 0.0) {
+                inst.hspeed += inst.gravity * cos(Math.toRadians(inst.gravityDirection))
+                inst.vspeed -= inst.gravity * sin(Math.toRadians(inst.gravityDirection))
+                inst.speed = sqrt(inst.hspeed * inst.hspeed + inst.vspeed * inst.vspeed)
+                inst.direction = (Math.toDegrees(atan2(-inst.vspeed, inst.hspeed)) + 360) % 360
+            }
+            // Apply friction
+            if (inst.friction != 0.0 && inst.speed != 0.0) {
+                val newSpeed = inst.speed - inst.friction
+                if (newSpeed <= 0.0) {
+                    inst.speed = 0.0; inst.hspeed = 0.0; inst.vspeed = 0.0
+                } else {
+                    inst.speed = newSpeed
+                    inst.hspeed = newSpeed * cos(Math.toRadians(inst.direction))
+                    inst.vspeed = -newSpeed * sin(Math.toRadians(inst.direction))
+                }
+            }
+            // Apply velocity
+            if (inst.hspeed != 0.0 || inst.vspeed != 0.0) {
+                inst.xprevious = inst.x; inst.yprevious = inst.y
+                inst.x += inst.hspeed; inst.y += inst.vspeed
+            }
+        }
 
         // Animate sprites
         for (inst in instances) {
