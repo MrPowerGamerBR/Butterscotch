@@ -30,6 +30,7 @@ class KGMSRuntime(
         lateinit var debugObj: Set<String>
         lateinit var traceCalls: Set<String>
         lateinit var ignoreFunctionTracedCalls: Set<String>
+        lateinit var traceFireEvents: Set<String>
         var debug = false
     }
 

@@ -17,6 +17,7 @@ class KGMSRuntimeCommand : CliktCommand(name = "kgmsruntime") {
     private val debugObj by option("--debug-obj", help = "Debug object name").multiple()
     private val traceCalls by option("--trace-calls", help = "Print all function calls of a specific object, can be set to \"*\" to log all objects").multiple()
     private val ignoreFunctionTracedCalls by option("--ignore-function-traced-calls", help = "Ignore specific function when tracing calls, useful to trim down logs").multiple()
+    private val traceEvents by option("--trace-events", help = "Print all fired events for a specific object, can be set to \"*\" to log all objects").multiple()
     private val debug by option("--debug", help = "Enable debug mode").flag()
     private val speed by option("--speed", help = "Game speed multiplier (e.g. 2.0 = twice as fast)").double().default(1.0)
     private val recordInputs by option("--record-inputs", help = "Record inputs to JSON file")
@@ -25,6 +26,7 @@ class KGMSRuntimeCommand : CliktCommand(name = "kgmsruntime") {
     override fun run() {
         KGMSRuntime.debugObj = debugObj.toSet()
         KGMSRuntime.traceCalls = traceCalls.toSet()
+        KGMSRuntime.traceFireEvents = traceEvents.toSet()
         KGMSRuntime.ignoreFunctionTracedCalls = ignoreFunctionTracedCalls.toSet()
         KGMSRuntime.debug = debug
 

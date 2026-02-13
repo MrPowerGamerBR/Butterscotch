@@ -1,5 +1,6 @@
 package com.mrpowergamerbr.kgmsruntime.runtime
 
+import com.mrpowergamerbr.kgmsruntime.KGMSRuntime
 import com.mrpowergamerbr.kgmsruntime.data.GameData
 import com.mrpowergamerbr.kgmsruntime.data.RoomData
 import com.mrpowergamerbr.kgmsruntime.graphics.Renderer
@@ -423,6 +424,13 @@ class GameRunner(
     }
 
     fun fireEvent(inst: Instance, eventType: Int, subtype: Int, other: Instance? = null) {
+        if (KGMSRuntime.traceFireEvents.isNotEmpty()) {
+            val objectData = inst.getObjectData(vm)
+            if (KGMSRuntime.traceFireEvents.contains("*") || objectData.name in KGMSRuntime.traceFireEvents) {
+                println("[DEBUG] Firing event for ${objectData.name} (${inst.id}) with type=$eventType subtype=$subtype other=${other?.getObjectData(vm)?.name ?: "null"} at frame=$frameCount")
+            }
+        }
+
         // Walk the parent chain to find the first object that has this event
         var objIdx = inst.objectIndex
         while (objIdx >= 0 && objIdx < gameData.objects.size) {
