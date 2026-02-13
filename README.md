@@ -2,6 +2,8 @@
 
 > [!CAUTION]
 > This is "vibe coded" to see how further Claude Code (Opus 4.6) can get trying to implement a GameMaker: Studio runner, and because it is fun!
+>
+> If you want a proper well made GameMaker runtime alternative, check out [OpenGM](https://github.com/misternebula/OpenGM)
 
 ## Screenshots
 
