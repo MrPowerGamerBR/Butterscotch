@@ -296,6 +296,62 @@ void main() {
         flushVertices(GL_TRIANGLES)
     }
 
+    fun drawSpritePartExt(spriteIndex: Int, subImage: Int, left: Int, top: Int, partWidth: Int, partHeight: Int,
+                          x: Double, y: Double, xscale: Double, yscale: Double, blend: Int, alpha: Double) {
+        if (spriteIndex < 0 || spriteIndex >= gameData.sprites.size) return
+        val sprite = gameData.sprites[spriteIndex]
+        val frameIdx = if (sprite.tpagIndices.isEmpty()) return else {
+            subImage.mod(sprite.tpagIndices.size)
+        }
+        val tpagIdx = sprite.tpagIndices[frameIdx]
+        if (tpagIdx < 0) return
+        val tpag = gameData.texturePageItems[tpagIdx]
+
+        val texId = ensureTexture(tpag.texturePageId)
+        if (texId < 0) return
+
+        val texW = textureWidths[tpag.texturePageId].toFloat()
+        val texH = textureHeights[tpag.texturePageId].toFloat()
+        if (texW == 0f || texH == 0f) return
+
+        // Clip the requested rect against the TPAG target region (handles trimmed sprites)
+        val clipLeft = maxOf(left, tpag.targetX)
+        val clipTop = maxOf(top, tpag.targetY)
+        val clipRight = minOf(left + partWidth, tpag.targetX + tpag.sourceWidth)
+        val clipBottom = minOf(top + partHeight, tpag.targetY + tpag.sourceHeight)
+
+        if (clipLeft >= clipRight || clipTop >= clipBottom) return
+
+        // Map clipped region to texture coordinates
+        val texX = tpag.sourceX + (clipLeft - tpag.targetX)
+        val texY = tpag.sourceY + (clipTop - tpag.targetY)
+        val clippedW = clipRight - clipLeft
+        val clippedH = clipBottom - clipTop
+
+        val u0 = texX / texW
+        val v0 = texY / texH
+        val u1 = (texX + clippedW) / texW
+        val v1 = (texY + clippedH) / texH
+
+        // Draw at (x + offset from clipping), scaled, no sprite origin applied
+        val dx = x + (clipLeft - left) * xscale
+        val dy = y + (clipTop - top) * yscale
+        val dw = clippedW * xscale
+        val dh = clippedH * yscale
+
+        val cr = (blend and 0xFF) / 255f
+        val cg = ((blend shr 8) and 0xFF) / 255f
+        val cb = ((blend shr 16) and 0xFF) / 255f
+        val ca = alpha.toFloat()
+
+        glBindTexture(GL_TEXTURE_2D, texId)
+        glUniform1i(uHasTexture, 1)
+
+        vertexCount = 0
+        putQuad(dx, dy, dx + dw, dy + dh, u0, v0, u1, v1, cr, cg, cb, ca)
+        flushVertices(GL_TRIANGLES)
+    }
+
     fun drawBackground(tpagIndex: Int, x: Int, y: Int, tileX: Boolean, tileY: Boolean) {
         if (tpagIndex < 0 || tpagIndex >= gameData.texturePageItems.size) return
         val tpag = gameData.texturePageItems[tpagIndex]
