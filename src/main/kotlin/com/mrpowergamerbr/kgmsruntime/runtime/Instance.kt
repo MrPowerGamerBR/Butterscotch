@@ -119,7 +119,7 @@ class Instance(
             val s = gameRunner?.gameData?.sprites?.getOrNull(spriteIndex)
             GMLValue.of(if (s != null) (s.height * abs(imageYscale)) else 0.0)
         }
-        else -> variables[name] ?: GMLValue.ZERO
+        else -> variables[name] ?: gameRunner?.vm?.getGlobalBuiltin(name) ?: GMLValue.ZERO
     }
 
     fun setBuiltinOrVar(name: String, value: GMLValue) {
