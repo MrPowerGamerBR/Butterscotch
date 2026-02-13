@@ -19,8 +19,9 @@ Butterscotch has some CLI parameters and debug features that are useful when deb
 * `--ignore-function-traced-calls`: Ignores specific function calls when tracing
 * `--trace-events`: Traces all fired events for a specific object, example: `--trace-events obj_floweybattle1`. Can also trace all events with `--trace-events *`
 * `--trace-instructions`: Traces all bytecode instructions executed by the VM for a specific GML script, example: `--trace-instructions gml_Object_obj_floweybattle1_Step_0`. Can be set to `--trace-instructions *` to trace all scripts. VERY NOISY!
-* `--trace-globals`: Traces all global variables being manipulated, example: `--trace-globals interact`. Can also trace all globals with `--trace-globals *`
-* `--trace-paths`: Traces all global variables being manipulated, example: `--trace-paths obj_toroverworld3`. Can also trace all objects with `--trace-paths *`
+* `--trace-global-vars`: Traces all global variables being manipulated, example: `--trace-global-vars interact`. Can also trace all globals with `--trace-global-vars *`
+* `--trace-instance-vars`: Traces instance variable writes. Supports: `varname`, `obj.varname`, `obj.*`, `*` (VERY NOISY). Example: `--trace-instance-vars obj_shaker.hshake`
+* `--trace-paths`: Traces path following for a specific object, example: `--trace-paths obj_toroverworld3`. Can also trace all objects with `--trace-paths *`
 * `--draw-paths`: Draw path overlays on screen for all instances following paths
 * `--always-log-unknown-instructions`: Always log unknown instructions instead of only logging once
 

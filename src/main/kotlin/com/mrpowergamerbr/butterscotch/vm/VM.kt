@@ -393,6 +393,7 @@ class VM(val gameData: GameData) {
                                 val value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                                 val target = runner.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
                                 if (target != null) {
+                                    traceInstanceVarWrite(target, v.name, value, -1, entryName)
                                     target.setBuiltinOrVar(v.name, value)
                                 }
                             } else {
@@ -435,6 +436,7 @@ class VM(val gameData: GameData) {
                                     val realValue = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                                     val target = runner.findInstancesByObjectOrId(value.toInt()).firstOrNull()
                                     if (target != null) {
+                                        traceInstanceVarWrite(target, v.name, realValue, if (isArray) arrayIdx else -1, entryName)
                                         if (isArray) target.setArrayElement(v.name, arrayIdx, realValue)
                                         else target.setBuiltinOrVar(v.name, realValue)
                                     }
@@ -447,15 +449,18 @@ class VM(val gameData: GameData) {
                                         // Object ID: GM sets variable on ALL instances of this object
                                         val targets = runner.findInstancesByObjectOrId(effectiveInstType)
                                         for (target in targets) {
+                                            traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
                                             if (isArray) target.setArrayElement(v.name, arrayIdx, value)
                                             else target.setBuiltinOrVar(v.name, value)
                                         }
                                     } else {
                                         val target = resolveInstance(effectiveInstType, currentSelf, currentOther)
                                         if (target != null) {
+                                            traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
                                             if (isArray) target.setArrayElement(v.name, arrayIdx, value)
                                             else target.setBuiltinOrVar(v.name, value)
                                         } else {
+                                            traceInstanceVarWrite(currentSelf, v.name, value, if (isArray) arrayIdx else -1, entryName)
                                             if (isArray) currentSelf.setArrayElement(v.name, arrayIdx, value)
                                             else currentSelf.setBuiltinOrVar(v.name, value)
                                         }
@@ -723,16 +728,43 @@ class VM(val gameData: GameData) {
     }
 
     private fun traceGlobalWrite(name: String, value: GMLValue, codeName: String?) {
-        if (Butterscotch.traceGlobals.isEmpty())
+        if (Butterscotch.traceGlobalVars.isEmpty())
             return
 
-        if ("*" !in Butterscotch.traceGlobals && name !in Butterscotch.traceGlobals)
+        if ("*" !in Butterscotch.traceGlobalVars && name !in Butterscotch.traceGlobalVars)
             return
 
         val r = this.runner
         val old = r.globalVariables[name] ?: GMLValue.ZERO
         val code = codeName ?: "builtin"
         println("  [TRACE] global.$name = $value (was $old) at frame=${r.frameCount}, code=$code")
+    }
+
+    private fun traceInstanceVarWrite(target: Instance, varName: String, newValue: GMLValue, arrayIdx: Int, codeName: String?) {
+        if (Butterscotch.traceInstanceVars.isEmpty())
+            return
+
+        val objectName = if (target.objectIndex >= 0 && target.objectIndex < gameData.objects.size)
+            gameData.objects[target.objectIndex].name else "unknown"
+
+        // Check filters
+        val matched = Butterscotch.traceInstanceVars.any { filter ->
+            when {
+                filter == "*" -> true
+                "." in filter -> {
+                    val (objPart, varPart) = filter.split(".", limit = 2)
+                    (objPart == objectName) && (varPart == "*" || varPart == varName)
+                }
+                else -> varName == filter
+            }
+        }
+        if (!matched) return
+
+        val r = this.runner
+        val old = if (arrayIdx >= 0) target.getArrayElement(varName, arrayIdx) else target.getBuiltinOrVar(varName)
+        val code = codeName ?: "builtin"
+        val varDisplay = if (arrayIdx >= 0) "$varName[$arrayIdx]" else varName
+        println("  [TRACE] $objectName(id=${target.id}).$varDisplay = $newValue (was $old) at frame=${r.frameCount}, code=$code")
     }
 
     /**
