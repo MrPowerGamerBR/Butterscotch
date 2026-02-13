@@ -41,6 +41,7 @@ class FormReader(private val filePath: String) {
         val texturePages = parseTxtr(chunks["TXTR"]!!)
         val sprites = parseSprt(chunks["SPRT"]!!)
         val backgrounds = parseBgnd(chunks["BGND"]!!)
+        val paths = parsePath(chunks["PATH"]!!)
         val fonts = parseFont(chunks["FONT"]!!)
         val code = parseCode(chunks["CODE"]!!)
         val objects = parseObjt(chunks["OBJT"]!!, code)
@@ -50,7 +51,7 @@ class FormReader(private val filePath: String) {
         val functions = parseFunc(chunks["FUNC"]!!)
 
         println("Loaded: ${sprites.size} sprites, ${objects.size} objects, ${rooms.size} rooms, ${code.size} code entries")
-        println("  ${variables.size} variables, ${functions.size} functions, ${scripts.size} scripts, ${fonts.size} fonts")
+        println("  ${variables.size} variables, ${functions.size} functions, ${scripts.size} scripts, ${fonts.size} fonts, ${paths.size} paths")
 
         return GameData(
             gen8 = gen8,
@@ -59,6 +60,7 @@ class FormReader(private val filePath: String) {
             backgrounds = backgrounds,
             texturePageItems = tpagItems,
             texturePages = texturePages,
+            paths = paths,
             objects = objects,
             rooms = rooms,
             codeEntries = code,
@@ -253,6 +255,48 @@ class FormReader(private val filePath: String) {
 
         println("  BGND: $count backgrounds")
         return bgs
+    }
+
+    // ========== PATH ==========
+    private fun parsePath(chunk: Pair<Int, Int>): List<PathData> {
+        val (d, _) = chunk
+        val count = buf.getInt(d)
+        val paths = ArrayList<PathData>(count)
+
+        for (i in 0 until count) {
+            val ptr = buf.getInt(d + 4 + i * 4)
+            val namePtr = buf.getInt(ptr)
+            val isSmooth = buf.getInt(ptr + 4) != 0
+            val isClosed = buf.getInt(ptr + 8) != 0
+            val precision = buf.getInt(ptr + 12)
+
+            // Points are stored inline (UndertaleSimpleList): count + N * 12 bytes
+            val pointCount = buf.getInt(ptr + 16)
+            val points = ArrayList<PathPointData>(pointCount)
+            for (j in 0 until pointCount) {
+                val pp = ptr + 20 + j * 12
+                points.add(
+                    PathPointData(
+                        x = buf.getFloat(pp),
+                        y = buf.getFloat(pp + 4),
+                        speed = buf.getFloat(pp + 8),
+                    )
+                )
+            }
+
+            paths.add(
+                PathData(
+                    name = readStringRef(namePtr),
+                    isSmooth = isSmooth,
+                    isClosed = isClosed,
+                    precision = precision,
+                    points = points,
+                )
+            )
+        }
+
+        println("  PATH: $count paths")
+        return paths
     }
 
     // ========== FONT ==========

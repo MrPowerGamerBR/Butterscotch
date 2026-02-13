@@ -122,6 +122,9 @@ class GameRunner(
         // 6. End Step
         dispatchEvent(EVENT_STEP, 2)
 
+        // Apply path following
+        updatePathFollowing()
+
         // Apply movement physics
         for (inst in instances) {
             if (inst.destroyed) continue
@@ -524,6 +527,148 @@ class GameRunner(
     fun destroyInstance(inst: Instance) {
         fireEvent(inst, EVENT_DESTROY, 0)
         inst.destroyed = true
+    }
+
+    // ========== Path helpers ==========
+    fun computePathLength(pathIndex: Int): Double {
+        val path = gameData.paths.getOrNull(pathIndex) ?: return 0.0
+        val pts = path.points
+        if (pts.size < 2) return 0.0
+        var length = 0.0
+        val segCount = if (path.isClosed) pts.size else pts.size - 1
+        for (i in 0 until segCount) {
+            val p1 = pts[i]
+            val p2 = pts[(i + 1) % pts.size]
+            val dx = (p2.x - p1.x).toDouble()
+            val dy = (p2.y - p1.y).toDouble()
+            length += sqrt(dx * dx + dy * dy)
+        }
+        return length
+    }
+
+    fun interpolatePathPosition(pathIndex: Int, position: Double): Pair<Double, Double>? {
+        val path = gameData.paths.getOrNull(pathIndex) ?: return null
+        val pts = path.points
+        if (pts.isEmpty()) return null
+        if (pts.size == 1) return Pair(pts[0].x.toDouble(), pts[0].y.toDouble())
+
+        val segCount = if (path.isClosed) pts.size else pts.size - 1
+        // Build cumulative distances
+        val segLengths = DoubleArray(segCount)
+        var totalLength = 0.0
+        for (i in 0 until segCount) {
+            val p1 = pts[i]
+            val p2 = pts[(i + 1) % pts.size]
+            val dx = (p2.x - p1.x).toDouble()
+            val dy = (p2.y - p1.y).toDouble()
+            segLengths[i] = sqrt(dx * dx + dy * dy)
+            totalLength += segLengths[i]
+        }
+        if (totalLength == 0.0) return Pair(pts[0].x.toDouble(), pts[0].y.toDouble())
+
+        val clampedPos = position.coerceIn(0.0, 1.0)
+        val targetDist = clampedPos * totalLength
+        var accumulated = 0.0
+        for (i in 0 until segCount) {
+            if (accumulated + segLengths[i] >= targetDist || i == segCount - 1) {
+                val segT = if (segLengths[i] > 0.0) (targetDist - accumulated) / segLengths[i] else 0.0
+                val p1 = pts[i]
+                val p2 = pts[(i + 1) % pts.size]
+                val x = p1.x + (p2.x - p1.x) * segT
+                val y = p1.y + (p2.y - p1.y) * segT
+                return Pair(x.toDouble(), y.toDouble())
+            }
+            accumulated += segLengths[i]
+        }
+        val last = pts.last()
+        return Pair(last.x.toDouble(), last.y.toDouble())
+    }
+
+    fun pathEnd(inst: Instance) {
+        inst.pathIndex = -1
+        inst.pathPosition = 0.0
+        inst.pathSpeed = 0.0
+    }
+
+    private fun updatePathFollowing() {
+        for (inst in instances) {
+            if (inst.destroyed || inst.pathIndex < 0) continue
+            val pathLength = computePathLength(inst.pathIndex)
+            if (pathLength <= 0.0) continue
+
+            // Advance position
+            inst.pathPosition += inst.pathSpeed / pathLength
+
+            // Handle end of path
+            if (inst.pathPosition >= 1.0) {
+                when (inst.pathEndAction) {
+                    0 -> { // path_action_stop
+                        inst.pathPosition = 1.0
+                        val pos = interpolatePathPosition(inst.pathIndex, 1.0)
+                        if (pos != null) {
+                            inst.x = pos.first + inst.pathXOffset
+                            inst.y = pos.second + inst.pathYOffset
+                        }
+                        pathEnd(inst)
+                        continue
+                    }
+                    1 -> { // path_action_restart
+                        inst.pathPosition -= 1.0
+                    }
+                    2 -> { // path_action_continue
+                        inst.pathPosition = 1.0
+                        val pos = interpolatePathPosition(inst.pathIndex, 1.0)
+                        if (pos != null) {
+                            inst.x = pos.first + inst.pathXOffset
+                            inst.y = pos.second + inst.pathYOffset
+                        }
+                        pathEnd(inst)
+                        continue
+                    }
+                    3 -> { // path_action_reverse
+                        inst.pathPosition = 1.0 - (inst.pathPosition - 1.0)
+                        inst.pathSpeed = -inst.pathSpeed
+                    }
+                }
+            } else if (inst.pathPosition <= 0.0) {
+                when (inst.pathEndAction) {
+                    0 -> { // path_action_stop
+                        inst.pathPosition = 0.0
+                        val pos = interpolatePathPosition(inst.pathIndex, 0.0)
+                        if (pos != null) {
+                            inst.x = pos.first + inst.pathXOffset
+                            inst.y = pos.second + inst.pathYOffset
+                        }
+                        pathEnd(inst)
+                        continue
+                    }
+                    1 -> { // path_action_restart
+                        inst.pathPosition += 1.0
+                    }
+                    2 -> { // path_action_continue
+                        inst.pathPosition = 0.0
+                        val pos = interpolatePathPosition(inst.pathIndex, 0.0)
+                        if (pos != null) {
+                            inst.x = pos.first + inst.pathXOffset
+                            inst.y = pos.second + inst.pathYOffset
+                        }
+                        pathEnd(inst)
+                        continue
+                    }
+                    3 -> { // path_action_reverse
+                        inst.pathPosition = -inst.pathPosition
+                        inst.pathSpeed = -inst.pathSpeed
+                    }
+                }
+            }
+
+            // Interpolate new position
+            val pos = interpolatePathPosition(inst.pathIndex, inst.pathPosition)
+            if (pos != null) {
+                inst.x = pos.first + inst.pathXOffset
+                inst.y = pos.second + inst.pathYOffset
+            }
+        }
     }
 
     data class BBox(val left: Double, val right: Double, val top: Double, val bottom: Double)

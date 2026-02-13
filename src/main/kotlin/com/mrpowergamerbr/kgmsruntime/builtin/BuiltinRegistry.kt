@@ -267,6 +267,45 @@ fun registerBuiltins(vm: VM) {
         GMLValue.ZERO
     }
 
+    // ========== Paths ==========
+    f["path_start"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            val pathIdx = args[0].toInt()
+            val speed = args[1].toReal()
+            val endAction = args[2].toInt()
+            val absolute = args[3].toBool()
+            val runner = vm.runner!!
+
+            self.pathIndex = pathIdx
+            self.pathSpeed = speed
+            self.pathEndAction = endAction
+            self.pathPosition = 0.0
+
+            val startPos = runner.interpolatePathPosition(pathIdx, 0.0)
+            if (startPos != null) {
+                if (absolute) {
+                    self.pathXOffset = 0.0
+                    self.pathYOffset = 0.0
+                    self.x = startPos.first
+                    self.y = startPos.second
+                } else {
+                    // Relative: offset so path starts at current instance position
+                    self.pathXOffset = self.x - startPos.first
+                    self.pathYOffset = self.y - startPos.second
+                }
+            }
+        }
+        GMLValue.ZERO
+    }
+    f["path_end"] = { v, _ ->
+        val self = v.currentSelf
+        if (self != null) {
+            vm.runner!!.pathEnd(self)
+        }
+        GMLValue.ZERO
+    }
+
     // ========== Room ==========
     f["room_goto"] = { _, args -> vm.runner!!.gotoRoom(args[0].toInt()); GMLValue.ZERO }
     f["room_goto_next"] = { _, _ -> vm.runner!!.gotoRoom(vm.runner!!.currentRoomIndex + 1); GMLValue.ZERO }

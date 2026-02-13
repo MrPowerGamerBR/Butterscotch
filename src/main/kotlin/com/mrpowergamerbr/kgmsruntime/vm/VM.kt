@@ -659,6 +659,11 @@ class VM(
             "browser_height" -> GMLValue.of(gameData.gen8.windowHeight.toDouble())
             "display_aa" -> GMLValue.ZERO
             "application_surface" -> GMLValue.of(-1.0) // sentinel for application surface
+            // Path end action constants
+            "path_action_stop" -> GMLValue.of(0.0)
+            "path_action_restart" -> GMLValue.of(1.0)
+            "path_action_continue" -> GMLValue.of(2.0)
+            "path_action_reverse" -> GMLValue.of(3.0)
             else -> r.globalVariables[name] ?: GMLValue.ZERO
         }
     }

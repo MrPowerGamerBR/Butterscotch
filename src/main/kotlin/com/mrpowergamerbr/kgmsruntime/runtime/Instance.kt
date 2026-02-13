@@ -40,6 +40,17 @@ class Instance(
     var maskIndex: Int = -1
     var gameRunner: GameRunner? = null
 
+    // Path following
+    var pathIndex: Int = -1
+    var pathPosition: Double = 0.0
+    var pathSpeed: Double = 0.0
+    var pathEndAction: Int = 0  // 0=stop, 1=restart, 2=continue, 3=reverse
+    var pathOrientation: Double = 0.0
+    var pathScale: Double = 1.0
+    // Offset for relative path following (absolute=false)
+    var pathXOffset: Double = 0.0
+    var pathYOffset: Double = 0.0
+
     val alarm = IntArray(12) { -1 }
 
     // User variables
@@ -106,6 +117,12 @@ class Instance(
         "object_index" -> GMLValue.of(objectIndex.toDouble())
         "id" -> GMLValue.of(id.toDouble())
         "mask_index" -> GMLValue.of(maskIndex.toDouble())
+        "path_index" -> GMLValue.of(pathIndex.toDouble())
+        "path_position" -> GMLValue.of(pathPosition)
+        "path_speed" -> GMLValue.of(pathSpeed)
+        "path_endaction" -> GMLValue.of(pathEndAction.toDouble())
+        "path_orientation" -> GMLValue.of(pathOrientation)
+        "path_scale" -> GMLValue.of(pathScale)
         "alarm" -> GMLValue.ZERO // array access handled separately
         "bbox_left" -> { val bb = gameRunner?.computeBBox(this); GMLValue.of(if (bb != null) floor(bb.left) else 0.0) }
         "bbox_right" -> { val bb = gameRunner?.computeBBox(this); GMLValue.of(if (bb != null) floor(bb.right) else 0.0) }
@@ -150,6 +167,12 @@ class Instance(
             "solid" -> solid = value.toBool()
             "persistent" -> persistent = value.toBool()
             "mask_index" -> maskIndex = value.toInt()
+            "path_index" -> pathIndex = value.toInt()
+            "path_position" -> pathPosition = value.toReal()
+            "path_speed" -> pathSpeed = value.toReal()
+            "path_endaction" -> pathEndAction = value.toInt()
+            "path_orientation" -> pathOrientation = value.toReal()
+            "path_scale" -> pathScale = value.toReal()
             else -> variables[name] = value
         }
     }

@@ -190,6 +190,20 @@ class FontData(
     val glyphs: List<FontGlyphData>,
 )
 
+class PathPointData(
+    val x: Float,
+    val y: Float,
+    val speed: Float,
+)
+
+class PathData(
+    val name: String,
+    val isSmooth: Boolean,
+    val isClosed: Boolean,
+    val precision: Int,
+    val points: List<PathPointData>,
+)
+
 class GameData(
     val gen8: Gen8Info,
     val strings: List<String>,
@@ -197,6 +211,7 @@ class GameData(
     val backgrounds: List<BackgroundData>,
     val texturePageItems: List<TexturePageItemData>,
     val texturePages: List<TexturePageData>,
+    val paths: List<PathData>,
     val objects: List<GameObjectData>,
     val rooms: List<RoomData>,
     val codeEntries: List<CodeEntryData>,
