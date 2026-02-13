@@ -380,15 +380,8 @@ class VM(val gameData: GameData) {
                             val isArray = instr.variableType == 0x00
                             val isStacktop = instr.variableType == 0x80
 
-                            // For array POP: stack has [value, instanceTarget, index] with index on top
-                            // Pop index first, then instance target (magic/-1 for self), then value
-                            val arrayIdx = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else -1
-                            // For array access, GM:S pushes an instance target between value and index
-                            val arrayInstTarget = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else 0
-
                             if (isStacktop) {
                                 // Dot-access store: stack has [value, instanceTarget] with instanceTarget on top
-                                // Pop instanceTarget first, then value
                                 val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                                 val value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                                 val target = runner.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
@@ -397,76 +390,93 @@ class VM(val gameData: GameData) {
                                     target.setBuiltinOrVar(v.name, value)
                                 }
                             } else {
-                            val value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                            // Determine instance type: for array, use the popped instance target;
-                            // for non-array, use instr.extra or fall back to VARI instanceType
-                            val rawInstType = instr.extra
-                            val effectiveInstType = if (isArray) {
-                                arrayInstTarget // instance target from stack (e.g., -1 for SELF)
-                            } else if (rawInstType != 0) {
-                                rawInstType // negative = special type (SELF/OTHER/GLOBAL/etc), positive = object ID
-                            } else {
-                                v.instanceType
-                            }
+                                // For array POP, the stack layout depends on whether it's a simple or compound assignment:
+                                // Simple assignment (t1=VARIABLE): stack = [value, instTarget, index] with index on top
+                                // Compound assignment (t1!=VARIABLE, e.g. +=): stack = [instTarget, index, value] with value on top
+                                val isCompoundArray = isArray && instr.type1 != DataTypes.VARIABLE
+                                val arrayIdx: Int
+                                val arrayInstTarget: Int
+                                val value: GMLValue
 
-                            when {
-                                effectiveInstType == InstanceTypes.LOCAL -> {
-                                    if (isArray) {
-                                        val arr = locals.getOrPut(v.varId) { GMLValue.ArrayVal() } as? GMLValue.ArrayVal
-                                        if (arr != null) {
-                                            arr.data.getOrPut(0) { mutableMapOf() }[arrayIdx] = value
+                                if (isCompoundArray) {
+                                    // Compound array assignment: pop value first, then index, then instTarget
+                                    value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
+                                    arrayIdx = (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt()
+                                    arrayInstTarget = (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt()
+                                } else {
+                                    // Simple assignment: pop index first, then instTarget, then value
+                                    arrayIdx = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else -1
+                                    arrayInstTarget = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else 0
+                                    value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
+                                }
+
+                                // Determine instance type: for array, use the popped instance target;
+                                // for non-array, use instr.extra or fall back to VARI instanceType
+                                val rawInstType = instr.extra
+                                val effectiveInstType = if (isArray) {
+                                    arrayInstTarget
+                                } else if (rawInstType != 0) {
+                                    rawInstType
+                                } else {
+                                    v.instanceType
+                                }
+
+                                when {
+                                    effectiveInstType == InstanceTypes.LOCAL -> {
+                                        if (isArray) {
+                                            val arr = locals.getOrPut(v.varId) { GMLValue.ArrayVal() } as? GMLValue.ArrayVal
+                                            if (arr != null) {
+                                                arr.data.getOrPut(0) { mutableMapOf() }[arrayIdx] = value
+                                            } else {
+                                                val newArr = GMLValue.ArrayVal()
+                                                newArr.data.getOrPut(0) { mutableMapOf() }[arrayIdx] = value
+                                                locals[v.varId] = newArr
+                                            }
                                         } else {
-                                            val newArr = GMLValue.ArrayVal()
-                                            newArr.data.getOrPut(0) { mutableMapOf() }[arrayIdx] = value
-                                            locals[v.varId] = newArr
+                                            locals[v.varId] = value
                                         }
-                                    } else {
-                                        locals[v.varId] = value
                                     }
-                                }
-                                effectiveInstType == InstanceTypes.GLOBAL -> {
-                                    if (isArray) setGlobalArrayElement(v.name, arrayIdx, value)
-                                    else {
-                                        traceGlobalWrite(v.name, value, entryName)
-                                        runner.globalVariables[v.name] = value
-                                    }
-                                }
-                                rawInstType == InstanceTypes.STACKTOP -> {
-                                    // value (popped above) actually holds the instanceTarget (stack ordering: [realValue, target] with target on top)
-                                    val realValue = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                                    val target = runner.findInstancesByObjectOrId(value.toInt()).firstOrNull()
-                                    if (target != null) {
-                                        traceInstanceVarWrite(target, v.name, realValue, if (isArray) arrayIdx else -1, entryName)
-                                        if (isArray) target.setArrayElement(v.name, arrayIdx, realValue)
-                                        else target.setBuiltinOrVar(v.name, realValue)
-                                    }
-                                }
-                                else -> {
-                                    // Check builtin arrays first (view_xview, etc.)
-                                    if (isArray && setBuiltinArrayElement(v.name, arrayIdx, value)) {
-                                        // handled
-                                    } else if (effectiveInstType >= 0) {
-                                        // Object ID: GM sets variable on ALL instances of this object
-                                        val targets = runner.findInstancesByObjectOrId(effectiveInstType)
-                                        for (target in targets) {
-                                            traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
-                                            if (isArray) target.setArrayElement(v.name, arrayIdx, value)
-                                            else target.setBuiltinOrVar(v.name, value)
+                                    effectiveInstType == InstanceTypes.GLOBAL -> {
+                                        if (isArray) setGlobalArrayElement(v.name, arrayIdx, value)
+                                        else {
+                                            traceGlobalWrite(v.name, value, entryName)
+                                            runner.globalVariables[v.name] = value
                                         }
-                                    } else {
-                                        val target = resolveInstance(effectiveInstType, currentSelf, currentOther)
+                                    }
+                                    rawInstType == InstanceTypes.STACKTOP -> {
+                                        // Non-array stacktop: value holds instanceTarget, real value below
+                                        val realValue = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
+                                        val target = runner.findInstancesByObjectOrId(value.toInt()).firstOrNull()
                                         if (target != null) {
-                                            traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
-                                            if (isArray) target.setArrayElement(v.name, arrayIdx, value)
-                                            else target.setBuiltinOrVar(v.name, value)
+                                            traceInstanceVarWrite(target, v.name, realValue, if (isArray) arrayIdx else -1, entryName)
+                                            if (isArray) target.setArrayElement(v.name, arrayIdx, realValue)
+                                            else target.setBuiltinOrVar(v.name, realValue)
+                                        }
+                                    }
+                                    else -> {
+                                        if (isArray && setBuiltinArrayElement(v.name, arrayIdx, value)) {
+                                            // handled
+                                        } else if (effectiveInstType >= 0) {
+                                            val targets = runner.findInstancesByObjectOrId(effectiveInstType)
+                                            for (target in targets) {
+                                                traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
+                                                if (isArray) target.setArrayElement(v.name, arrayIdx, value)
+                                                else target.setBuiltinOrVar(v.name, value)
+                                            }
                                         } else {
-                                            traceInstanceVarWrite(currentSelf, v.name, value, if (isArray) arrayIdx else -1, entryName)
-                                            if (isArray) currentSelf.setArrayElement(v.name, arrayIdx, value)
-                                            else currentSelf.setBuiltinOrVar(v.name, value)
+                                            val target = resolveInstance(effectiveInstType, currentSelf, currentOther)
+                                            if (target != null) {
+                                                traceInstanceVarWrite(target, v.name, value, if (isArray) arrayIdx else -1, entryName)
+                                                if (isArray) target.setArrayElement(v.name, arrayIdx, value)
+                                                else target.setBuiltinOrVar(v.name, value)
+                                            } else {
+                                                traceInstanceVarWrite(currentSelf, v.name, value, if (isArray) arrayIdx else -1, entryName)
+                                                if (isArray) currentSelf.setArrayElement(v.name, arrayIdx, value)
+                                                else currentSelf.setBuiltinOrVar(v.name, value)
+                                            }
                                         }
                                     }
                                 }
-                            }
                             }
                         } else {
                             // No variable index - just pop and discard
@@ -479,7 +489,18 @@ class VM(val gameData: GameData) {
                     }
 
                     Opcodes.DUP -> {
-                        if (stack.isNotEmpty()) {
+                        // extra field: number of additional items to duplicate beyond 1
+                        // extra=0: duplicate top 1 item, extra=1: duplicate top 2 items, etc.
+                        val count = 1 + instr.extra
+                        if (stack.size >= count) {
+                            // Pop count items, then push them back twice
+                            val items = ArrayDeque<GMLValue>()
+                            for (i in 0 until count) {
+                                items.addFirst(stack.removeLast())
+                            }
+                            for (item in items) stack.addLast(item)
+                            for (item in items) stack.addLast(item)
+                        } else if (stack.isNotEmpty()) {
                             stack.addLast(stack.last())
                         }
                     }
