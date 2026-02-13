@@ -136,6 +136,7 @@ class Instance(
         "path_endaction" -> GMLValue.of(pathEndAction.toDouble())
         "path_orientation" -> GMLValue.of(pathOrientation)
         "path_scale" -> GMLValue.of(pathScale)
+        "room_persistent" -> GMLValue.of(gameRunner?.roomPersistentFlags?.get(gameRunner!!.currentRoomIndex) == true)
         "alarm" -> GMLValue.ZERO // array access handled separately
         "bbox_left" -> { val bb = gameRunner?.computeBBox(this); GMLValue.of(if (bb != null) floor(bb.left) else 0.0) }
         "bbox_right" -> { val bb = gameRunner?.computeBBox(this); GMLValue.of(if (bb != null) floor(bb.right) else 0.0) }
@@ -202,6 +203,7 @@ class Instance(
             "path_endaction" -> pathEndAction = value.toInt()
             "path_orientation" -> pathOrientation = value.toReal()
             "path_scale" -> pathScale = value.toReal()
+            "room_persistent" -> gameRunner?.let { it.roomPersistentFlags[it.currentRoomIndex] = value.toBool() }
             else -> variables[name] = value
         }
     }

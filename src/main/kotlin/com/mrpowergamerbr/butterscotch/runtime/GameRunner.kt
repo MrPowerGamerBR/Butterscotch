@@ -21,6 +21,10 @@ class GameRunner(
     var pendingRoomGoto = -1
     var nextInstanceId = 100000
 
+    // Room persistence: when room_persistent = true, leaving a room saves its state
+    val roomPersistentFlags = mutableMapOf<Int, Boolean>()  // roomIndex -> persistent flag
+    val savedRoomStates = mutableMapOf<Int, List<Instance>>()  // roomIndex -> saved instances
+
     // Input state
     var keyboardKey = 0
     var keyboardLastKey = 0
@@ -504,6 +508,15 @@ class GameRunner(
         // Fire Room End for all instances
         dispatchEvent(EVENT_OTHER, OTHER_ROOM_END)
 
+        // Save room state if current room is persistent
+        val leavingRoomIndex = currentRoomIndex
+        if (leavingRoomIndex >= 0 && roomPersistentFlags[leavingRoomIndex] == true) {
+            // Save all non-object-persistent instances (object-persistent ones travel with the player)
+            val roomInstances = instances.filter { !it.persistent && !it.destroyed }
+            savedRoomStates[leavingRoomIndex] = ArrayList(roomInstances)
+            println("  Saved ${roomInstances.size} instances for persistent room $leavingRoomIndex")
+        }
+
         // Remove non-persistent instances
         val persistent = instances.filter { it.persistent }
         instances.clear()
@@ -514,50 +527,76 @@ class GameRunner(
         currentRoom = gameData.rooms[roomIndex]
         val room = currentRoom!!
 
-        println("Entering room ${room.name} (${room.width}x${room.height}), ${room.instances.size} instances, creationCode=${room.creationCodeId}")
-
-        // Create room instances
-        for (roomInst in room.instances) {
-            val inst = createInstance(roomInst.objectDefId, roomInst.x.toDouble(), roomInst.y.toDouble(), roomInst.instanceId)
-            inst.imageXscale = roomInst.scaleX.toDouble()
-            inst.imageYscale = roomInst.scaleY.toDouble()
-            inst.imageAngle = roomInst.rotation.toDouble()
-
-            // Run instance creation code
-            if (roomInst.creationCodeId >= 0) {
-                vm.executeCode(roomInst.creationCodeId, inst)
+        // Check if we have a saved persistent state for this room
+        val savedState = savedRoomStates.remove(roomIndex)
+        if (savedState != null) {
+            // Restore saved instances - no Create events, no creation code
+            println("Restoring persistent room ${room.name} (${room.width}x${room.height}), ${savedState.size} saved instances")
+            for (inst in savedState) {
+                inst.destroyed = false  // Ensure not marked destroyed
+                instances.add(inst)
             }
-        }
 
-        // Run room creation code
-        if (room.creationCodeId >= 0) {
-            // Create a dummy instance for room creation code
-            val dummyInst = instances.firstOrNull() ?: createInstance(-1, 0.0, 0.0)
-            vm.executeCode(room.creationCodeId, dummyInst)
-        }
+            // Fire Game Start (only once, on first room)
+            if (!gameStarted) {
+                gameStarted = true
+                println("  Firing Game Start event")
+                dispatchEvent(EVENT_OTHER, OTHER_GAME_START)
+            }
 
-        // Fire Create events (only for newly created instances, not persistent survivors)
-        println("  Firing Create events for new instances (${instances.size} total, ${persistent.size} persistent)")
-        for (inst in ArrayList(instances)) {
-            if (inst.destroyed) continue
-            if (inst in persistent) continue  // Persistent instances already had their Create event
-            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "unknown"
-            println("    Create: $objName (id=${inst.id})")
-            fireEvent(inst, EVENT_CREATE, 0)
-        }
+            // Fire Room Start for ALL instances
+            println("  Room restored. Total instances: ${instances.size}")
+            for (inst in ArrayList(instances)) {
+                if (inst.destroyed) continue
+                fireEvent(inst, EVENT_OTHER, OTHER_ROOM_START)
+            }
+        } else {
+            // Normal room loading - create instances from room definition
+            println("Entering room ${room.name} (${room.width}x${room.height}), ${room.instances.size} instances, creationCode=${room.creationCodeId}")
 
-        // Fire Game Start (only once, on first room)
-        if (!gameStarted) {
-            gameStarted = true
-            println("  Firing Game Start event")
-            dispatchEvent(EVENT_OTHER, OTHER_GAME_START)
-        }
+            // Create room instances
+            for (roomInst in room.instances) {
+                val inst = createInstance(roomInst.objectDefId, roomInst.x.toDouble(), roomInst.y.toDouble(), roomInst.instanceId)
+                inst.imageXscale = roomInst.scaleX.toDouble()
+                inst.imageYscale = roomInst.scaleY.toDouble()
+                inst.imageAngle = roomInst.rotation.toDouble()
 
-        // Fire Room Start for ALL instances after a room transition
-        println("  Room setup complete. Total instances: ${instances.size}")
-        for (inst in ArrayList(instances)) {
-            if (inst.destroyed) continue
-            fireEvent(inst, EVENT_OTHER, OTHER_ROOM_START)
+                // Run instance creation code
+                if (roomInst.creationCodeId >= 0) {
+                    vm.executeCode(roomInst.creationCodeId, inst)
+                }
+            }
+
+            // Run room creation code
+            if (room.creationCodeId >= 0) {
+                // Create a dummy instance for room creation code
+                val dummyInst = instances.firstOrNull() ?: createInstance(-1, 0.0, 0.0)
+                vm.executeCode(room.creationCodeId, dummyInst)
+            }
+
+            // Fire Create events (only for newly created instances, not persistent survivors)
+            println("  Firing Create events for new instances (${instances.size} total, ${persistent.size} persistent)")
+            for (inst in ArrayList(instances)) {
+                if (inst.destroyed) continue
+                if (inst in persistent) continue  // Persistent instances already had their Create event
+                val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "unknown"
+                println("    Create: $objName (id=${inst.id})")
+                fireEvent(inst, EVENT_CREATE, 0)
+            }
+
+            // Fire Game Start (only once, on first room)
+            if (!gameStarted) {
+                gameStarted = true
+                println("  Firing Game Start event")
+                dispatchEvent(EVENT_OTHER, OTHER_GAME_START)
+            }
+
+            // Fire Room Start for ALL instances after a room transition
+            println("  Room setup complete. Total instances: ${instances.size}")
+            for (inst in ArrayList(instances)) {
+                if (inst.destroyed) continue
+                fireEvent(inst, EVENT_OTHER, OTHER_ROOM_START)
+            }
         }
     }
 

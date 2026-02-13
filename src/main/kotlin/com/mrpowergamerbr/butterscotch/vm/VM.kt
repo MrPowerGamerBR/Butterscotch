@@ -704,6 +704,7 @@ class VM(
             "temp_directory" -> GMLValue.of("/tmp/")
             "browser_width" -> GMLValue.of(gameData.gen8.windowWidth.toDouble())
             "browser_height" -> GMLValue.of(gameData.gen8.windowHeight.toDouble())
+            "room_persistent" -> GMLValue.of(r.roomPersistentFlags[r.currentRoomIndex] == true)
             "display_aa" -> GMLValue.ZERO
             "application_surface" -> GMLValue.of(-1.0) // sentinel for application surface
             // Path end action constants
@@ -720,6 +721,7 @@ class VM(
         when (name) {
             "room_speed" -> {} // Read-only at runtime for now
             "keyboard_lastkey" -> r.keyboardLastKey = value.toInt()
+            "room_persistent" -> r.roomPersistentFlags[r.currentRoomIndex] = value.toBool()
             else -> r.globalVariables[name] = value
         }
     }
