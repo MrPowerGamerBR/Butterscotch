@@ -41,6 +41,22 @@ fun registerBuiltins(vm: VM) {
         val dy = args[3].toReal() - args[1].toReal()
         GMLValue.of(sqrt(dx * dx + dy * dy))
     }
+    f["distance_to_point"] = { v, args ->
+        val px = args[0].toReal()
+        val py = args[1].toReal()
+        val self = v.currentSelf
+        val runner = v.runner!!
+        val bb = if (self != null) runner.computeBBox(self) else null
+        if (bb != null) {
+            val nearestX = px.coerceIn(bb.left, bb.right)
+            val nearestY = py.coerceIn(bb.top, bb.bottom)
+            val dx = px - nearestX
+            val dy = py - nearestY
+            GMLValue.of(sqrt(dx * dx + dy * dy))
+        } else {
+            GMLValue.of(0.0)
+        }
+    }
     f["lengthdir_x"] = { _, args -> GMLValue.of(args[0].toReal() * cos(Math.toRadians(args[1].toReal()))) }
     f["lengthdir_y"] = { _, args -> GMLValue.of(-args[0].toReal() * sin(Math.toRadians(args[1].toReal()))) }
     f["choose"] = { _, args -> if (args.isNotEmpty()) args[Random.nextInt(args.size)] else GMLValue.ZERO }
