@@ -191,6 +191,30 @@ fun registerBuiltins(vm: VM) {
         }
         GMLValue.ZERO
     }
+    f["instance_change"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            val newObjIdx = args[0].toInt()
+            val perf = args[1].toReal() > 0.5
+            if (perf) {
+                vm.runner!!.fireEvent(self, GameRunner.EVENT_DESTROY, 0)
+            }
+            self.objectIndex = newObjIdx
+            if (newObjIdx in vm.runner!!.gameData.objects.indices) {
+                val objDef = vm.runner!!.gameData.objects[newObjIdx]
+                self.spriteIndex = objDef.spriteIndex
+                self.visible = objDef.visible
+                self.solid = objDef.solid
+                self.depth = objDef.depth
+                self.persistent = objDef.persistent
+                self.maskIndex = objDef.maskId
+            }
+            if (perf) {
+                vm.runner!!.fireEvent(self, GameRunner.EVENT_CREATE, 0)
+            }
+        }
+        GMLValue.ZERO
+    }
     f["instance_exists"] = { _, args ->
         val targetId = args[0].toInt()
         val found = vm.runner!!.findInstancesByObjectOrId(targetId)

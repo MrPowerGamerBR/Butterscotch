@@ -12,7 +12,7 @@ import kotlin.math.sqrt
 
 class Instance(
     val id: Int,
-    val objectIndex: Int,
+    var objectIndex: Int,
     var x: Double = 0.0,
     var y: Double = 0.0,
 ) {
