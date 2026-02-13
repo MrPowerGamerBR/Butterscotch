@@ -183,6 +183,14 @@ fun registerBuiltins(vm: VM) {
         vm.runner.fireEvent(inst, GameRunner.EVENT_CREATE, 0)
         GMLValue.of(inst.id.toDouble())
     }
+    // Obsolete D&D function: action_create_object(obj, x, y) - same as instance_create but arg order differs
+    f["action_create_object"] = { v, args ->
+        val objIdx = args[0].toInt()
+        val inst = vm.runner.createInstance(objIdx, args[1].toReal(), args[2].toReal())
+        inst.variables["creator"] = GMLValue.of(v.currentSelf?.id?.toDouble() ?: -4.0)
+        vm.runner.fireEvent(inst, GameRunner.EVENT_CREATE, 0)
+        GMLValue.of(inst.id.toDouble())
+    }
     f["instance_destroy"] = { v, _ ->
         // Undertale does not use instance_destroy(other) nor does it use instance_destroy(object)
         val self = v.currentSelf
