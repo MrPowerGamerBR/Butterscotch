@@ -52,7 +52,7 @@ class Butterscotch(
     private var windowHeight = 0
     private var debugPaused = false
     private var debugStepOneFrame = false
-    lateinit var console: DebugConsole
+    var console: DebugConsole? = null
 
     // GM key code mapping (VK codes)
     private val glfwToGMKey = mapOf(
@@ -132,7 +132,7 @@ class Butterscotch(
             println("Input recording saved to $recordInputsPath (${runner.inputRecording!!.size} frames with input)")
         }
 
-        console.dispose()
+        console?.dispose()
         renderer.dispose()
         Callbacks.glfwFreeCallbacks(window)
         GLFW.glfwDestroyWindow(window)
@@ -177,6 +177,9 @@ class Butterscotch(
         if (!headless) {
             GLFW.glfwSetKeyCallback(window) { _, key, _, action, _ ->
                 if (debug) {
+                    // The console must NEVER be null here because debug is enabled
+                    val console = console!!
+
                     // Toggle console with grave accent
                     if (key == GLFW.GLFW_KEY_GRAVE_ACCENT && action == GLFW.GLFW_PRESS) {
                         // We ONLY want to be able to close the console if the input buffer is empty
@@ -244,9 +247,12 @@ class Butterscotch(
             }
 
             // Character callback for console text input
-            GLFW.glfwSetCharCallback(window) { _, codepoint ->
-                if (console.isOpen && !console.toggledConsoleOnThisFrame) {
-                    console.onChar(codepoint)
+            val console = this.console
+            if (console != null) {
+                GLFW.glfwSetCharCallback(window) { _, codepoint ->
+                    if (console.isOpen && !console.toggledConsoleOnThisFrame) {
+                        console.onChar(codepoint)
+                    }
                 }
             }
 
@@ -356,7 +362,7 @@ class Butterscotch(
                 runner.draw()
 
                 // Draw console overlay on top of everything
-                console.render(renderer)
+                console?.render(renderer)
 
                 // Clear per-frame input AFTER both step and draw
                 runner.clearPerFrameInput()
