@@ -184,6 +184,7 @@ fun registerBuiltins(vm: VM) {
         GMLValue.of(inst.id.toDouble())
     }
     f["instance_destroy"] = { v, _ ->
+        // Undertale does not use instance_destroy(other) nor does it use instance_destroy(object)
         val self = v.currentSelf
         if (self != null) {
             v.runner!!.destroyInstance(self)
