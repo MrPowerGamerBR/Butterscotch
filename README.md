@@ -36,5 +36,4 @@ When `--debug` is enabled, the following features are enabled:
 
 It is VERY buggy... but I will be honest, it is kinda impressive that it *does* run.
 
-https://github.com/user-attachments/assets/eb11ff6e-88c7-4008-9262-d33db9bee8fa
-
+https://github.com/user-attachments/assets/cf30fc29-f39d-4982-9b3c-8d269485db5e
