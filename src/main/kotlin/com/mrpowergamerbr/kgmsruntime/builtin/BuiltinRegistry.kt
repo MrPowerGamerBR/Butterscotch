@@ -171,6 +171,7 @@ fun registerBuiltins(vm: VM) {
     f["instance_create"] = { v, args ->
         val objIdx = args[2].toInt()
         val inst = vm.runner!!.createInstance(objIdx, args[0].toReal(), args[1].toReal())
+        inst.variables["creator"] = GMLValue.of(v.currentSelf?.id?.toDouble() ?: -4.0)
         vm.runner!!.fireEvent(inst, GameRunner.EVENT_CREATE, 0)
         GMLValue.of(inst.id.toDouble())
     }

@@ -201,7 +201,13 @@ class VM(
         val instructions = decoded.instructions
         var currentSelf = self
         var currentOther = other ?: self
-        val envStack = ArrayDeque<Pair<Instance, Instance>>() // for pushenv/popenv
+        data class EnvIteration(
+            val instances: List<Instance>,
+            var currentIdx: Int,
+            val prevSelf: Instance,
+            val prevOther: Instance
+        )
+        val envIterStack = ArrayDeque<EnvIteration>()
 
         val maxInstructions = 10_000_000
         var count = 0
@@ -507,7 +513,6 @@ class VM(
                     }
 
                     Opcodes.PUSHENV -> {
-                        envStack.addLast(Pair(currentSelf, currentOther))
                         val target = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                         val targetId = target.toInt()
                         val instances = runner!!.findInstancesByObjectOrId(targetId)
@@ -515,17 +520,30 @@ class VM(
                             // Skip to matching PopEnv
                             pc = findBranchTarget(decoded, pc - 1, instr.branchOffset)
                         } else {
-                            // Execute with first instance, push env iteration context
+                            envIterStack.addLast(EnvIteration(instances, 0, currentSelf, currentOther))
                             currentOther = currentSelf
-                            currentSelf = instances.first()
+                            currentSelf = instances[0]
                         }
                     }
 
                     Opcodes.POPENV -> {
-                        if (envStack.isNotEmpty()) {
-                            val (prevSelf, prevOther) = envStack.removeLast()
-                            currentSelf = prevSelf
-                            currentOther = prevOther
+                        if (envIterStack.isNotEmpty()) {
+                            val iter = envIterStack.last()
+                            iter.currentIdx++
+                            // Skip destroyed instances
+                            while (iter.currentIdx < iter.instances.size && iter.instances[iter.currentIdx].destroyed) {
+                                iter.currentIdx++
+                            }
+                            if (iter.currentIdx < iter.instances.size) {
+                                // More instances: loop back to body start
+                                currentSelf = iter.instances[iter.currentIdx]
+                                pc = findBranchTarget(decoded, pc - 1, instr.branchOffset)
+                            } else {
+                                // Done: restore context
+                                val finished = envIterStack.removeLast()
+                                currentSelf = finished.prevSelf
+                                currentOther = finished.prevOther
+                            }
                         }
                     }
 
