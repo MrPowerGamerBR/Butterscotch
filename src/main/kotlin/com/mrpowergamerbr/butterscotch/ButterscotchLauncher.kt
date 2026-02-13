@@ -56,6 +56,12 @@ class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
             return
         }
 
+        if (debugObj.isNotEmpty()) {
+            // Just parse the data file (which prints debug info) and exit
+            FormReader("undertale/game.unx").read()
+            return
+        }
+
         Butterscotch(
             screenshotPattern = screenshot,
             screenshotAtFrames = screenshotAtFrame.toSet(),
