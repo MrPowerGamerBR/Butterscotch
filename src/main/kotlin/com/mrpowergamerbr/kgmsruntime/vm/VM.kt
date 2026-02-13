@@ -245,9 +245,16 @@ class VM(
                                 if (varIdx >= 0) {
                                     val v = gameData.variables[varIdx]
                                     val isArray = instr.variableType == 0x00
+                                    val isStacktop = instr.variableType == 0x80
                                     // For array PUSH: stack has [instanceTarget, index] with index on top
                                     val arrayIdx = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else -1
                                     val arrayInstTarget = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else 0
+                                    if (isStacktop) {
+                                        // Dot-access: instance ID is on the stack (e.g., writer.x)
+                                        val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
+                                        val target = runner!!.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
+                                        target?.getBuiltinOrVar(v.name) ?: GMLValue.ZERO
+                                    } else {
                                     val effectiveInstType = if (isArray) arrayInstTarget else {
                                         val raw = instr.extra
                                         if (raw != 0) raw else v.instanceType
@@ -286,6 +293,7 @@ class VM(
                                                 else getGlobalBuiltin(v.name)
                                             }
                                         }
+                                    }
                                     }
                                 } else GMLValue.ZERO
                             }
@@ -371,6 +379,7 @@ class VM(
                         if (varIdx >= 0) {
                             val v = gameData.variables[varIdx]
                             val isArray = instr.variableType == 0x00
+                            val isStacktop = instr.variableType == 0x80
 
                             // For array POP: stack has [value, instanceTarget, index] with index on top
                             // Pop index first, then instance target (magic/-1 for self), then value
@@ -379,6 +388,14 @@ class VM(
                             val arrayInstTarget = if (isArray) (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt() else 0
                             val value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
 
+                            if (isStacktop) {
+                                // Dot-access store: instance ID is on the stack (e.g., face.image_xscale = -1)
+                                val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
+                                val target = runner!!.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
+                                if (target != null) {
+                                    target.setBuiltinOrVar(v.name, value)
+                                }
+                            } else {
                             // Determine instance type: for array, use the popped instance target;
                             // for non-array, use instr.extra or fall back to VARI instanceType
                             val rawInstType = instr.extra
@@ -439,6 +456,7 @@ class VM(
                                         }
                                     }
                                 }
+                            }
                             }
                         } else {
                             // No variable index - just pop and discard
