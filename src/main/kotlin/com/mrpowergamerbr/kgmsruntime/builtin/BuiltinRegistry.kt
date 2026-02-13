@@ -227,6 +227,45 @@ fun registerBuiltins(vm: VM) {
         }
         GMLValue.ZERO
     }
+    f["action_set_friction"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            self.friction = args[0].toReal()
+        }
+        GMLValue.ZERO
+    }
+    f["action_set_alarm"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            self.alarm[args[1].toInt()] = args[0].toInt()
+        }
+        GMLValue.ZERO
+    }
+    f["action_move"] = { v, args ->
+        val self = v.currentSelf
+        if (self != null) {
+            val dirString = args[0].toStr()
+            val dirAngles = intArrayOf(225, 270, 315, 180, -1, 0, 135, 90, 45)
+            val enabled = mutableListOf<Int>()
+            for (i in dirString.indices) {
+                if (dirString[i] == '1') enabled.add(i)
+            }
+            if (enabled.contains(4)) {
+                self.speed = 0.0
+                self.hspeed = 0.0
+                self.vspeed = 0.0
+            } else if (enabled.isNotEmpty()) {
+                val chosen = enabled.random()
+                val dir = dirAngles[chosen].toDouble()
+                val sp = args[1].toReal()
+                self.direction = dir
+                self.speed = sp
+                self.hspeed = sp * cos(Math.toRadians(dir))
+                self.vspeed = -sp * sin(Math.toRadians(dir))
+            }
+        }
+        GMLValue.ZERO
+    }
 
     // ========== Room ==========
     f["room_goto"] = { _, args -> vm.runner!!.gotoRoom(args[0].toInt()); GMLValue.ZERO }
