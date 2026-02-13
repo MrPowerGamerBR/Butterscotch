@@ -146,8 +146,14 @@ class GameRunner(
         }
 
         // 3. Keyboard events
+        for (key in keysHeld) {
+            dispatchKeyEvent(EVENT_KEYBOARD, key)
+        }
         for (key in keysPressed) {
             dispatchKeyEvent(EVENT_KEYPRESS, key)
+        }
+        for (key in keysReleased) {
+            dispatchKeyEvent(EVENT_KEYRELEASE, key)
         }
 
         // 4. Step
