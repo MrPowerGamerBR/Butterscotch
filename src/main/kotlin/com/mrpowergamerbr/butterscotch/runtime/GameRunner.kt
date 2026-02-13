@@ -697,6 +697,9 @@ class GameRunner(
             val pathLength = computePathLength(inst.pathIndex)
             if (pathLength <= 0.0) continue
 
+            val oldX = inst.x
+            val oldY = inst.y
+
             // Advance position
             inst.pathPosition += inst.pathSpeed / pathLength
 
@@ -708,8 +711,11 @@ class GameRunner(
                         inst.pathSpeed = 0.0
                         val pos = interpolatePathPosition(inst.pathIndex, 1.0)
                         if (pos != null) {
-                            inst.x = pos.first + inst.pathXOffset
-                            inst.y = pos.second + inst.pathYOffset
+                            val newX = pos.first + inst.pathXOffset
+                            val newY = pos.second + inst.pathYOffset
+                            updateDirectionFromPath(inst, oldX, oldY, newX, newY)
+                            inst.x = newX
+                            inst.y = newY
                         }
                         continue
                     }
@@ -720,8 +726,11 @@ class GameRunner(
                         inst.pathPosition = 1.0
                         val pos = interpolatePathPosition(inst.pathIndex, 1.0)
                         if (pos != null) {
-                            inst.x = pos.first + inst.pathXOffset
-                            inst.y = pos.second + inst.pathYOffset
+                            val newX = pos.first + inst.pathXOffset
+                            val newY = pos.second + inst.pathYOffset
+                            updateDirectionFromPath(inst, oldX, oldY, newX, newY)
+                            inst.x = newX
+                            inst.y = newY
                         }
                         pathEnd(inst)
                         continue
@@ -738,8 +747,11 @@ class GameRunner(
                         inst.pathSpeed = 0.0
                         val pos = interpolatePathPosition(inst.pathIndex, 0.0)
                         if (pos != null) {
-                            inst.x = pos.first + inst.pathXOffset
-                            inst.y = pos.second + inst.pathYOffset
+                            val newX = pos.first + inst.pathXOffset
+                            val newY = pos.second + inst.pathYOffset
+                            updateDirectionFromPath(inst, oldX, oldY, newX, newY)
+                            inst.x = newX
+                            inst.y = newY
                         }
                         continue
                     }
@@ -750,8 +762,11 @@ class GameRunner(
                         inst.pathPosition = 0.0
                         val pos = interpolatePathPosition(inst.pathIndex, 0.0)
                         if (pos != null) {
-                            inst.x = pos.first + inst.pathXOffset
-                            inst.y = pos.second + inst.pathYOffset
+                            val newX = pos.first + inst.pathXOffset
+                            val newY = pos.second + inst.pathYOffset
+                            updateDirectionFromPath(inst, oldX, oldY, newX, newY)
+                            inst.x = newX
+                            inst.y = newY
                         }
                         pathEnd(inst)
                         continue
@@ -766,9 +781,25 @@ class GameRunner(
             // Interpolate new position
             val pos = interpolatePathPosition(inst.pathIndex, inst.pathPosition)
             if (pos != null) {
-                inst.x = pos.first + inst.pathXOffset
-                inst.y = pos.second + inst.pathYOffset
+                val newX = pos.first + inst.pathXOffset
+                val newY = pos.second + inst.pathYOffset
+                updateDirectionFromPath(inst, oldX, oldY, newX, newY)
+                inst.x = newX
+                inst.y = newY
             }
+        }
+    }
+
+    /**
+     * Update instance direction based on path movement delta.
+     * In GameMaker, path following automatically updates direction from the path tangent.
+     * We set the direction field directly to avoid side effects on hspeed/vspeed.
+     */
+    private fun updateDirectionFromPath(inst: Instance, oldX: Double, oldY: Double, newX: Double, newY: Double) {
+        val dx = newX - oldX
+        val dy = newY - oldY
+        if (dx != 0.0 || dy != 0.0) {
+            inst.direction = (Math.toDegrees(kotlin.math.atan2(-dy, dx)) + 360) % 360
         }
     }
 
