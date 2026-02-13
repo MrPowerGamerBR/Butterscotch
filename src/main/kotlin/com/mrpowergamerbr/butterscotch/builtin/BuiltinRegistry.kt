@@ -154,6 +154,27 @@ fun registerBuiltins(vm: VM) {
         GMLValue.of((b shl 16 or (g shl 8) or r).toDouble())
     }
     f["make_colour_rgb"] = f["make_color_rgb"]!!
+    f["make_color_hsv"] = { _, args ->
+        val h = (args[0].toReal() / 255.0) * 360.0
+        val s = args[1].toReal() / 255.0
+        val v = args[2].toReal() / 255.0
+        val c = v * s
+        val x = c * (1.0 - Math.abs((h / 60.0) % 2.0 - 1.0))
+        val m = v - c
+        val (r1, g1, b1) = when {
+            h < 60 -> Triple(c, x, 0.0)
+            h < 120 -> Triple(x, c, 0.0)
+            h < 180 -> Triple(0.0, c, x)
+            h < 240 -> Triple(0.0, x, c)
+            h < 300 -> Triple(x, 0.0, c)
+            else -> Triple(c, 0.0, x)
+        }
+        val r = ((r1 + m) * 255).toInt().coerceIn(0, 255)
+        val g = ((g1 + m) * 255).toInt().coerceIn(0, 255)
+        val b = ((b1 + m) * 255).toInt().coerceIn(0, 255)
+        GMLValue.of((b shl 16 or (g shl 8) or r).toDouble())
+    }
+    f["make_colour_hsv"] = f["make_color_hsv"]!!
     f["color_get_red"] = { _, args -> GMLValue.of((args[0].toInt() and 0xFF).toDouble()) }
     f["color_get_green"] = { _, args -> GMLValue.of(((args[0].toInt() shr 8) and 0xFF).toDouble()) }
     f["color_get_blue"] = { _, args -> GMLValue.of(((args[0].toInt() shr 16) and 0xFF).toDouble()) }
