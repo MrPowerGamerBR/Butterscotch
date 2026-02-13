@@ -1,72 +1,45 @@
-# KGMSRuntime Architecture Plan
+# Butterscotch Architecture
 
 ## Technology Stack
 
 - **Language**: Kotlin (JVM 21)
 - **Windowing**: LWJGL 3 + GLFW
-- **Rendering**: OpenGL (via LWJGL)
+- **Rendering**: OpenGL 3.3 Core Profile (via LWJGL)
 - **Image decoding**: STB (via LWJGL)
 - **Math**: JOML
+- **CLI**: Clikt
+- **Serialization**: kotlinx-serialization-json (input recording/playback)
 
 ## Module Structure
 
 ```
 com.mrpowergamerbr.butterscotch/
-  KGMSRuntime.kt          - Entry point, game loop, GLFW window
+  Butterscotch.kt            - Main class: GLFW window, game loop, headless mode, input recording
+  ButterscotchLauncher.kt    - CLI entry point (Clikt command parsing, launches Butterscotch)
 
-  data/                    - Data file parsing
-    GameData.kt            - Top-level data container
-    FormReader.kt          - IFF FORM chunk reader
-    ChunkReader.kt         - Individual chunk parsers
-    StringTable.kt         - STRG chunk / string lookup
+  data/                      - Data file parsing
+    GameData.kt              - All data classes (Gen8Info, SpriteData, RoomData, CodeEntryData, etc.)
+    FormReader.kt            - IFF FORM chunk reader (parses all chunks from game.unx)
 
-  assets/                  - Parsed asset types
-    Sprite.kt              - Sprite definition
-    Background.kt          - Background definition
-    TexturePageItem.kt     - TPAG entry
-    TexturePage.kt         - TXTR page (manages OpenGL texture)
-    Font.kt                - Font definition + glyph data
-    Sound.kt               - Sound definition (stub)
-    Room.kt                - Room definition + instances/views/bgs/tiles
-    GameObject.kt          - Object definition + event lists
-    Script.kt              - Script definition
-    Path.kt                - Path definition
+  vm/                        - Virtual machine
+    VM.kt                    - Bytecode interpreter (stack-based, executes BC16 instructions)
+    Instruction.kt           - Instruction decoder (opcode + operand extraction)
+    GMLValue.kt              - Runtime value type (Real, Str, ArrayVal, Undefined)
 
-  vm/                      - Virtual machine
-    VM.kt                  - Bytecode interpreter loop
-    Instruction.kt         - Instruction decoder
-    VMStack.kt             - Value stack
-    GMLValue.kt            - Runtime value type (double/string/array/undefined)
-    CodeEntry.kt           - Code entry (bytecode + metadata)
-    VariableScope.kt       - Variable storage (instance/global/local)
+  runtime/                   - Game runtime
+    GameRunner.kt            - Game loop orchestration, event dispatch, room transitions,
+                               instance management, collision, path following, input state
+    Instance.kt              - Live game instance (variables, built-in properties, alarms)
 
-  runtime/                 - Game runtime
-    GameRunner.kt          - High-level game loop / event dispatch
-    Instance.kt            - Live game instance
-    InstanceManager.kt     - Instance creation/destruction/lookup
-    RoomManager.kt         - Room loading/transitions
-    EventDispatcher.kt     - Event type routing
-    AlarmManager.kt        - Alarm countdown system
+  graphics/                  - Rendering
+    Renderer.kt              - OpenGL renderer (sprites, text, rectangles, backgrounds,
+                               tiles, views, draw state, texture management)
 
-  graphics/                - Rendering
-    Renderer.kt            - OpenGL renderer
-    SpriteBatch.kt         - Batched sprite rendering
-    TextRenderer.kt        - Font/text rendering
-    DrawState.kt           - Current draw color/alpha/font/halign/valign
-    ViewManager.kt         - View/port transformation
-
-  builtin/                 - Built-in GML functions
-    BuiltinFunctions.kt    - Registry of all built-in functions
-    DrawFunctions.kt       - draw_* functions
-    MathFunctions.kt       - Math/random functions
-    StringFunctions.kt     - String manipulation functions
-    InstanceFunctions.kt   - instance_create/destroy/exists etc.
-    RoomFunctions.kt       - room_goto etc.
-    InputFunctions.kt      - keyboard_check etc.
-    DataStructFunctions.kt - ds_map/ds_list/ds_grid
-    FileFunctions.kt       - file_exists, ini_* functions
-    AudioStubs.kt          - Stub implementations for audio
-    MiscFunctions.kt       - show_message, game_end, etc.
+  builtin/                   - Built-in GML functions
+    BuiltinRegistry.kt       - Single file registering all built-in functions:
+                               math, string, drawing, instance, room, keyboard,
+                               data structures, file/INI stubs, audio stubs, collision,
+                               paths, sprites, OS/system, surfaces, arrays, events, etc.
 ```
 
 ## Data Loading Pipeline
@@ -81,15 +54,17 @@ game.unx -> FormReader (parse FORM header)
 
 ## VM Design
 
-### GMLValue (tagged union)
+### GMLValue (sealed class)
 ```kotlin
 sealed class GMLValue {
     data class Real(val value: Double) : GMLValue()
     data class Str(val value: String) : GMLValue()
-    data class Array(val data: MutableMap<Int, MutableMap<Int, GMLValue>>) : GMLValue()
-    object Undefined : GMLValue()
+    data class ArrayVal(val data: MutableMap<Int, MutableMap<Int, GMLValue>>) : GMLValue()
+    data object Undefined : GMLValue()
 }
 ```
+
+Includes `toReal()`, `toInt()`, `toStr()`, `toBool()` conversions and companion `of()` factory methods. Boolean is represented as Real (>= 0.5 = true).
 
 ### Variable Storage
 - **Instance variables**: HashMap per instance, keyed by variable ID
@@ -138,44 +113,60 @@ if (instance.visible && instance.spriteIndex >= 0) {
 5. Draw textured quad
 ```
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Data Loading
-- Parse all chunks from game.unx
-- Load textures into OpenGL
-- Resolve all cross-references
+All phases below are implemented and working:
 
-### Phase 2: Basic VM
-- Instruction decoder for all BC16 opcodes
-- Stack operations (push/pop/arithmetic/comparison)
-- Variable read/write (instance, global, local, builtin)
-- Function calls (user scripts + built-in stubs)
-- Branch instructions
+### Data Loading
+- Parses all chunks from game.unx (GEN8, STRG, SPRT, BGND, TPAG, TXTR, OBJT, ROOM, CODE, VARI, FUNC, SCPT, FONT, PATH)
+- Loads textures into OpenGL on demand
+- Resolves cross-references (sprites -> TPAG -> TXTR, objects -> events -> CODE, etc.)
 
-### Phase 3: Instance & Room System
-- Instance creation/destruction
-- Room loading with instances
-- Event dispatch (Create, Step, Draw, Alarm, Keyboard, Other)
-- Room transitions
+### Bytecode VM
+- Full instruction decoder for BC16 opcodes (push, pop, arithmetic, comparison, branch, call, with/env)
+- Stack-based execution with type conversions
+- Variable read/write for all scopes: instance, global, local, builtin, stacktop/dot-access
+- Function calls (user scripts + built-in functions)
+- `with` blocks (PushEnv/PopEnv)
+- Array support (1D and 2D)
 
-### Phase 4: Rendering
-- Sprite rendering with TPAG/TXTR lookup
-- Text rendering with font glyphs
-- Draw state (color, alpha, font, alignment)
-- View/port transformation
-- Rectangle/primitive drawing
+### Instance & Room System
+- Instance creation/destruction with proper lifecycle events
+- Room loading with instances, tiles, backgrounds, views
+- Event dispatch (Create, Destroy, Step, Begin Step, End Step, Alarm, Keyboard, KeyPress, KeyRelease, Draw, Other, Collision)
+- Room transitions with persistent instance carry-over
+- Object parent/child event inheritance (`event_inherited()`)
+- Path following system
 
-### Phase 5: Built-in Functions (for intro)
-- Drawing functions
-- Input functions (keyboard)
-- Math/string functions
-- Instance functions
-- Room functions
-- File/ini stubs
-- Audio stubs (no-op)
+### Rendering
+- Sprite rendering with TPAG/TXTR lookup, scaling, rotation, blending
+- Partial sprite drawing (`draw_sprite_part`)
+- Font/text rendering with alignment and transformed text
+- Draw state (color, alpha, font, halign, valign)
+- View/port transformation (320x240 -> 640x480 scaling)
+- Rectangle drawing, background drawing, tile rendering
+- HiDPI/Wayland framebuffer scaling support
 
-### Phase 6: Integration & Debug
-- Run room_start -> room_introstory -> room_introimage -> room_intromenu
-- Debug VM execution
-- Fix missing built-in functions as encountered
-- Iterate until menu is functional
+### Built-in Functions (~120+)
+- Math: random, trig, rounding, clamping, interpolation, distance/direction
+- String: manipulation, measurement, hashing
+- Drawing: sprites, text, rectangles, backgrounds, color operations
+- Instance: create, destroy, exists, find, number
+- Room: goto, next, previous, exists
+- Keyboard: check, check_pressed, check_released, clear
+- Data structures: ds_map, ds_list (full CRUD)
+- Collision: point, rectangle, circle, line (bbox-based)
+- File/INI: stubs (file_exists returns false, ini_read returns defaults)
+- Audio: all stubs (caster_*, audio_*, sound_*)
+- Events: event_inherited, event_user, event_perform, script_execute
+- DnD actions: action_kill_object, action_move_to, action_move, action_set_friction, action_set_alarm
+- Paths: path_start, path_end
+- System: OS info, timers, display, window, surface stubs
+- Type checking: is_undefined, is_string, is_real, is_array, typeof
+
+### Debug & Testing Infrastructure
+- Headless mode for automated screenshot capture
+- Input recording/playback for reproducible testing
+- Per-object call tracing, event tracing, instruction tracing
+- Debug mode with room navigation and frame stepping
+- Configurable game speed multiplier
