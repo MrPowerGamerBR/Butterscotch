@@ -64,6 +64,13 @@ class Instance(
     var returnValue: GMLValue? = null
 
     var destroyed = false
+    // This event is triggered when an instance goes outside the room, and is based on a check done against the assigned sprite (and its properties) of the instance,
+    // so that even if you have set the image x or y scale to a value other than one, this event will only be triggered when the whole sprite would be out the screen.
+    // If the instance has no sprite, then the position of the instance is used and the moment its x or y position is outside of the room then it will trigger the event too.
+    // This event is typically used for things like bullets, where they are destroyed once they leave the room so you don't end up with millions of bullets flying away infinitely and
+    // causing your game to slow down. Note that this event is only triggered once when the instance leaves the room initially.
+    // TODO: Is this marked as outside room again if the instance comes back into view later?
+    var hasBeenMarkedAsOutsideRoom = false
 
     fun getArrayElement(name: String, index: Int): GMLValue = when (name) {
         "alarm" -> if (index in alarm.indices) GMLValue.of(alarm[index].toDouble()) else GMLValue.of(-1.0)

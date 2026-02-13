@@ -63,6 +63,7 @@ class GameRunner(
         const val OTHER_GAME_START = 2
         const val OTHER_GAME_END = 3
         const val OTHER_ANIMATION_END = 7
+        const val OTHER_OUTSIDE_ROOM = 0
     }
 
     fun initialize(startRoomOverride: Int? = null) {
@@ -149,6 +150,19 @@ class GameRunner(
             // Apply velocity
             if (inst.hspeed != 0.0 || inst.vspeed != 0.0) {
                 inst.x += inst.hspeed; inst.y += inst.vspeed
+            }
+        }
+
+        // Check "Outside Room" event (Other 0)
+        val roomW = currentRoom?.width ?: 0
+        val roomH = currentRoom?.height ?: 0
+        for (inst in ArrayList(instances)) {
+            if (inst.destroyed) continue
+            if (inst.x < 0 || inst.x > roomW || inst.y < 0 || inst.y > roomH) {
+                if (inst.hasBeenMarkedAsOutsideRoom) continue
+
+                inst.hasBeenMarkedAsOutsideRoom = true
+                fireEvent(inst, EVENT_OTHER, OTHER_OUTSIDE_ROOM)
             }
         }
 
