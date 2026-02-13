@@ -7,11 +7,14 @@ import com.mrpowergamerbr.butterscotch.graphics.Renderer
 import com.mrpowergamerbr.butterscotch.vm.GMLValue
 import com.mrpowergamerbr.butterscotch.vm.VM
 import kotlin.math.*
+import kotlin.random.Random
 
 class GameRunner(
     val gameData: GameData,
     val vm: VM,
     val renderer: Renderer,
+    val initialRngSeed: Long,
+    val alwaysUseInitialRngSeed: Boolean
 ) {
     val instances = mutableListOf<Instance>()
     val globalVariables = mutableMapOf<String, GMLValue>()
@@ -43,6 +46,8 @@ class GameRunner(
     var inputRecording: MutableMap<Int, List<Int>>? = null
     var inputPlayback: Map<Int, List<Int>>? = null
     private var previousPlaybackKeys = emptySet<Int>()
+
+    var random = Random(initialRngSeed)
 
     // Current event context for event_inherited() support
     data class EventContext(

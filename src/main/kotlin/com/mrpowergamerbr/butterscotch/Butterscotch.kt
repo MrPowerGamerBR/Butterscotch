@@ -25,7 +25,8 @@ class Butterscotch(
     private val speedMultiplier: Double,
     private val recordInputsPath: String? = null,
     private val playbackInputsPath: String? = null,
-    private val vsync: Boolean
+    private val vsync: Boolean,
+    private val rngSeed: Long?
 ) {
     companion object {
         // yay static abuse
@@ -100,7 +101,10 @@ class Butterscotch(
         val vm = VM(gameData)
         registerBuiltins(vm)
 
-        runner = GameRunner(gameData, vm, renderer)
+        // "Just to add on to this...
+        // Game Maker only uses the same random seed when running the game through the IDE. Once you compile it, the seed will be truly random."
+        // https://www.reddit.com/r/gamemaker/comments/9btry9/random_object_generation_always_gives_same_result/
+        runner = GameRunner(gameData, vm, renderer, rngSeed ?: System.nanoTime(), rngSeed != null)
         if (debug) {
             console = DebugConsole(runner, windowWidth, windowHeight)
         }

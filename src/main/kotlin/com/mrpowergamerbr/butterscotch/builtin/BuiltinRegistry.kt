@@ -10,12 +10,12 @@ fun registerBuiltins(vm: VM) {
     val f = vm.builtinFunctions
 
     // ========== Math ==========
-    f["random"] = { _, args -> GMLValue.of(Random.nextDouble() * args[0].toReal()) }
-    f["irandom"] = { _, args -> GMLValue.of(Random.nextInt(args[0].toInt() + 1).toDouble()) }
-    f["random_range"] = { _, args -> GMLValue.of(args[0].toReal() + Random.nextDouble() * (args[1].toReal() - args[0].toReal())) }
+    f["random"] = { _, args -> GMLValue.of(vm.runner.random.nextDouble() * args[0].toReal()) }
+    f["irandom"] = { _, args -> GMLValue.of(vm.runner.random.nextInt(args[0].toInt() + 1).toDouble()) }
+    f["random_range"] = { _, args -> GMLValue.of(args[0].toReal() + vm.runner.random.nextDouble() * (args[1].toReal() - args[0].toReal())) }
     f["irandom_range"] = { _, args ->
         val lo = args[0].toInt(); val hi = args[1].toInt()
-        GMLValue.of(if (hi >= lo) (lo + Random.nextInt(hi - lo + 1)).toDouble() else lo.toDouble())
+        GMLValue.of(if (hi >= lo) (lo + vm.runner.random.nextInt(hi - lo + 1)).toDouble() else lo.toDouble())
     }
     f["round"] = { _, args -> GMLValue.of(Math.round(args[0].toReal()).toDouble()) }
     f["floor"] = { _, args -> GMLValue.of(floor(args[0].toReal())) }
@@ -59,7 +59,7 @@ fun registerBuiltins(vm: VM) {
     }
     f["lengthdir_x"] = { _, args -> GMLValue.of(args[0].toReal() * cos(Math.toRadians(args[1].toReal()))) }
     f["lengthdir_y"] = { _, args -> GMLValue.of(-args[0].toReal() * sin(Math.toRadians(args[1].toReal()))) }
-    f["choose"] = { _, args -> if (args.isNotEmpty()) args[Random.nextInt(args.size)] else GMLValue.ZERO }
+    f["choose"] = { _, args -> if (args.isNotEmpty()) args[vm.runner.random.nextInt(args.size)] else GMLValue.ZERO }
     f["lerp"] = { _, args -> GMLValue.of(args[0].toReal() + (args[1].toReal() - args[0].toReal()) * args[2].toReal()) }
 
     // ========== String ==========
@@ -297,7 +297,7 @@ fun registerBuiltins(vm: VM) {
                 self.hspeed = 0.0
                 self.vspeed = 0.0
             } else if (enabled.isNotEmpty()) {
-                val chosen = enabled.random()
+                val chosen = enabled.random(vm.runner.random)
                 val dir = dirAngles[chosen].toDouble()
                 val sp = args[1].toReal()
                 self.direction = dir
@@ -530,8 +530,22 @@ fun registerBuiltins(vm: VM) {
         vm.runner.shouldQuit = true; GMLValue.ZERO
     }
     f["game_restart"] = { _, _ -> GMLValue.ZERO }
-    f["randomize"] = { _, _ -> GMLValue.ZERO }
-    f["random_set_seed"] = { _, _ -> GMLValue.ZERO }
+    f["randomize"] = { _, _ ->
+        vm.runner.random = if (vm.runner.alwaysUseInitialRngSeed) {
+            Random(vm.runner.initialRngSeed)
+        } else {
+            Random(System.nanoTime())
+        }
+        GMLValue.ZERO
+    }
+    f["random_set_seed"] = { _, args ->
+        vm.runner.random = if (vm.runner.alwaysUseInitialRngSeed) {
+            Random(vm.runner.initialRngSeed)
+        } else {
+            Random(args[0].toReal().toLong())
+        }
+        GMLValue.ZERO
+    }
     f["audio_channel_num"] = { _, _ -> GMLValue.ZERO }
     f["steam_initialised"] = { _, _ -> GMLValue.FALSE }
     f["steam_stats_ready"] = { _, _ -> GMLValue.FALSE }

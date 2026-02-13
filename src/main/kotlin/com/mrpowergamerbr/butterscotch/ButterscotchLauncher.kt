@@ -7,6 +7,7 @@ import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.int
+import com.github.ajalt.clikt.parameters.types.long
 import com.mrpowergamerbr.butterscotch.data.FormReader
 
 class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
@@ -30,6 +31,7 @@ class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
     private val recordInputs by option("--record-inputs", help = "Record inputs to JSON file")
     private val playbackInputs by option("--playback-inputs", help = "Playback inputs from JSON file")
     private val vsync by option("--vsync", help = "Enable VSync, you must disable VSync if you are using a high speed rate for the game").flag(default = true)
+    private val rngSeed by option("--seed", help = "RNG seed for deterministic playback, randomize calls will always use this set seed").long()
 
     override fun run() {
         Butterscotch.debugObj = debugObj.toSet()
@@ -59,7 +61,8 @@ class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
             speedMultiplier = speed,
             recordInputsPath = recordInputs,
             playbackInputsPath = playbackInputs,
-            vsync = vsync
+            vsync = vsync,
+            rngSeed = rngSeed
         ).run()
     }
 }
