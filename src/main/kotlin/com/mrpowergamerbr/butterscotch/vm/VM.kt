@@ -744,8 +744,7 @@ class VM(val gameData: GameData) {
         if (Butterscotch.traceInstanceVars.isEmpty())
             return
 
-        val objectName = if (target.objectIndex >= 0 && target.objectIndex < gameData.objects.size)
-            gameData.objects[target.objectIndex].name else "unknown"
+        val objectName = if (target.objectIndex in gameData.objects.indices) gameData.objects[target.objectIndex].name else "unknown"
 
         // Check filters
         val matched = Butterscotch.traceInstanceVars.any { filter ->
