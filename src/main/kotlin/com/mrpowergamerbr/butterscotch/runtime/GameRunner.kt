@@ -686,15 +686,28 @@ class GameRunner(
     }
 
     fun pathEnd(inst: Instance) {
+        if (Butterscotch.tracePaths.isNotEmpty()) {
+            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+            if (Butterscotch.tracePaths.contains("*") || objName in Butterscotch.tracePaths) {
+                println("[TRACE PATH] $objName (id=${inst.id}): path ended at frame=$frameCount")
+            }
+        }
         inst.pathIndex = -1
         inst.pathSpeed = 0.0
     }
 
     private fun updatePathFollowing() {
+        val tracing = Butterscotch.tracePaths.isNotEmpty()
+
         for (inst in instances) {
             if (inst.destroyed || inst.pathIndex < 0) continue
             val pathLength = computePathLength(inst.pathIndex)
             if (pathLength <= 0.0) continue
+
+            val shouldTrace = tracing && run {
+                val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                Butterscotch.tracePaths.contains("*") || objName in Butterscotch.tracePaths
+            }
 
             val oldX = inst.x
             val oldY = inst.y
@@ -716,10 +729,18 @@ class GameRunner(
                             inst.x = newX
                             inst.y = newY
                         }
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_stop at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                         continue
                     }
                     1 -> { // path_action_restart
                         inst.pathPosition -= 1.0
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_restart at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                     }
                     2 -> { // path_action_continue
                         inst.pathPosition = 1.0
@@ -731,12 +752,20 @@ class GameRunner(
                             inst.x = newX
                             inst.y = newY
                         }
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_continue at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                         pathEnd(inst)
                         continue
                     }
                     3 -> { // path_action_reverse
                         inst.pathPosition = 1.0 - (inst.pathPosition - 1.0)
                         inst.pathSpeed = -inst.pathSpeed
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_reverse at pathPos=${inst.pathPosition} pathSpeed=${inst.pathSpeed} frame=$frameCount")
+                        }
                     }
                 }
             } else if (inst.pathPosition <= 0.0) {
@@ -752,10 +781,18 @@ class GameRunner(
                             inst.x = newX
                             inst.y = newY
                         }
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_stop at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                         continue
                     }
                     1 -> { // path_action_restart
                         inst.pathPosition += 1.0
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_restart at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                     }
                     2 -> { // path_action_continue
                         inst.pathPosition = 0.0
@@ -767,12 +804,20 @@ class GameRunner(
                             inst.x = newX
                             inst.y = newY
                         }
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_continue at pathPos=${inst.pathPosition} frame=$frameCount")
+                        }
                         pathEnd(inst)
                         continue
                     }
                     3 -> { // path_action_reverse
                         inst.pathPosition = -inst.pathPosition
                         inst.pathSpeed = -inst.pathSpeed
+                        if (shouldTrace) {
+                            val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                            println("[TRACE PATH] $objName (id=${inst.id}): path_action_reverse at pathPos=${inst.pathPosition} pathSpeed=${inst.pathSpeed} frame=$frameCount")
+                        }
                     }
                 }
             }
@@ -785,6 +830,11 @@ class GameRunner(
                 updateDirectionFromPath(inst, oldX, oldY, newX, newY)
                 inst.x = newX
                 inst.y = newY
+            }
+
+            if (shouldTrace) {
+                val objName = if (inst.objectIndex in gameData.objects.indices) gameData.objects[inst.objectIndex].name else "??"
+                println("[TRACE PATH] $objName (id=${inst.id}): pathIdx=${inst.pathIndex} pathPos=${"%.4f".format(inst.pathPosition)} pathSpeed=${inst.pathSpeed} pos=(${inst.x}, ${inst.y}) dir=${inst.direction} frame=$frameCount")
             }
         }
     }

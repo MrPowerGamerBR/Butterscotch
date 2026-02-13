@@ -251,7 +251,7 @@ class VM(val gameData: GameData) {
                                     if (isStacktop) {
                                         // Dot-access: instance ID is on the stack (e.g., writer.x)
                                         val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                                        val target = runner!!.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
+                                        val target = runner.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
                                         target?.getBuiltinOrVar(v.name) ?: GMLValue.ZERO
                                     } else {
                                     val effectiveInstType = if (isArray) arrayInstTarget else {
@@ -270,11 +270,11 @@ class VM(val gameData: GameData) {
                                         }
                                         effectiveInstType == InstanceTypes.GLOBAL -> {
                                             if (isArray) getGlobalArrayElement(v.name, arrayIdx)
-                                            else runner!!.globalVariables[v.name] ?: GMLValue.ZERO
+                                            else runner.globalVariables[v.name] ?: GMLValue.ZERO
                                         }
                                         effectiveInstType == InstanceTypes.STACKTOP -> {
                                             val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                                            val target = runner!!.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
+                                            val target = runner.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
                                             if (isArray) target?.getArrayElement(v.name, arrayIdx) ?: GMLValue.ZERO
                                             else target?.getBuiltinOrVar(v.name) ?: GMLValue.ZERO
                                         }
@@ -336,7 +336,7 @@ class VM(val gameData: GameData) {
                                 val arrayInstTarget = (if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO).toInt()
                                 getGlobalArrayElement(v.name, arrayIdx)
                             } else {
-                                runner!!.globalVariables[v.name] ?: GMLValue.ZERO
+                                runner.globalVariables[v.name] ?: GMLValue.ZERO
                             }
                             stack.addLast(value)
                         } else {
@@ -391,7 +391,7 @@ class VM(val gameData: GameData) {
                                 // Pop instanceTarget first, then value
                                 val targetId = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                                 val value = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                                val target = runner!!.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
+                                val target = runner.findInstancesByObjectOrId(targetId.toInt()).firstOrNull()
                                 if (target != null) {
                                     target.setBuiltinOrVar(v.name, value)
                                 }
@@ -427,13 +427,13 @@ class VM(val gameData: GameData) {
                                     if (isArray) setGlobalArrayElement(v.name, arrayIdx, value)
                                     else {
                                         traceGlobalWrite(v.name, value, entryName)
-                                        runner!!.globalVariables[v.name] = value
+                                        runner.globalVariables[v.name] = value
                                     }
                                 }
                                 rawInstType == InstanceTypes.STACKTOP -> {
                                     // value (popped above) actually holds the instanceTarget (stack ordering: [realValue, target] with target on top)
                                     val realValue = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
-                                    val target = runner!!.findInstancesByObjectOrId(value.toInt()).firstOrNull()
+                                    val target = runner.findInstancesByObjectOrId(value.toInt()).firstOrNull()
                                     if (target != null) {
                                         if (isArray) target.setArrayElement(v.name, arrayIdx, realValue)
                                         else target.setBuiltinOrVar(v.name, realValue)
@@ -445,7 +445,7 @@ class VM(val gameData: GameData) {
                                         // handled
                                     } else if (effectiveInstType >= 0) {
                                         // Object ID: GM sets variable on ALL instances of this object
-                                        val targets = runner!!.findInstancesByObjectOrId(effectiveInstType)
+                                        val targets = runner.findInstancesByObjectOrId(effectiveInstType)
                                         for (target in targets) {
                                             if (isArray) target.setArrayElement(v.name, arrayIdx, value)
                                             else target.setBuiltinOrVar(v.name, value)
@@ -546,7 +546,7 @@ class VM(val gameData: GameData) {
                     Opcodes.PUSHENV -> {
                         val target = if (stack.isNotEmpty()) stack.removeLast() else GMLValue.ZERO
                         val targetId = target.toInt()
-                        val instances = runner!!.findInstancesByObjectOrId(targetId)
+                        val instances = runner.findInstancesByObjectOrId(targetId)
                         if (instances.isEmpty()) {
                             // Skip to matching PopEnv
                             pc = findBranchTarget(decoded, pc - 1, instr.branchOffset)
@@ -679,13 +679,13 @@ class VM(val gameData: GameData) {
         else -> {
             if (instType >= 0) {
                 // Object ID - find first instance of this object
-                runner!!.findFirstInstanceByObject(instType)
+                runner.findFirstInstanceByObject(instType)
             } else self
         }
     }
 
     fun getGlobalBuiltin(name: String): GMLValue {
-        val r = runner!!
+        val r = runner
         return when (name) {
             "room" -> GMLValue.of(r.currentRoomIndex.toDouble())
             "room_speed" -> GMLValue.of(r.currentRoom?.speed?.toDouble() ?: 30.0)
@@ -725,7 +725,7 @@ class VM(val gameData: GameData) {
         if ("*" !in Butterscotch.traceGlobals && name !in Butterscotch.traceGlobals)
             return
 
-        val r = this.runner!!
+        val r = this.runner
         val old = r.globalVariables[name] ?: GMLValue.ZERO
         val code = codeName ?: "builtin"
         println("  [TRACE] global.$name = $value (was $old) at frame=${r.frameCount}, code=$code")
@@ -736,7 +736,7 @@ class VM(val gameData: GameData) {
      * Returns null if the variable isn't a known builtin array.
      */
     private fun getBuiltinArrayElement(name: String, index: Int): GMLValue? {
-        val r = runner!!
+        val r = runner
         val room = r.currentRoom
         return when (name) {
             "view_wview" -> {
@@ -800,7 +800,7 @@ class VM(val gameData: GameData) {
     }
 
     private fun setBuiltinArrayElement(name: String, index: Int, value: GMLValue): Boolean {
-        val room = runner!!.currentRoom ?: return false
+        val room = runner.currentRoom ?: return false
         val view = room.views.getOrNull(index) ?: return false
         when (name) {
             "view_xview" -> view.viewX = value.toReal().toInt()
@@ -823,15 +823,15 @@ class VM(val gameData: GameData) {
     }
 
     private fun getGlobalArrayElement(name: String, index: Int): GMLValue {
-        val arr = runner!!.globalVariables[name]
+        val arr = runner.globalVariables[name]
         return if (arr is GMLValue.ArrayVal) arr.data[0]?.get(index) ?: GMLValue.ZERO else GMLValue.ZERO
     }
 
     private fun setGlobalArrayElement(name: String, index: Int, value: GMLValue) {
-        val existing = runner!!.globalVariables[name]
+        val existing = runner.globalVariables[name]
         val arr = if (existing is GMLValue.ArrayVal) existing else {
             val newArr = GMLValue.ArrayVal()
-            runner!!.globalVariables[name] = newArr
+            runner.globalVariables[name] = newArr
             newArr
         }
         arr.data.getOrPut(0) { mutableMapOf() }[index] = value
