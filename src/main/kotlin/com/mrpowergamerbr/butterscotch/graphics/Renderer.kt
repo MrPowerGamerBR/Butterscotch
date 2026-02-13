@@ -415,6 +415,27 @@ void main() {
         }
     }
 
+    fun drawLineStrip(points: List<Pair<Double, Double>>, r: Float, g: Float, b: Float, a: Float) {
+        if (points.size < 2) return
+
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glUniform1i(uHasTexture, 0)
+
+        vertexCount = 0
+        for (i in points.indices) {
+            if (vertexCount + 1 > maxVertices) {
+                flushVertices(GL_LINE_STRIP)
+                // Restart strip from previous point to keep continuity
+                vertexCount = 0
+                val prev = points[i - 1]
+                putVertex(prev.first, prev.second, 0f, 0f, r, g, b, a)
+            }
+            val (px, py) = points[i]
+            putVertex(px, py, 0f, 0f, r, g, b, a)
+        }
+        flushVertices(GL_LINE_STRIP)
+    }
+
     fun drawText(x: Double, y: Double, text: String) {
         if (drawFont < 0 || drawFont >= gameData.fonts.size) return
         val font = gameData.fonts[drawFont]

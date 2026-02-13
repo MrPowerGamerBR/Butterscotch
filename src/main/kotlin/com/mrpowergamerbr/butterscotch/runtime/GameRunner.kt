@@ -265,6 +265,9 @@ class GameRunner(
 
                 // Draw foreground backgrounds
                 drawRoomBackgrounds(room, true)
+
+                // Draw path overlays on top
+                if (Butterscotch.drawPaths) drawPathOverlays(room)
             }
         } else {
             renderer.currentView = 0
@@ -280,6 +283,64 @@ class GameRunner(
             drawInstancesAndTiles(room)
 
             drawRoomBackgrounds(room, true)
+
+            if (Butterscotch.drawPaths) drawPathOverlays(room)
+        }
+    }
+
+    private fun drawPathOverlays(room: RoomData) {
+        val drawnPaths = mutableSetOf<Int>()
+
+        for (inst in instances) {
+            if (inst.destroyed || inst.pathIndex < 0) continue
+            val pathIndex = inst.pathIndex
+            val path = gameData.paths.getOrNull(pathIndex) ?: continue
+
+            // Draw the full path line (once per unique path index)
+            if (pathIndex !in drawnPaths) {
+                drawnPaths.add(pathIndex)
+                val pts = path.points
+                if (pts.size >= 2) {
+                    val linePoints = mutableListOf<Pair<Double, Double>>()
+                    for (pt in pts) {
+                        linePoints.add(Pair(pt.x.toDouble(), pt.y.toDouble()))
+                    }
+                    if (path.isClosed) {
+                        linePoints.add(Pair(pts[0].x.toDouble(), pts[0].y.toDouble()))
+                    }
+                    // Draw path line in green
+                    renderer.drawLineStrip(linePoints, 0f, 1f, 0f, 0.8f)
+                }
+
+                // Draw point markers as small rectangles
+                val savedColor = renderer.drawColor
+                val savedAlpha = renderer.drawAlpha
+                renderer.drawColor = 0x00FF00  // Green in BGR
+                renderer.drawAlpha = 0.9
+                for (pt in pts) {
+                    renderer.drawRectangle(
+                        pt.x.toDouble() - 2, pt.y.toDouble() - 2,
+                        pt.x.toDouble() + 2, pt.y.toDouble() + 2,
+                        false
+                    )
+                }
+                renderer.drawColor = savedColor
+                renderer.drawAlpha = savedAlpha
+            }
+
+            // Draw current position marker in red
+            val pos = interpolatePathPosition(pathIndex, inst.pathPosition)
+            if (pos != null) {
+                val cx = pos.first + inst.pathXOffset
+                val cy = pos.second + inst.pathYOffset
+                val savedColor = renderer.drawColor
+                val savedAlpha = renderer.drawAlpha
+                renderer.drawColor = 0x0000FF  // Red in BGR
+                renderer.drawAlpha = 1.0
+                renderer.drawRectangle(cx - 3, cy - 3, cx + 3, cy + 3, false)
+                renderer.drawColor = savedColor
+                renderer.drawAlpha = savedAlpha
+            }
         }
     }
 

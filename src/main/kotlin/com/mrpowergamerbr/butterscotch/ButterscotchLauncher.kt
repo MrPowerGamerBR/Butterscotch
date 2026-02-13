@@ -21,6 +21,7 @@ class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
     private val traceInstructions by option("--trace-instructions", help = "Print all bytecode instructions for a specific GML script, can be set to \"*\" to log all scripts, VERY NOISY").multiple()
     private val traceGlobals by option("--trace-globals", help = "Trace changes to a global variable (e.g. \"interact\"), can be set to \"*\" to log all").multiple()
     private val tracePaths by option("--trace-paths", help = "Trace path following for a specific object, can be set to \"*\" to log all objects").multiple()
+    private val drawPaths by option("--draw-paths", help = "Draw path overlays on screen for all instances following paths").flag()
     private val alwaysLogUnknownInstructions by option("--always-log-unknown-instructions", help = "Always log unknown instructions instead of only logging once").flag()
 
     private val debug by option("--debug", help = "Enable debug mode").flag()
@@ -36,6 +37,7 @@ class ButterscotchCLICommand : CliktCommand(name = "butterscotch") {
         Butterscotch.ignoreFunctionTracedCalls = ignoreFunctionTracedCalls.toSet()
         Butterscotch.traceGlobals = traceGlobals.toSet()
         Butterscotch.tracePaths = tracePaths.toSet()
+        Butterscotch.drawPaths = drawPaths
         Butterscotch.alwaysLogUnknownInstructions = alwaysLogUnknownInstructions
         Butterscotch.debug = debug
 

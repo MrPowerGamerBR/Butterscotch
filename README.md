@@ -21,6 +21,7 @@ Butterscotch has some CLI parameters and debug features that are useful when deb
 * `--trace-instructions`: Traces all bytecode instructions executed by the VM for a specific GML script, example: `--trace-instructions gml_Object_obj_floweybattle1_Step_0`. Can be set to `--trace-instructions *` to trace all scripts. VERY NOISY!
 * `--trace-globals`: Traces all global variables being manipulated, example: `--trace-globals interact`. Can also trace all globals with `--trace-globals *`
 * `--trace-paths`: Traces all global variables being manipulated, example: `--trace-paths obj_toroverworld3`. Can also trace all objects with `--trace-paths *`
+* `--draw-paths`: Draw path overlays on screen for all instances following paths
 * `--always-log-unknown-instructions`: Always log unknown instructions instead of only logging once
 
 ### Debug Features
