@@ -687,7 +687,6 @@ class GameRunner(
 
     fun pathEnd(inst: Instance) {
         inst.pathIndex = -1
-        inst.pathPosition = 0.0
         inst.pathSpeed = 0.0
     }
 
