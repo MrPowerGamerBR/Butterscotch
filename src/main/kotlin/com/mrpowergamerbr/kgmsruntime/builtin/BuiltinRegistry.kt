@@ -620,6 +620,42 @@ fun registerBuiltins(vm: VM) {
         GMLValue.of(result)
     }
 
+    f["collision_line"] = { v, args ->
+        val lx1 = args[0].toReal(); val ly1 = args[1].toReal()
+        val lx2 = args[2].toReal(); val ly2 = args[3].toReal()
+        val obj = args[4].toInt()
+        // args[5] = prec (ignored, bbox-only)
+        val notme = args[6].toBool()
+        val self = v.currentSelf
+        val runner = vm.runner!!
+        val dx = lx2 - lx1; val dy = ly2 - ly1
+        var result = -4.0 // noone
+        for (inst in runner.findInstancesByObjectOrId(obj)) {
+            if (notme && inst === self) continue
+            val bb = runner.computeBBox(inst) ?: continue
+            // Liang-Barsky line-AABB intersection
+            var tMin = 0.0; var tMax = 1.0
+            val edges = doubleArrayOf(-dx, dx, -dy, dy)
+            val sides = doubleArrayOf(lx1 - bb.left, bb.right - lx1, ly1 - bb.top, bb.bottom - ly1)
+            var hit = true
+            for (i in 0 until 4) {
+                val p = edges[i]; val q = sides[i]
+                if (p == 0.0) {
+                    if (q < 0.0) { hit = false; break }
+                } else {
+                    val t = q / p
+                    if (p < 0.0) { if (t > tMin) tMin = t } else { if (t < tMax) tMax = t }
+                    if (tMin > tMax) { hit = false; break }
+                }
+            }
+            if (hit) {
+                result = inst.id.toDouble()
+                break
+            }
+        }
+        GMLValue.of(result)
+    }
+
     // scr_gettext is handled by the real GML script (gml_Script_scr_gettext)
     // which reads from global.text_data_en ds_map populated by textdata_en script
 }

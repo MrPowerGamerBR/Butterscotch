@@ -82,6 +82,13 @@ class GameRunner(
             pendingRoomGoto = -1
         }
 
+        // Update xprevious/yprevious at step start (before any movement)
+        for (inst in instances) {
+            if (inst.destroyed) continue
+            inst.xprevious = inst.x
+            inst.yprevious = inst.y
+        }
+
         // 1. Begin Step
         dispatchEvent(EVENT_STEP, 1)
 
@@ -109,7 +116,10 @@ class GameRunner(
         // 4. Step
         dispatchEvent(EVENT_STEP, 0)
 
-        // 5. End Step
+        // 5. Collision events
+        dispatchCollisionEvents()
+
+        // 6. End Step
         dispatchEvent(EVENT_STEP, 2)
 
         // Apply movement physics
@@ -135,7 +145,6 @@ class GameRunner(
             }
             // Apply velocity
             if (inst.hspeed != 0.0 || inst.vspeed != 0.0) {
-                inst.xprevious = inst.x; inst.yprevious = inst.y
                 inst.x += inst.hspeed; inst.y += inst.vspeed
             }
         }
@@ -312,7 +321,48 @@ class GameRunner(
         }
     }
 
-    fun fireEvent(inst: Instance, eventType: Int, subtype: Int) {
+    private fun dispatchCollisionEvents() {
+        val snapshot = ArrayList(instances)
+        for (inst in snapshot) {
+            if (inst.destroyed) continue
+            val instBBox = computeBBox(inst) ?: continue
+            val targets = collectCollisionTargets(inst.objectIndex)
+            for (targetObjId in targets) {
+                if (inst.destroyed) break
+                for (other in snapshot) {
+                    if (other.destroyed || other === inst) continue
+                    if (other.objectIndex != targetObjId && !isChildOf(other.objectIndex, targetObjId)) continue
+                    val otherBBox = computeBBox(other) ?: continue
+                    // AABB overlap test
+                    if (instBBox.left < otherBBox.right && instBBox.right > otherBBox.left &&
+                        instBBox.top < otherBBox.bottom && instBBox.bottom > otherBBox.top) {
+                        fireEvent(inst, EVENT_COLLISION, targetObjId, other)
+                        break // Only fire once per target object type per instance
+                    }
+                }
+            }
+        }
+    }
+
+    private fun collectCollisionTargets(objectIndex: Int): List<Int> {
+        val targets = mutableListOf<Int>()
+        var objIdx = objectIndex
+        while (objIdx >= 0 && objIdx < gameData.objects.size) {
+            val objDef = gameData.objects[objIdx]
+            val collisionEvents = objDef.events.getOrNull(EVENT_COLLISION)
+            if (collisionEvents != null) {
+                for (ev in collisionEvents) {
+                    if (ev.subtype !in targets) {
+                        targets.add(ev.subtype)
+                    }
+                }
+            }
+            objIdx = objDef.parentId
+        }
+        return targets
+    }
+
+    fun fireEvent(inst: Instance, eventType: Int, subtype: Int, other: Instance? = null) {
         // Walk the parent chain to find the first object that has this event
         var objIdx = inst.objectIndex
         while (objIdx >= 0 && objIdx < gameData.objects.size) {
@@ -329,7 +379,7 @@ class GameRunner(
                             val codeName = if (action.codeId in gameData.codeEntries.indices) gameData.codeEntries[action.codeId].name else "INVALID(${action.codeId})"
                             println("    [frame=$frameCount] ${objDef.name} event($eventType,$subtype) -> code $codeName (idx=${action.codeId})")
                         }
-                        vm.executeCode(action.codeId, inst)
+                        vm.executeCode(action.codeId, inst, other)
                     }
                 }
                 currentEventContext = prevContext
