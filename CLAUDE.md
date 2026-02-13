@@ -70,6 +70,7 @@ Butterscotch uses [Clikt](https://ajalt.github.io/clikt/) for CLI argument parsi
 | `--ignore-function-traced-calls <name>` | Ignore specific functions when tracing (repeatable) |
 | `--trace-events <name>` | Trace fired events for an object, `*` for all (repeatable) |
 | `--trace-instructions <name>` | Trace bytecode instructions for a GML script, `*` for all, VERY NOISY (repeatable) |
+| `--trace-globals <name>` | Trace changes to a global variable (e.g. `interact`), `*` for all (repeatable) |
 | `--speed <multiplier>` | Game speed multiplier (e.g. `2.0` = twice as fast, default `1.0`) |
 | `--record-inputs <path>` | Record keyboard inputs to a JSON file |
 | `--playback-inputs <path>` | Playback keyboard inputs from a JSON file |
