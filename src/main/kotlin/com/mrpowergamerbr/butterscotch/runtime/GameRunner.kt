@@ -164,8 +164,13 @@ class GameRunner(
         // 4. Step
         dispatchEvent(EVENT_STEP, 0)
 
-        // 5. Collision events
+        // 5. Collision events (with solid object handling)
         dispatchCollisionEvents()
+
+        // 5b. Resolve solid overlaps: any instance that moved into a solid object
+        // gets pushed back to xprevious/yprevious. In GameMaker, the solid flag
+        // prevents other instances from overlapping solid objects.
+        resolveSolidOverlaps()
 
         // 6. End Step
         dispatchEvent(EVENT_STEP, 2)
@@ -499,7 +504,7 @@ class GameRunner(
         val snapshot = ArrayList(instances)
         for (inst in snapshot) {
             if (inst.destroyed) continue
-            val instBBox = computeBBox(inst) ?: continue
+            var instBBox = computeBBox(inst) ?: continue
             val targets = collectCollisionTargets(inst.objectIndex)
             for (targetObjId in targets) {
                 if (inst.destroyed) break
@@ -512,9 +517,58 @@ class GameRunner(
                         instBBox.top < otherBBox.bottom && instBBox.bottom > otherBBox.top) {
                         // Precise mask check if either sprite uses precise collision
                         if (!checkPreciseOverlap(inst, other)) continue
+
+                        // GM solid handling: before firing the collision event,
+                        // move the non-solid instance back to its previous position.
+                        // If other is solid, move inst back; if inst is solid, move other back.
+                        if (other.solid) {
+                            inst.x = inst.xprevious
+                            inst.y = inst.yprevious
+                            instBBox = computeBBox(inst) ?: break
+                        }
+                        if (inst.solid) {
+                            other.x = other.xprevious
+                            other.y = other.yprevious
+                        }
+
                         fireEvent(inst, EVENT_COLLISION, targetObjId, other)
                         break // Only fire once per target object type per instance
                     }
+                }
+                // Recompute instBBox in case a collision event modified inst's position
+                instBBox = computeBBox(inst) ?: break
+            }
+        }
+    }
+
+    /**
+     * Resolve solid overlaps: if an instance overlaps a solid object,
+     * move it back to xprevious/yprevious.
+     *
+     * In GameMaker, the solid flag prevents other instances from overlapping
+     * solid objects. This catches cases where no collision event was defined
+     * for the overlapping pair.
+     */
+    private fun resolveSolidOverlaps() {
+        for (inst in instances) {
+            if (inst.destroyed) continue
+            // Only check instances that actually moved this frame
+            if (inst.x == inst.xprevious && inst.y == inst.yprevious) continue
+
+            val instBBox = computeBBox(inst) ?: continue
+
+            for (other in instances) {
+                if (other.destroyed || other === inst) continue
+                if (!other.solid) continue
+
+                val otherBBox = computeBBox(other) ?: continue
+                if (instBBox.left < otherBBox.right && instBBox.right > otherBBox.left &&
+                    instBBox.top < otherBBox.bottom && instBBox.bottom > otherBBox.top) {
+                    if (!checkPreciseOverlap(inst, other)) continue
+                    // Overlap with solid object - move back to previous position
+                    inst.x = inst.xprevious
+                    inst.y = inst.yprevious
+                    break
                 }
             }
         }

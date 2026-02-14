@@ -447,7 +447,7 @@ class FormReader(private val filePath: String) {
             val isDebugObj = objName in Butterscotch.debugObj || i.toString() in Butterscotch.debugObj
 
             if (isDebugObj) {
-                println("  DEBUG OBJT '$objName': ptr=0x${ptr.toString(16)}, physics fields at +0x20:")
+                println("  DEBUG OBJT '$objName' (index=$i): ptr=0x${ptr.toString(16)}, spriteIndex=$spriteIndex, solid=$solid, parentId=$parentId, maskId=$maskId, depth=$depth, persistent=$persistent")
                 println("    physicsEnabled=${buf.getInt(ptr+0x20)}, sensor=${buf.getInt(ptr+0x24)}, shape=${buf.getInt(ptr+0x28)}")
                 println("    density=${buf.getFloat(ptr+0x2C)}, restitution=${buf.getFloat(ptr+0x30)}, group=${buf.getInt(ptr+0x34)}")
                 println("    linearDamp=${buf.getFloat(ptr+0x38)}, angularDamp=${buf.getFloat(ptr+0x3C)}")
