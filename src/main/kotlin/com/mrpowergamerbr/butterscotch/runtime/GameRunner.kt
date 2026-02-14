@@ -228,7 +228,7 @@ class GameRunner(
         }
 
         // Animate sprites
-        for (inst in instances) {
+        for (inst in ArrayList(instances)) {
             if (inst.destroyed) continue
             if (inst.spriteIndex >= 0 && inst.spriteIndex < gameData.sprites.size) {
                 val sprite = gameData.sprites[inst.spriteIndex]
