@@ -212,6 +212,10 @@ fun registerBuiltins(vm: VM) {
         val inst = vm.runner.createInstance(objIdx, args[0].toReal(), args[1].toReal())
         inst.variables["creator"] = GMLValue.of(v.currentSelf?.id?.toDouble() ?: -4.0)
         vm.runner.fireEvent(inst, GameRunner.EVENT_CREATE, 0)
+        // After Create event, sync xprevious/yprevious so the instance isn't treated
+        // as having "moved" from its initial creation position by resolveSolidOverlaps.
+        inst.xprevious = inst.x
+        inst.yprevious = inst.y
         GMLValue.of(inst.id.toDouble())
     }
     // Obsolete D&D function: action_create_object(obj, x, y) - same as instance_create but arg order differs
@@ -220,6 +224,9 @@ fun registerBuiltins(vm: VM) {
         val inst = vm.runner.createInstance(objIdx, args[1].toReal(), args[2].toReal())
         inst.variables["creator"] = GMLValue.of(v.currentSelf?.id?.toDouble() ?: -4.0)
         vm.runner.fireEvent(inst, GameRunner.EVENT_CREATE, 0)
+        // After Create event, sync xprevious/yprevious (same as instance_create)
+        inst.xprevious = inst.x
+        inst.yprevious = inst.y
         GMLValue.of(inst.id.toDouble())
     }
     f["instance_destroy"] = { v, _ ->
