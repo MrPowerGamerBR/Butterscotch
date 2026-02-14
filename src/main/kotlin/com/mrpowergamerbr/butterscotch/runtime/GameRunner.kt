@@ -866,6 +866,9 @@ class GameRunner(
 
         for (inst in instances) {
             if (inst.destroyed || inst.pathIndex < 0) continue
+            // Skip path following when speed is 0 - no movement to apply.
+            // This prevents path_action_stop from forcing x/y to the path endpoint every frame.
+            if (inst.pathSpeed == 0.0) continue
             val pathLength = computePathLength(inst.pathIndex)
             if (pathLength <= 0.0) continue
 
