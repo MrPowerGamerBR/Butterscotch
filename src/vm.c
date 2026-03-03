@@ -865,11 +865,9 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         }
     }
 
-    bool functionIsBeingTraced = false;
+    bool functionIsBeingTraced = shgeti(ctx->functionCallsToBeTraced, "*") != -1 || shgeti(ctx->functionCallsToBeTraced, funcName) != -1 || shgeti(ctx->functionCallsToBeTraced, ctx->currentCodeName) != -1;
     char* functionArgumentList = nullptr;
-    if (shgeti(ctx->functionCallsToBeTraced, "*") != -1 || shgeti(ctx->functionCallsToBeTraced, funcName) != -1 || shgeti(ctx->functionCallsToBeTraced, ctx->currentCodeName) != -1) {
-        functionIsBeingTraced = true;
-
+    if (functionIsBeingTraced) {
         functionArgumentList = strdup("");
         for (int32_t i = 0; i < argCount; i++) {
             char* display = RValue_toStringFancy(args[i]);
@@ -885,8 +883,6 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             }
             free(display);
         }
-
-        printf("VM: [%s] Calling function \"%s(%s)\"\n", ctx->currentCodeName, funcName, functionArgumentList);
     }
 
     // Check built-in functions first
