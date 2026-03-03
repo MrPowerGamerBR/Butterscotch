@@ -746,11 +746,8 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     ptrdiff_t mapIdx = shgeti(ctx->funcMap, (char*) funcName);
     if (0 > mapIdx) {
         // Log once per (callingCode, funcName) pair
-        const char* callerName = ctx->currentCodeName != nullptr ? ctx->currentCodeName : "<unknown>";
-        // Build dedup key: "callerName\tfuncName"
-        size_t keyLen = strlen(callerName) + 1 + strlen(funcName) + 1;
-        char* dedupKey = malloc(keyLen);
-        snprintf(dedupKey, keyLen, "%s\t%s", callerName, funcName);
+        const char* callerName = VM_getCallerName(ctx);
+        char* dedupKey = VM_createDedupKey(callerName, funcName);
 
         if (0 > shgeti(ctx->loggedUnknownFuncs, dedupKey)) {
             shput(ctx->loggedUnknownFuncs, dedupKey, true);
@@ -1125,6 +1122,7 @@ void VM_free(VMContext* ctx) {
     // Free hash maps
     shfree(ctx->funcMap);
     shfree(ctx->loggedUnknownFuncs);
+    shfree(ctx->loggedStubbedFuncs);
     hmfree(ctx->varRefMap);
     hmfree(ctx->funcRefMap);
 

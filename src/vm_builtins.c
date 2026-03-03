@@ -29,6 +29,18 @@ BuiltinFunc VMBuiltins_find(const char* name) {
 
 // ===[ BUILTIN IMPLEMENTATIONS ]===
 
+static void logStubbedFunction(VMContext* ctx, const char* funcName) {
+    // Log once per (callingCode, funcName) pair
+    const char* callerName = VM_getCallerName(ctx);
+    char* dedupKey = VM_createDedupKey(callerName, funcName);
+
+    if (0 > shgeti(ctx->loggedStubbedFuncs, dedupKey)) {
+        shput(ctx->loggedStubbedFuncs, dedupKey, true);
+        fprintf(stderr, "VM: Stubbed function '%s' called from '%s'!\n", funcName, callerName);
+    }
+    free(dedupKey);
+}
+
 static RValue builtinShowDebugMessage(VMContext* ctx, RValue* args, int32_t argCount) {
     (void) ctx;
     if (1 > argCount) {

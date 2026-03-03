@@ -113,6 +113,8 @@ typedef struct VMContext {
     struct { char* key; int32_t value; }* funcMap;
     // "codeName\tfuncName" -> true, for deduplicating unknown function warnings
     struct { char* key; bool value; }* loggedUnknownFuncs;
+    // "codeName\tfuncName" -> true, for deduplicating stubbed function warnings
+    struct { char* key; bool value; }* loggedStubbedFuncs;
     // Resolved reference maps: absolute file offset of operand -> resolved value
     // varRefMap value = upper 5 bits (varType) | varIndex in lower 27 bits
     // funcRefMap value = funcIndex
@@ -124,3 +126,15 @@ typedef struct VMContext {
 VMContext* VM_create(DataWin* dataWin);
 RValue VM_executeCode(VMContext* ctx, int32_t codeIndex);
 void VM_free(VMContext* ctx);
+
+static const char* VM_getCallerName(VMContext* ctx) {
+    return ctx->currentCodeName != nullptr ? ctx->currentCodeName : "<unknown>";
+}
+
+static char* VM_createDedupKey(const char* callerName, const char* funcName) {
+    // Build dedup key: "callerName\tfuncName"
+    size_t keyLen = strlen(callerName) + 1 + strlen(funcName) + 1;
+    char* dedupKey = malloc(keyLen);
+    snprintf(dedupKey, keyLen, "%s\t%s", callerName, funcName);
+    return dedupKey;
+}
