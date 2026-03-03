@@ -72,7 +72,7 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
 
     args->dataWinPath = argv[optind];
 
-    if (hmlen(args->screenshotFrames) > 0 && args->screenshotPattern == nullptr) {
+    if (args->screenshotFrames != nullptr && hmlen(args->screenshotFrames) > 0 && args->screenshotPattern == nullptr) {
         fprintf(stderr, "Error: --screenshot-at-frame requires --screenshot to be set\n");
         exit(1);
     }
@@ -161,16 +161,18 @@ int main(int argc, char* argv[]) {
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Capture screenshot if this frame matches a requested frame
-        bool shouldScreenshot = hmget(args.screenshotFrames, frameCount);
+        if (args.screenshotFrames != nullptr) {
+            bool shouldScreenshot = hmget(args.screenshotFrames, frameCount);
 
-        if (shouldScreenshot) {
-            captureScreenshot(args.screenshotPattern, frameCount, (int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight);
+            if (shouldScreenshot) {
+                captureScreenshot(args.screenshotPattern, frameCount, (int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight);
 
-            hmdel(args.screenshotFrames, frameCount);
+                hmdel(args.screenshotFrames, frameCount);
 
-            if (hmlen(args.screenshotFrames) == 0) {
-                // All screenshots have been taken! Bail out!!
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                if (hmlen(args.screenshotFrames) == 0) {
+                    // All screenshots have been taken! Bail out!!
+                    glfwSetWindowShouldClose(window, GLFW_TRUE);
+                }
             }
         }
 
