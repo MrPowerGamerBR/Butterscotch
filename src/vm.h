@@ -87,6 +87,16 @@ typedef struct CallFrame {
     struct CallFrame* parent;
 } CallFrame;
 
+// ===[ EnvFrame - Saved context for with-statement (PushEnv/PopEnv) ]===
+typedef struct EnvFrame {
+    RValue* savedSelfVars;
+    uint32_t savedSelfVarCount;
+    struct Instance* savedInstance;
+    struct Instance** instanceList; // stb_ds array of matching instances (nullptr for single-instance)
+    int32_t currentIndex;           // Current position in instanceList
+    struct EnvFrame* parent;
+} EnvFrame;
+
 // ===[ VMStack - Upward-growing array of RValue slots ]===
 #define VM_STACK_SIZE 16384
 
@@ -117,6 +127,7 @@ typedef struct VMContext {
     struct Instance* currentInstance;
     CallFrame* callStack;
     int32_t callDepth;
+    EnvFrame* envStack; // Environment stack for with-statements (PushEnv/PopEnv)
     const char* currentCodeName;
     // Array variable maps: key = ((int64_t)varID << 32) | (uint32_t)arrayIndex
     ArrayMapEntry* globalArrayMap;

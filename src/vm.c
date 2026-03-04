@@ -1216,6 +1216,177 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     stackPush(ctx,result);
 }
 
+// ===[ With-Statement Helpers (PushEnv/PopEnv) ]===
+
+// Checks if objectIndex is or inherits from targetObjectIndex by walking the parent chain.
+static bool isObjectOrDescendant(DataWin* dataWin, int32_t objectIndex, int32_t targetObjectIndex) {
+    int32_t currentObj = objectIndex;
+    int depth = 0;
+    while (currentObj >= 0 && (uint32_t) currentObj < dataWin->objt.count && 32 > depth) {
+        if (currentObj == targetObjectIndex) return true;
+        currentObj = dataWin->objt.objects[currentObj].parentId;
+        depth++;
+    }
+    return false;
+}
+
+// Sets the VM instance context (selfVars, selfVarCount, currentInstance) from an Instance.
+static void switchToInstance(VMContext* ctx, Instance* inst) {
+    ctx->selfVars = inst->selfVars;
+    ctx->selfVarCount = inst->selfVarCount;
+    ctx->currentInstance = inst;
+}
+
+// Restores VM context from an EnvFrame's saved fields.
+static void restoreEnvContext(VMContext* ctx, EnvFrame* frame) {
+    ctx->selfVars = frame->savedSelfVars;
+    ctx->selfVarCount = frame->savedSelfVarCount;
+    ctx->currentInstance = frame->savedInstance;
+}
+
+static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+    int32_t jumpOffset = instrJumpOffset(instr);
+
+    // Pop target from stack
+    RValue targetVal = stackPop(ctx);
+    int32_t target = RValue_toInt32(targetVal);
+    RValue_free(&targetVal);
+
+    // Create env frame, save current context
+    EnvFrame* frame = malloc(sizeof(EnvFrame));
+    frame->savedSelfVars = ctx->selfVars;
+    frame->savedSelfVarCount = ctx->selfVarCount;
+    frame->savedInstance = (Instance*) ctx->currentInstance;
+    frame->instanceList = nullptr;
+    frame->currentIndex = 0;
+    frame->parent = ctx->envStack;
+    ctx->envStack = frame;
+
+    Runner* runner = (Runner*) ctx->runner;
+
+    if (target == INSTANCE_SELF) {
+        // with(self) - no-op, keep current instance
+        return;
+    }
+
+    if (target == INSTANCE_OTHER) {
+        // with(other) - switch to the instance that was "self" before the nearest enclosing with-block
+        // For nested with-blocks, other refers to the saved instance from the parent env frame
+        if (frame->parent != nullptr) {
+            switchToInstance(ctx, frame->parent->savedInstance);
+        }
+        // If no parent frame, other is the same as the saved instance (no outer with-block)
+        // which is already saved in frame->savedInstance
+        return;
+    }
+
+    if (target == INSTANCE_NOONE) {
+        // with(noone) - skip the block entirely
+        ctx->ip = instrAddr + jumpOffset;
+        return;
+    }
+
+    if (target == INSTANCE_ALL) {
+        // with(all) - iterate over all active instances
+        int32_t instanceCount = (int32_t) arrlen(runner->instances);
+        for (int32_t i = 0; instanceCount > i; i++) {
+            Instance* inst = runner->instances[i];
+            if (inst->active) {
+                arrput(frame->instanceList, inst);
+            }
+        }
+
+        if (arrlen(frame->instanceList) == 0) {
+            // No active instances, skip the block
+            ctx->ip = instrAddr + jumpOffset;
+            return;
+        }
+
+        frame->currentIndex = 0;
+        switchToInstance(ctx, frame->instanceList[0]);
+        return;
+    }
+
+    if (target >= 0 && 100000 > target) {
+        // Object index - iterate over active instances of this object (or its descendants)
+        int32_t instanceCount = (int32_t) arrlen(runner->instances);
+        for (int32_t i = 0; instanceCount > i; i++) {
+            Instance* inst = runner->instances[i];
+            if (inst->active && isObjectOrDescendant(ctx->dataWin, inst->objectIndex, target)) {
+                arrput(frame->instanceList, inst);
+            }
+        }
+
+        if (arrlen(frame->instanceList) == 0) {
+            // No matching instances, skip the block
+            ctx->ip = instrAddr + jumpOffset;
+            return;
+        }
+
+        frame->currentIndex = 0;
+        switchToInstance(ctx, frame->instanceList[0]);
+        return;
+    }
+
+    if (target >= 100000) {
+        // Instance ID - find the specific instance
+        int32_t instanceCount = (int32_t) arrlen(runner->instances);
+        for (int32_t i = 0; instanceCount > i; i++) {
+            Instance* inst = runner->instances[i];
+            if (inst->active && (int32_t) inst->instanceId == target) {
+                switchToInstance(ctx, inst);
+                return;
+            }
+        }
+
+        // Instance not found, skip the block
+        ctx->ip = instrAddr + jumpOffset;
+        return;
+    }
+
+    fprintf(stderr, "VM: PushEnv with unhandled target %d\n", target);
+    ctx->ip = instrAddr + jumpOffset;
+}
+
+static void handlePopEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+    EnvFrame* frame = ctx->envStack;
+    require(frame != nullptr);
+
+    // Check for exit magic: PopEnv with 0xF00000 operand means "unwind env stack and exit/return"
+    if ((instr & 0x00FFFFFF) == 0xF00000) {
+        // Restore context and pop frame
+        restoreEnvContext(ctx, frame);
+        ctx->envStack = frame->parent;
+        arrfree(frame->instanceList);
+        free(frame);
+        return;
+    }
+
+    // Check if there are more instances to iterate
+    if (frame->instanceList != nullptr && arrlen(frame->instanceList) > frame->currentIndex + 1) {
+        frame->currentIndex++;
+        Instance* nextInst = frame->instanceList[frame->currentIndex];
+        // Skip destroyed instances
+        while (!nextInst->active && arrlen(frame->instanceList) > frame->currentIndex + 1) {
+            frame->currentIndex++;
+            nextInst = frame->instanceList[frame->currentIndex];
+        }
+        if (nextInst->active) {
+            switchToInstance(ctx, nextInst);
+            // Jump back to the start of the with-block body
+            int32_t jumpOffset = instrJumpOffset(instr);
+            ctx->ip = instrAddr + jumpOffset;
+            return;
+        }
+    }
+
+    // Done iterating - restore context and pop frame
+    restoreEnvContext(ctx, frame);
+    ctx->envStack = frame->parent;
+    arrfree(frame->instanceList);
+    free(frame);
+}
+
 // ===[ Execution Loop ]===
 
 static const char* opcodeName(uint8_t opcode) {
@@ -1364,13 +1535,13 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_EXIT:
                 return RValue_makeUndefined();
 
-            // Environment (with-statements) - stubbed
+            // Environment (with-statements)
             case OP_PUSHENV:
-                fprintf(stderr, "VM: PushEnv (with-statement) not implemented. Aborting.\n");
-                abort();
+                handlePushEnv(ctx, instr, instrAddr);
+                break;
             case OP_POPENV:
-                fprintf(stderr, "VM: PopEnv (with-statement) not implemented. Aborting.\n");
-                abort();
+                handlePopEnv(ctx, instr, instrAddr);
+                break;
 
             // Break (no-op / debug)
             case OP_BREAK:
@@ -1657,6 +1828,15 @@ void VM_free(VMContext* ctx) {
     shfree(ctx->stackToBeTraced);
     hmfree(ctx->varRefMap);
     hmfree(ctx->funcRefMap);
+
+    // Free any remaining env frames
+    EnvFrame* envFrame = ctx->envStack;
+    while (envFrame != nullptr) {
+        EnvFrame* parent = envFrame->parent;
+        arrfree(envFrame->instanceList);
+        free(envFrame);
+        envFrame = parent;
+    }
 
     // Free any remaining call frames
     CallFrame* frame = ctx->callStack;
