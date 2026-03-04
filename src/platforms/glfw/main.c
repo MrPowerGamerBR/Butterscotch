@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "runner_keyboard.h"
 #include "runner.h"
@@ -327,9 +328,6 @@ int main(int argc, char* argv[]) {
 
     if (args.headless) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwSwapInterval(0); // Disable v-sync if we are running in headless mode
-    } else {
-        glfwSwapInterval(1);
     }
 
     GLFWwindow* window = glfwCreateWindow((int) gen8->defaultWindowWidth, (int) gen8->defaultWindowHeight, windowTitle, nullptr, nullptr);
@@ -342,6 +340,7 @@ int main(int argc, char* argv[]) {
     }
 
     glfwMakeContextCurrent(window);
+    glfwSwapInterval(0); // Disable v-sync, we control timing ourselves
 
     // Load OpenGL function pointers via GLAD
     if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
@@ -361,6 +360,7 @@ int main(int argc, char* argv[]) {
     Runner_initFirstRoom(runner);
 
     // Main loop
+    double lastFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         // Clear last frame's pressed/released state, then poll new input events
         RunnerKeyboard_beginFrame(runner->keyboard);
@@ -405,6 +405,27 @@ int main(int argc, char* argv[]) {
             printf("Frame %d (End)\n", runner->frameCount);
 
         glfwSwapBuffers(window);
+
+        // Limit frame rate to room speed (skip in headless mode for max speed!!)
+        if (!args.headless && runner->currentRoom->speed > 0) {
+            double targetFrameTime = 1.0 / runner->currentRoom->speed;
+            double nextFrameTime = lastFrameTime + targetFrameTime;
+            // Sleep for most of the remaining time, then spin-wait for precision
+            double remaining = nextFrameTime - glfwGetTime();
+            if (remaining > 0.002) {
+                struct timespec ts = {
+                    .tv_sec = 0,
+                    .tv_nsec = (long) ((remaining - 0.001) * 1e9)
+                };
+                nanosleep(&ts, nullptr);
+            }
+            while (glfwGetTime() < nextFrameTime) {
+                // Spin-wait for the remaining sub-millisecond
+            }
+            lastFrameTime = nextFrameTime;
+        } else {
+            lastFrameTime = glfwGetTime();
+        }
     }
 
     // Cleanup
