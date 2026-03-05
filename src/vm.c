@@ -1162,16 +1162,25 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
 }
 
 static void handleDup(VMContext* ctx, uint32_t instr) {
-    (void) instr;
-    RValue* top = stackPeek(ctx);
-    RValue copy = *top;
+    // The Extra field (lower 8 bits) encodes how many additional items beyond 1 to duplicate.
+    // dup.i 0 = duplicate 1 item, dup.i 1 = duplicate 2 items (used for array access: instanceType + arrayIndex), etc.
+    uint8_t extra = (uint8_t)(instr & 0xFF);
+    int32_t count = (int32_t) extra + 1;
 
-    // If the value owns a string, duplicate it to avoid double-free
-    if (copy.type == RVALUE_STRING && copy.ownsString && copy.string != nullptr) {
-        copy.string = strdup(copy.string);
+    require(ctx->stack.top >= count);
+
+    // Copy 'count' items from the top of the stack (preserving order)
+    int32_t startIdx = ctx->stack.top - count;
+    for (int32_t i = 0; count > i; i++) {
+        RValue copy = ctx->stack.slots[startIdx + i];
+
+        // If the value owns a string, duplicate it to avoid double-free
+        if (copy.type == RVALUE_STRING && copy.ownsString && copy.string != nullptr) {
+            copy.string = strdup(copy.string);
+        }
+
+        stackPush(ctx, copy);
     }
-
-    stackPush(ctx,copy);
 }
 
 static void handleBranch(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
