@@ -887,8 +887,11 @@ static void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) 
     // For VARTYPE_ARRAY compound assignments (type1 != GML_TYPE_VARIABLE), the type1 field
     // indicates the stack layout (compound vs simple), NOT a type conversion target.
     // Skip conversion in that case to preserve string values through += operations.
-    bool isCompoundArrayAssignment = (varType == VARTYPE_ARRAY && type1 != GML_TYPE_VARIABLE);
-    if (type2 != type1 && type1 != GML_TYPE_VARIABLE && !isCompoundArrayAssignment) {
+    // For compound assignments (type1 != GML_TYPE_VARIABLE) with VARTYPE_ARRAY or VARTYPE_STACKTOP,
+    // the type1 field indicates the stack layout (compound vs simple), NOT a type conversion target.
+    // Skip conversion to preserve the actual computed value (e.g. g.image_angle -= 4.5 must not truncate to int).
+    bool isCompoundAssignment = ((varType == VARTYPE_ARRAY || varType == VARTYPE_STACKTOP) && type1 != GML_TYPE_VARIABLE);
+    if (type2 != type1 && type1 != GML_TYPE_VARIABLE && !isCompoundAssignment) {
         RValue converted = convertValue(val, type1);
         RValue_free(&val);
         val = converted;
