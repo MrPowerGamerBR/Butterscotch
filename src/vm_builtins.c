@@ -207,6 +207,12 @@ RValue VMBuiltins_getVariable(VMContext* ctx, const char* name, int32_t arrayInd
             }
             return RValue_makeReal(0.0);
         }
+        if (strcmp(name, "view_object") == 0) {
+            if (arrayIndex >= 0 && 8 > arrayIndex) {
+                return RValue_makeReal((double) runner->currentRoom->views[arrayIndex].objectId);
+            }
+            return RValue_makeReal(-4.0);
+        }
 
         // Background properties
         if (strcmp(name, "background_visible") == 0) {
@@ -385,6 +391,12 @@ void VMBuiltins_setVariable(VMContext* ctx, const char* name, RValue val, int32_
     if (strcmp(name, "view_hview") == 0) {
         if (arrayIndex >= 0 && 8 > arrayIndex) {
             runner->currentRoom->views[arrayIndex].viewHeight = RValue_toInt32(val);
+        }
+        return;
+    }
+    if (strcmp(name, "view_object") == 0) {
+        if (arrayIndex >= 0 && 8 > arrayIndex) {
+            runner->currentRoom->views[arrayIndex].objectId = RValue_toInt32(val);
         }
         return;
     }
