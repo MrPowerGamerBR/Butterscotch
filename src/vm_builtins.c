@@ -866,6 +866,15 @@ static RValue builtinMoveTowardsPoint(VMContext* ctx, RValue* args, [[maybe_unus
     return RValue_makeReal(0.0);
 }
 
+static RValue builtinMoveSnap(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    double hsnap = RValue_toReal(args[0]);
+    double vsnap = RValue_toReal(args[1]);
+    Instance* inst = ctx->currentInstance;
+    if (hsnap > 0.0) inst->x = floor((inst->x / hsnap) + 0.5) * hsnap;
+    if (vsnap > 0.0) inst->y = floor((inst->y / vsnap) + 0.5) * vsnap;
+    return RValue_makeReal(0.0);
+}
+
 static RValue builtinLengthdir_x([[maybe_unused]] VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeReal(0.0);
     double len = RValue_toReal(args[0]);
@@ -2620,6 +2629,7 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("point_direction", builtinPointDirection);
     registerBuiltin("distance_to_point", builtinDistanceToPoint);
     registerBuiltin("move_towards_point", builtinMoveTowardsPoint);
+    registerBuiltin("move_snap", builtinMoveSnap);
     registerBuiltin("lengthdir_x", builtinLengthdir_x);
     registerBuiltin("lengthdir_y", builtinLengthdir_y);
 
