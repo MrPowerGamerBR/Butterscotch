@@ -14,8 +14,8 @@
 #include "runner_keyboard.h"
 #include "vm.h"
 #include "../data_win.h"
-#include "gs_renderer.h"
-#include "gs_texture_cache.h"
+#include "gs_renderer_flat.h"
+#include "ps2_utils.h"
 #include "utils.h"
 
 // The maximum memory of a normal PS2 console
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
 
     printf("Controller initialized\n");
 
-    const char* dataWinPath = "mass:data.win";
+    const char* dataWinPath = "host:data.win";
     if (argc > 1) {
         dataWinPath = argv[1];
     }
@@ -148,8 +148,8 @@ int main(int argc, char* argv[]) {
     // ===[ Create texture cache and renderer ]===
     // Save VRAM pointer after FONTM upload so the texture cache starts after it
     uint32_t vramBase = gsGlobal->CurrentPointer;
-    GsTextureCache* textureCache = GsTextureCache_create(gsGlobal, vramBase, dataWin);
-    Renderer* renderer = GsRenderer_create(gsGlobal, textureCache);
+
+    Renderer* renderer = GsRendererFlat_create(gsGlobal);
 
     VMContext* vm = VM_create(dataWin);
     Runner* runner = Runner_create(dataWin, vm);
