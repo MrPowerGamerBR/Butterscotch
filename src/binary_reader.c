@@ -84,6 +84,12 @@ uint64_t BinaryReader_readUint64(BinaryReader* reader) {
     return value;
 }
 
+int64_t BinaryReader_readInt64(BinaryReader* reader) {
+    int64_t value;
+    readCheck(reader, &value, 8);
+    return value;
+}
+
 bool BinaryReader_readBool32(BinaryReader* reader) {
     return BinaryReader_readUint32(reader) != 0;
 }

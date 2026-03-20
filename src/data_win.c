@@ -240,7 +240,10 @@ static void parseGEN8(BinaryReader* reader, DataWin* dw) {
     g->activeTargets = BinaryReader_readUint64(reader);
     g->functionClassifications = BinaryReader_readUint64(reader);
     g->steamAppID = BinaryReader_readInt32(reader);
-    g->debuggerPort = BinaryReader_readUint32(reader);
+    if(g->bytecodeVersion >= 14)
+    {
+        g->debuggerPort = BinaryReader_readUint32(reader);
+    }
 
     // Room order SimpleList
     g->roomOrderCount = BinaryReader_readUint32(reader);
@@ -251,6 +254,16 @@ static void parseGEN8(BinaryReader* reader, DataWin* dw) {
         }
     } else {
         g->roomOrder = nullptr;
+    }
+
+    if(g->major >= 2)
+    {
+        BinaryReader_skip(reader, 8); // firstRandom (int64)
+        BinaryReader_skip(reader, 8*4); // 4 Random Entries (int64 or 2 int32)
+
+        g->gms2FPS = BinaryReader_readFloat32(reader);
+        BinaryReader_skip(reader, 4); // AllowStatistics (bool32)
+        BinaryReader_skip(reader, 16); // GameGUID (16 Bytes, unknown it's use)
     }
 }
 
@@ -459,8 +472,6 @@ static void parseAGRP(BinaryReader* reader, DataWin* dw) {
 
 static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPreciseMasksForNonPreciseSprites) {
     Sprt* s = &dw->sprt;
-    int sequenceOffset = 0;
-    int nineSliceOffset = 0;
     uint32_t count;
     uint32_t* ptrs = readPointerTable(reader, &count);
     s->count = count;
@@ -498,18 +509,18 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
                 spr->gms2PlaybackSpeedType = BinaryReader_readUint32(reader);
                 if(spr->sVersion >= 2)
                 {
-                    sequenceOffset = BinaryReader_readUint32(reader);
+                    BinaryReader_skip(reader, 4); //sequenceOffset;
                     if(spr->sVersion >= 3)
                     {
-                        nineSliceOffset = BinaryReader_readUint32(reader);
+                       BinaryReader_skip(reader, 4); // nineSliceOffset;
                     }
                 }
-                
+                check = BinaryReader_readUint32(reader);
             }
         }
 
         // 'check' is the texture count not -1 (start of SimpleList)
-        spr->textureCount = (dw->gen8.major == 1 && check != -1) ? (uint32_t)check : BinaryReader_readUint32(reader);
+        spr->textureCount = (uint32_t)check;
         if (spr->textureCount > 0) {
             spr->textureOffsets = safeMalloc(spr->textureCount * sizeof(uint32_t));
             repeat(spr->textureCount, j) {
@@ -578,6 +589,28 @@ static void parseBGND(BinaryReader* reader, DataWin* dw) {
         bg->smooth = BinaryReader_readBool32(reader);
         bg->preload = BinaryReader_readBool32(reader);
         bg->textureOffset = BinaryReader_readUint32(reader);
+        if(dw->gen8.major >= 2) {
+            bg->gms2UnknownAlways2 = BinaryReader_readUint32(reader);
+            bg->gms2TileWidth = BinaryReader_readUint32(reader);
+            bg->gms2TileHeight = BinaryReader_readUint32(reader);
+            if (dw->gen8.major >= 2024 && dw->gen8.minor >= 14 && dw->gen8.build >= 1) {
+                bg->gms2TileSeparationX = BinaryReader_readUint32(reader);
+                bg->gms2TileSeparationY = BinaryReader_readUint32(reader);
+            }
+            bg->gms2OutputBorderX = BinaryReader_readUint32(reader);
+            bg->gms2OutputBorderY = BinaryReader_readUint32(reader);
+            bg->gms2TileColumns = BinaryReader_readUint32(reader);
+            bg->gms2ItemsPerTileCount = BinaryReader_readUint32(reader);
+            bg->gms2TileCount = BinaryReader_readUint32(reader);
+            bg->gms2ExportedSpriteIndex = BinaryReader_readInt32(reader);
+            bg->gms2FrameLength = BinaryReader_readInt64(reader);
+            int tileIdCount = bg->gms2TileCount * bg->gms2ItemsPerTileCount;
+            bg->gms2TileIds = malloc(tileIdCount*sizeof(uint32_t));
+            for(int i = 0; i < tileIdCount; i++)
+            {
+                bg->gms2TileIds[i] = BinaryReader_readUint32(reader);
+            }
+        }
     }
     free(ptrs);
 }
@@ -940,6 +973,20 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
         room->gravityX = BinaryReader_readFloat32(reader);
         room->gravityY = BinaryReader_readFloat32(reader);
         room->metersPerPixel = BinaryReader_readFloat32(reader);
+        if(dw->gen8.major >= 2024 && dw->gen8.minor >= 13)
+        {
+            // skip instanceCreationOrderIDs
+            int count = BinaryReader_readInt32(reader);
+            BinaryReader_skip(reader, sizeof(int32_t) * count);
+        }
+        uint32_t layersPtr = 0;
+        if(dw->gen8.major >= 2)
+        {
+            layersPtr = BinaryReader_readUint32(reader);
+            if(dw->gen8.minor >= 3) {
+                BinaryReader_skip(reader, 4); // sequencesPtr
+            }
+        }
 
         // Backgrounds PointerList (always 8 entries)
         BinaryReader_seek(reader, backgroundsPtr);
@@ -1054,6 +1101,82 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                 room->tiles = nullptr;
             }
             free(tilePtrs);
+        }
+
+        if(dw->gen8.major >= 2)
+        {
+            // Tiles PointerList
+            BinaryReader_seek(reader, layersPtr);
+            {
+                uint32_t layerCount;
+                uint32_t* layerPtrs = readPointerTable(reader, &layerCount);
+                room->layerCount = layerCount;
+
+                if (layerCount > 0) {
+                    room->layers = safeMalloc(layerCount * sizeof(RoomLayer));
+                    repeat(layerCount, j) {
+                        BinaryReader_seek(reader, layerPtrs[j]);
+                        RoomLayer* layer = &room->layers[j];
+                        layer->name = readStringPtr(reader, dw);
+                        layer->id = BinaryReader_readUint32(reader);
+                        layer->type = BinaryReader_readUint32(reader);
+                        layer->depth = BinaryReader_readInt32(reader);
+                        layer->xOffset = BinaryReader_readFloat32(reader);
+                        layer->yOffset = BinaryReader_readFloat32(reader);
+                        layer->hSpeed = BinaryReader_readFloat32(reader);
+                        layer->vSpeed = BinaryReader_readFloat32(reader);
+                        switch (layer->type) {
+                            case RoomLayerType_Path:
+                                break; // Nothing to do;
+                            
+                            case RoomLayerType_Assets: {
+                                RoomLayerAssetsData* assets = malloc(sizeof(RoomLayerAssetsData));
+                                assets->legacyTilesPtr = BinaryReader_readUint32(reader);
+                                assets->spritesPtr = BinaryReader_readUint32(reader);
+                                // TODO: GMS2.3+ Specil Fields
+                                break;
+                            }
+
+                            case RoomLayerType_Background: {
+                                RoomLayerBackgroundData* bg = malloc(sizeof(RoomLayerBackgroundData));
+                                bg->visible = BinaryReader_readBool32(reader);
+                                bg->foreground = BinaryReader_readBool32(reader);
+                                bg->spriteIndex = BinaryReader_readInt32(reader);
+                                bg->hTiled = BinaryReader_readBool32(reader);
+                                bg->vTiled = BinaryReader_readBool32(reader);
+                                bg->stretch = BinaryReader_readBool32(reader);
+                                bg->color = BinaryReader_readUint32(reader);
+                                bg->firstFrame = BinaryReader_readFloat32(reader);
+                                bg->animSpeed = BinaryReader_readFloat32(reader);
+                                bg->animSpeedType = BinaryReader_readUint32(reader);
+                                layer->backgroundData = bg;
+                                break;
+                            }
+                            case RoomLayerType_Instances: {
+                                RoomLayerInstancesData* inst = malloc(sizeof(RoomLayerInstancesData));
+                                inst->instanceCount = BinaryReader_readUint32(reader);
+                                if (inst->instanceCount > 0) {
+                                    inst->instanceIds = malloc(inst->instanceCount * sizeof(uint32_t));
+                                    repeat(inst->instanceCount, k) {
+                                        inst->instanceIds[k] = BinaryReader_readUint32(reader);
+                                    }
+                                } else {
+                                    inst->instanceIds = nullptr;
+                                }
+                                layer->instancesData = inst;
+                                break;
+                            }
+                            default:
+                                fprintf(stderr, "Unsupported Room Layer Type %u\n", layer->type);
+                                exit(0);
+                                break;
+                        }
+                    }
+                } else {
+                    room->layers = nullptr;
+                }
+                free(layerPtrs);
+            }
         }
     }
     free(ptrs);
@@ -1480,6 +1603,16 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
         chunkIndex++;
     }
 
+     // GMS2: apply default FPS to rooms with speed=0
+    printf("gen8: gms2FPS = %f\n", dw->gen8.gms2FPS);
+    if (dw->gen8.gms2FPS > 0) {
+        repeat(dw->room.count, i) {
+            if (dw->room.rooms[i].speed == 0) {
+                dw->room.rooms[i].speed = (uint32_t) dw->gen8.gms2FPS;
+            }
+        }
+    }
+
     fclose(file);
 
     return dw;
@@ -1622,6 +1755,17 @@ void DataWin_free(DataWin* dw) {
         repeat(dw->room.count, i) {
             free(dw->room.rooms[i].gameObjects);
             free(dw->room.rooms[i].tiles);
+            if (dw->room.rooms[i].layers) {
+                repeat(dw->room.rooms[i].layerCount, j) {
+                    RoomLayer* layer = &dw->room.rooms[i].layers[j];
+                    if (layer->backgroundData) free(layer->backgroundData);
+                    if (layer->instancesData) {
+                        free(layer->instancesData->instanceIds);
+                        free(layer->instancesData);
+                    }
+                }
+                free(dw->room.rooms[i].layers);
+            }
         }
         free(dw->room.rooms);
     }
