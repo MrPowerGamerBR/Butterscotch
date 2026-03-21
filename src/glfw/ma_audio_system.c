@@ -6,11 +6,13 @@
 #include "miniaudio.h"
 
 #include "ma_audio_system.h"
+#include "data_win.h"
 #include "utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "stb_ds.h"
 
 // ===[ Helpers ]===
 
@@ -74,7 +76,7 @@ static char* resolveExternalPath(MaAudioSystem* ma, Sound* sound) {
 
 static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem) {
     MaAudioSystem* ma = (MaAudioSystem*) audio;
-    ma->base.dataWin = dataWin;
+    arrput(ma->base.audioGroups, dataWin);
     ma->fileSystem = fileSystem;
 
     ma_engine_config config = ma_engine_config_init();
@@ -141,7 +143,7 @@ static void maUpdate(AudioSystem* audio, float deltaTime) {
 
 static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t priority, bool loop) {
     MaAudioSystem* ma = (MaAudioSystem*) audio;
-    DataWin* dw = ma->base.dataWin;
+    DataWin* dw = ma->base.audioGroups[0]; // Audio Group 0 should always be data.win
 
     if (0 > soundIndex || (uint32_t) soundIndex >= dw->sond.count) {
         fprintf(stderr, "Audio: Invalid sound index %d\n", soundIndex);
@@ -162,12 +164,12 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
 
     if (isEmbedded) {
         // Embedded audio: decode from AUDO chunk memory
-        if (0 > sound->audioFile || (uint32_t) sound->audioFile >= dw->audo.count) {
+        if (0 > sound->audioFile || (uint32_t) sound->audioFile >= ma->base.audioGroups[sound->audioGroup]->audo.count) {
             fprintf(stderr, "Audio: Invalid audio file index %d for sound '%s'\n", sound->audioFile, sound->name);
             return -1;
         }
 
-        AudioEntry* entry = &dw->audo.entries[sound->audioFile];
+        AudioEntry* entry = &ma->base.audioGroups[sound->audioGroup]->audo.entries[sound->audioFile];
 
         ma_decoder_config decoderConfig = ma_decoder_config_init_default();
         result = ma_decoder_init_memory(entry->data, entry->dataSize, &decoderConfig, &slot->decoder);
@@ -491,14 +493,22 @@ static void maSetChannelCount([[maybe_unused]] AudioSystem* audio, [[maybe_unuse
     // miniaudio handles channel management internally, this is a no-op
 }
 
-static void maGroupLoad([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t groupIndex) {
-    // Group 0 is already loaded (AUDO chunk), external sounds are loaded on demand
-    // Full audiogroup*.dat parsing can be added later if needed
+static void maGroupLoad(AudioSystem* audio, int32_t groupIndex) {
+    if(groupIndex > 0)
+    {
+        int sz = snprintf(NULL, 0, "audiogroup%d.dat", groupIndex);
+        char buf[sz + 1];
+        snprintf(buf, sizeof(buf), "audiogroup%d.dat", groupIndex);
+        DataWin *audioGroup = DataWin_parse(((MaAudioSystem*)audio)->fileSystem->vtable->resolvePath(((MaAudioSystem*)audio)->fileSystem, buf),
+        (DataWinParserOptions) {
+            .parseAudo = true,
+        });
+        arrput(audio->audioGroups, audioGroup);
+    }
 }
 
 static bool maGroupIsLoaded([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t groupIndex) {
-    // Always report loaded -- group 0 is embedded, external files load on demand
-    return true;
+    return (arrlen(audio->audioGroups) > groupIndex);
 }
 
 // ===[ Vtable ]===
