@@ -26,6 +26,14 @@ file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
 add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES})
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+option(USE_JIT "Enable JIT compilation" ON)
+if(USE_JIT)
+    add_compile_definitions(USE_JIT SLJIT_HAVE_CONFIG_PRE=1)
+    target_include_directories(butterscotch PRIVATE vendor/sljit/sljit_src)
+    target_sources(butterscotch PRIVATE vendor/sljit/sljit_src/sljitLir.c)
+    target_compile_definitions(butterscotch PRIVATE SLJIT_CONFIG_AUTO=1)
+endif()
+
 # stb_ds
 target_include_directories(butterscotch PUBLIC vendor/stb/ds)
 
