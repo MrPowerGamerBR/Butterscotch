@@ -7,7 +7,7 @@
 #include "stb_ds.h"
 #include "utils.h"
 
-Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, double x, double y) {
+Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, GMLReal y) {
     Instance* inst = safeCalloc(1, sizeof(Instance));
     inst->instanceId = instanceId;
     inst->objectIndex = objectIndex;
@@ -85,7 +85,7 @@ void Instance_computeSpeedFromComponents(Instance* inst) {
         }
         // If both are 0, direction stays unchanged
     } else {
-        double dd = clampFloat(180.0 * atan2(inst->vspeed, inst->hspeed) / M_PI);
+        GMLReal dd = clampFloat(180.0 * GMLReal_atan2(inst->vspeed, inst->hspeed) / M_PI);
         if (dd <= 0.0) {
             inst->direction = -dd;
         } else {
@@ -94,28 +94,28 @@ void Instance_computeSpeedFromComponents(Instance* inst) {
     }
 
     // Round direction if very close to integer
-    if (fabs(inst->direction - round(inst->direction)) < 0.0001) {
-        inst->direction = round(inst->direction);
+    if (GMLReal_fabs(inst->direction - GMLReal_round(inst->direction)) < 0.0001) {
+        inst->direction = GMLReal_round(inst->direction);
     }
-    inst->direction = fmod(inst->direction, 360.0);
+    inst->direction = GMLReal_fmod(inst->direction, 360.0);
 
     // Speed
-    inst->speed = sqrt(inst->hspeed * inst->hspeed + inst->vspeed * inst->vspeed);
-    if (fabs(inst->speed - round(inst->speed)) < 0.0001) {
-        inst->speed = round(inst->speed);
+    inst->speed = GMLReal_sqrt(inst->hspeed * inst->hspeed + inst->vspeed * inst->vspeed);
+    if (GMLReal_fabs(inst->speed - GMLReal_round(inst->speed)) < 0.0001) {
+        inst->speed = GMLReal_round(inst->speed);
     }
 }
 
 // Compute hspeed/vspeed from speed and direction (HTML5: Compute_Speed2)
 void Instance_computeComponentsFromSpeed(Instance* inst) {
-    inst->hspeed = inst->speed * clampFloat(cos(inst->direction * (M_PI / 180.0)));
-    inst->vspeed = -inst->speed * clampFloat(sin(inst->direction * (M_PI / 180.0)));
+    inst->hspeed = inst->speed * clampFloat(GMLReal_cos(inst->direction * (M_PI / 180.0)));
+    inst->vspeed = -inst->speed * clampFloat(GMLReal_sin(inst->direction * (M_PI / 180.0)));
 
     // Round if very close to integer
-    if (fabs(inst->hspeed - round(inst->hspeed)) < 0.0001) {
-        inst->hspeed = round(inst->hspeed);
+    if (GMLReal_fabs(inst->hspeed - GMLReal_round(inst->hspeed)) < 0.0001) {
+        inst->hspeed = GMLReal_round(inst->hspeed);
     }
-    if (fabs(inst->vspeed - round(inst->vspeed)) < 0.0001) {
-        inst->vspeed = round(inst->vspeed);
+    if (GMLReal_fabs(inst->vspeed - GMLReal_round(inst->vspeed)) < 0.0001) {
+        inst->vspeed = GMLReal_round(inst->vspeed);
     }
 }

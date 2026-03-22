@@ -182,7 +182,7 @@ static void arrayMapSet(ArrayMapEntry** map, int32_t varID, int32_t arrayIndex, 
     }
     // If storing a non-owning string, make an owning copy
     if (val.type == RVALUE_STRING && !val.ownsString && val.string != nullptr) {
-        val = RValue_makeOwnedString(strdup(val.string));
+        val = RValue_makeOwnedString(safeStrdup(val.string));
     }
     hmput(*map, k, val);
 }
@@ -512,7 +512,7 @@ static void writeSingleInstanceVariable(VMContext* ctx, Instance* inst, Variable
     // Array write
     if (access->isArray) {
         int32_t resolvedVarID = resolveArrayAliasHm(inst->selfVars, varDef->varID);
-        RValue valCopy = (val.type == RVALUE_STRING && val.string != nullptr) ? RValue_makeOwnedString(strdup(val.string)) : val;
+        RValue valCopy = (val.type == RVALUE_STRING && val.string != nullptr) ? RValue_makeOwnedString(safeStrdup(val.string)) : val;
         arrayMapSet(&inst->selfArrayMap, resolvedVarID, access->arrayIndex, valCopy);
         hmput(inst->selfArrayVarTracker, resolvedVarID, 1);
         return;
@@ -673,7 +673,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             RValue* dest = &ctx->localVars[varDef->varID];
             RValue_free(dest);
             if (val.type == RVALUE_STRING && !val.ownsString && val.string != nullptr) {
-                *dest = RValue_makeOwnedString(strdup(val.string));
+                *dest = RValue_makeOwnedString(safeStrdup(val.string));
             } else {
                 *dest = val;
             }
@@ -685,7 +685,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             RValue* dest = &ctx->globalVars[varDef->varID];
             RValue_free(dest);
             if (val.type == RVALUE_STRING && !val.ownsString && val.string != nullptr) {
-                *dest = RValue_makeOwnedString(strdup(val.string));
+                *dest = RValue_makeOwnedString(safeStrdup(val.string));
             } else {
                 *dest = val;
             }
@@ -722,7 +722,7 @@ static RValue convertValue(RValue val, uint8_t targetType) {
         case GML_TYPE_DOUBLE:
             return RValue_makeReal(RValue_toReal(val));
         case GML_TYPE_FLOAT:
-            return RValue_makeReal((double) (float) RValue_toReal(val));
+            return RValue_makeReal((GMLReal) (float) RValue_toReal(val));
         case GML_TYPE_INT32:
             return RValue_makeInt32(RValue_toInt32(val));
         case GML_TYPE_INT64:
@@ -757,7 +757,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             stackPush(ctx,RValue_makeReal(BinaryUtils_readFloat64(extraData)));
             break;
         case GML_TYPE_FLOAT:
-            stackPush(ctx,RValue_makeReal((double) BinaryUtils_readFloat32(extraData)));
+            stackPush(ctx,RValue_makeReal((GMLReal) BinaryUtils_readFloat32(extraData)));
             break;
         case GML_TYPE_INT32:
             stackPush(ctx,RValue_makeInt32(BinaryUtils_readInt32(extraData)));
@@ -1042,7 +1042,7 @@ static void handleAdd(VMContext* ctx) {
     } else if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
         stackPush(ctx, RValue_makeInt64(a.int64 + b.int64));
     } else {
-        double result = RValue_toReal(a) + RValue_toReal(b);
+        GMLReal result = RValue_toReal(a) + RValue_toReal(b);
         RValue_free(&a);
         RValue_free(&b);
         stackPush(ctx, RValue_makeReal(result));
@@ -1057,7 +1057,7 @@ static void handleSub(VMContext* ctx) {
     } else if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
         stackPush(ctx, RValue_makeInt64(a.int64 - b.int64));
     } else {
-        double result = RValue_toReal(a) - RValue_toReal(b);
+        GMLReal result = RValue_toReal(a) - RValue_toReal(b);
         RValue_free(&a);
         RValue_free(&b);
         stackPush(ctx, RValue_makeReal(result));
@@ -1076,7 +1076,7 @@ static void handleMul(VMContext* ctx) {
         if (count <= 0 || len == 0) {
             RValue_free(&a);
             RValue_free(&b);
-            stackPush(ctx,RValue_makeOwnedString(strdup("")));
+            stackPush(ctx,RValue_makeOwnedString(safeStrdup("")));
         } else {
             char* result = safeMalloc(len * count + 1);
             repeat(count, i) {
@@ -1092,7 +1092,7 @@ static void handleMul(VMContext* ctx) {
     } else if (a.type == RVALUE_INT64 && b.type == RVALUE_INT64) {
         stackPush(ctx, RValue_makeInt64(a.int64 * b.int64));
     } else {
-        double result = RValue_toReal(a) * RValue_toReal(b);
+        GMLReal result = RValue_toReal(a) * RValue_toReal(b);
         RValue_free(&a);
         RValue_free(&b);
         stackPush(ctx, RValue_makeReal(result));
@@ -1102,12 +1102,12 @@ static void handleMul(VMContext* ctx) {
 static void handleDiv(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
-    double divisor = RValue_toReal(b);
+    GMLReal divisor = RValue_toReal(b);
     if (divisor == 0.0) {
         fprintf(stderr, "VM: DoDiv :: Divide by zero\n");
         abort();
     }
-    double result = RValue_toReal(a) / divisor;
+    GMLReal result = RValue_toReal(a) / divisor;
     RValue_free(&a);
     RValue_free(&b);
     stackPush(ctx,RValue_makeReal(result));
@@ -1130,12 +1130,12 @@ static void handleRem(VMContext* ctx) {
 static void handleMod(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
-    double divisor = RValue_toReal(b);
+    GMLReal divisor = RValue_toReal(b);
     if (divisor == 0.0) {
         fprintf(stderr, "VM: DoMod :: Divide by zero\n");
         abort();
     }
-    double result = fmod(RValue_toReal(a), divisor);
+    GMLReal result = GMLReal_fmod(RValue_toReal(a), divisor);
     RValue_free(&a);
     RValue_free(&b);
     stackPush(ctx,RValue_makeReal(result));
@@ -1163,7 +1163,7 @@ static void handleXor(VMContext* ctx) {
 
 static void handleNeg(VMContext* ctx) {
     RValue a = stackPop(ctx);
-    double result = -RValue_toReal(a);
+    GMLReal result = -RValue_toReal(a);
     RValue_free(&a);
     stackPush(ctx,RValue_makeReal(result));
 }
@@ -1223,8 +1223,8 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
         case 0x51: result = val; break; // Float -> Variable (passthrough)
 
         // Int32 (2) -> other
-        case 0x02: result = RValue_makeReal((double) val.int32); break;
-        case 0x12: result = RValue_makeReal((double) val.int32); break;
+        case 0x02: result = RValue_makeReal((GMLReal) val.int32); break;
+        case 0x12: result = RValue_makeReal((GMLReal) val.int32); break;
         case 0x32: result = RValue_makeInt64((int64_t) val.int32); break;
         case 0x42: result = RValue_makeBool(val.int32 > 0); break;
         case 0x52: result = val; break; // Int32 -> Variable (passthrough)
@@ -1232,13 +1232,13 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
         case 0xF2: result = val; break;
 
         // Int64 (3) -> other
-        case 0x03: result = RValue_makeReal((double) val.int64); break;
+        case 0x03: result = RValue_makeReal((GMLReal) val.int64); break;
         case 0x23: result = RValue_makeInt32((int32_t) val.int64); break;
         case 0x43: result = RValue_makeBool(val.int64 > 0); break;
         case 0x53: result = val; break; // Int64 -> Variable (passthrough)
 
         // Bool (4) -> other
-        case 0x04: result = RValue_makeReal((double) val.int32); break;
+        case 0x04: result = RValue_makeReal((GMLReal) val.int32); break;
         case 0x24: result = RValue_makeInt32(val.int32); break;
         case 0x34: result = RValue_makeInt64((int64_t) val.int32); break;
         case 0x54: result = val; break; // Bool -> Variable (passthrough)
@@ -1255,9 +1255,9 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
         case 0xF5: result = RValue_makeInt32(RValue_toInt32(val)); break;
 
         // String (6) -> other
-        case 0x06: result = RValue_makeReal(strtod(val.string, nullptr)); break;
-        case 0x26: result = RValue_makeInt32((int32_t) strtod(val.string, nullptr)); break;
-        case 0x36: result = RValue_makeInt64((int64_t) strtod(val.string, nullptr)); break;
+        case 0x06: result = RValue_makeReal(GMLReal_strtod(val.string, nullptr)); break;
+        case 0x26: result = RValue_makeInt32((int32_t) GMLReal_strtod(val.string, nullptr)); break;
+        case 0x36: result = RValue_makeInt64((int64_t) GMLReal_strtod(val.string, nullptr)); break;
         case 0x46: result = RValue_makeBool(val.string != nullptr && val.string[0] != '\0'); break;
         case 0x56: {
             // String -> Variable: keep as-is since our RValue handles strings natively
@@ -1266,7 +1266,7 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
         }
 
         // Int16 (F) -> other
-        case 0x0F: result = RValue_makeReal((double) val.int32); break;
+        case 0x0F: result = RValue_makeReal((GMLReal) val.int32); break;
         case 0x2F: result = val; break;
         case 0x5F: result = val; break;
 
@@ -1302,11 +1302,11 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
             default: result = false; break;
         }
     } else {
-        double da = RValue_toReal(a);
-        double db = RValue_toReal(b);
-        double diff = da - db;
+        GMLReal da = RValue_toReal(a);
+        GMLReal db = RValue_toReal(b);
+        GMLReal diff = da - db;
         // GML uses epsilon-based comparison for all numeric CMP operations
-        int cmp = fabs(diff) <= GML_MATH_EPSILON ? 0 : (diff < 0 ? -1 : 1);
+        int cmp = GMLReal_fabs(diff) <= GML_MATH_EPSILON ? 0 : (diff < 0 ? -1 : 1);
         switch (cmpKind) {
             case CMP_LT:  result = cmp < 0; break;
             case CMP_LTE: result = cmp <= 0; break;
@@ -1338,7 +1338,7 @@ static void handleDup(VMContext* ctx, uint32_t instr) {
 
         // If the value owns a string, duplicate it to avoid double-free
         if (copy.type == RVALUE_STRING && copy.ownsString && copy.string != nullptr) {
-            copy.string = strdup(copy.string);
+            copy.string = safeStrdup(copy.string);
         }
 
         stackPush(ctx, copy);
@@ -1393,7 +1393,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     bool functionIsBeingTraced = shgeti(ctx->functionCallsToBeTraced, "*") != -1 || shgeti(ctx->functionCallsToBeTraced, funcName) != -1 || shgeti(ctx->functionCallsToBeTraced, ctx->currentCodeName) != -1;
     char* functionArgumentList = nullptr;
     if (functionIsBeingTraced) {
-        functionArgumentList = strdup("");
+        functionArgumentList = safeStrdup("");
         for (int32_t i = 0; i < argCount; i++) {
             char* display = RValue_toStringFancy(args[i]);
 
@@ -1404,7 +1404,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
                 functionArgumentList = tmp;
             } else {
                 free(functionArgumentList);
-                functionArgumentList = strdup(display);
+                functionArgumentList = safeStrdup(display);
             }
             free(display);
         }
@@ -2013,7 +2013,7 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
         repeat(argCount, argIdx) {
             RValue argCopy = args[argIdx];
             if (argCopy.type == RVALUE_STRING && argCopy.ownsString && argCopy.string != nullptr) {
-                argCopy.string = strdup(argCopy.string);
+                argCopy.string = safeStrdup(argCopy.string);
             }
             ctx->scriptArgs[argIdx] = argCopy;
         }
@@ -2027,7 +2027,7 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     // Make result string owning BEFORE freeing callee locals/arrays to prevent
     // dangling pointer if the returned string points into a callee local var or array map.
     if (result.type == RVALUE_STRING && !result.ownsString && result.string != nullptr) {
-        result = RValue_makeOwnedString(strdup(result.string));
+        result = RValue_makeOwnedString(safeStrdup(result.string));
     }
 
     // Restore caller frame

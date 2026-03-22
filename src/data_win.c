@@ -1363,10 +1363,16 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
     if (count == 0) { free(ptrs); t->textures = nullptr; return; }
 
     // Read metadata entries
+    bool hasGeneratedMips = dw->gen8.major >= 2;
     t->textures = safeMalloc(count * sizeof(Texture));
     repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
         t->textures[i].scaled = BinaryReader_readUint32(reader);
+        if (hasGeneratedMips) {
+            t->textures[i].generatedMips = BinaryReader_readUint32(reader);
+        } else {
+            t->textures[i].generatedMips = 0;
+        }
         t->textures[i].blobOffset = BinaryReader_readUint32(reader);
         t->textures[i].blobData = nullptr;
     }

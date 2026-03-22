@@ -12,9 +12,9 @@ typedef struct { int32_t key; RValue value; } SelfVarEntry;
 typedef struct Instance {
     uint32_t instanceId;
     int32_t objectIndex;
-    double x, y;
-    double xprevious, yprevious;
-    double xstart, ystart;
+    GMLReal x, y;
+    GMLReal xprevious, yprevious;
+    GMLReal xstart, ystart;
     bool persistent, solid, active, visible, createEventFired, outsideRoom;
     int32_t maskIndex; // collision mask sprite override (-1 = use spriteIndex)
 
@@ -25,32 +25,32 @@ typedef struct Instance {
 
     // Built-in instance properties
     int32_t spriteIndex;
-    double imageSpeed, imageIndex;
-    double imageXscale, imageYscale, imageAngle, imageAlpha;
+    GMLReal imageSpeed, imageIndex;
+    GMLReal imageXscale, imageYscale, imageAngle, imageAlpha;
     uint32_t imageBlend;
     int32_t depth;
 
     // Motion properties
-    double speed, direction;
-    double hspeed, vspeed;
-    double friction;
-    double gravity, gravityDirection;
+    GMLReal speed, direction;
+    GMLReal hspeed, vspeed;
+    GMLReal friction;
+    GMLReal gravity, gravityDirection;
 
     // Path following state
     int32_t pathIndex;           // -1 = no path active
-    double pathPosition;         // 0.0-1.0
-    double pathPositionPrevious;
-    double pathSpeed;
-    double pathScale;            // default 1.0
-    double pathOrientation;      // degrees, default 0.0
+    GMLReal pathPosition;         // 0.0-1.0
+    GMLReal pathPositionPrevious;
+    GMLReal pathSpeed;
+    GMLReal pathScale;            // default 1.0
+    GMLReal pathOrientation;      // degrees, default 0.0
     int32_t pathEndAction;       // 0=stop, 1=restart, 2=continue, 3=reverse
-    double pathXStart;           // origin for relative paths
-    double pathYStart;
+    GMLReal pathXStart;           // origin for relative paths
+    GMLReal pathYStart;
 
     int32_t alarm[GML_ALARM_COUNT];
 } Instance;
 
-Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, double x, double y);
+Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, GMLReal y);
 void Instance_free(Instance* instance);
 
 // Get a self variable by varID. Returns RVALUE_UNDEFINED if absent. The returned RValue is non-owning.
@@ -69,7 +69,7 @@ static inline void Instance_setSelfVar(Instance* inst, int32_t varID, RValue val
         RValue_free(&inst->selfVars[idx].value);
     }
     if (val.type == RVALUE_STRING && val.string != nullptr) {
-        val = RValue_makeOwnedString(strdup(val.string));
+        val = RValue_makeOwnedString(safeStrdup(val.string));
     }
     hmput(inst->selfVars, varID, val);
 }

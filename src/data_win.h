@@ -675,9 +675,10 @@ typedef struct {
 // ===[ TXTR - Embedded Textures ]===
 typedef struct {
     uint32_t scaled;
+    uint32_t generatedMips; // GMS 2.0.6+: number of generated mipmaps (0 for GMS 1.x)
     uint32_t blobOffset; // absolute file offset to PNG data
-    uint32_t blobSize;   // computed size of blob data
-    uint8_t* blobData;   // owned copy of PNG data
+    uint32_t blobSize; // computed size of blob data
+    uint8_t* blobData; // owned copy of PNG data
 } Texture;
 
 typedef struct {
