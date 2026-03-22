@@ -3593,7 +3593,7 @@ static RValue builtinStringHashToNewline([[maybe_unused]] VMContext* ctx, RValue
             cur = '\n'; 
         result[i] = cur; 
     }
-    result[len+1] = '\0';
+    result[len] = '\0';
     free(str); 
     return RValue_makeOwnedString(result); }
 

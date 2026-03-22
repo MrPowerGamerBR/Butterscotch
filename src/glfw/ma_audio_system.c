@@ -170,7 +170,7 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
         }
 
         AudioEntry* entry = &ma->base.audioGroups[sound->audioGroup]->audo.entries[sound->audioFile];
-  
+
         ma_decoder_config decoderConfig = ma_decoder_config_init_default();
         result = ma_decoder_init_memory(entry->data, entry->dataSize, &decoderConfig, &slot->decoder);
         if (result != MA_SUCCESS) {
