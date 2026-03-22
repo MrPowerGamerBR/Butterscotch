@@ -5,12 +5,12 @@
 #include "stb_ds.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #ifdef USE_JIT
 #include "sljitLir.h"
 
 // ===[ Forward declarations ]===
-sljit_sw RValue_toBool_Pop(VMContext* ctx);
 void VM_popAndStoreResult(VMContext* ctx, RValue* dest);
 void VM_storeUndefined(RValue* dest);
 void VM_jitAbort(uint8_t opcode);
@@ -32,7 +32,7 @@ void VM_jitCompile(VMContext* ctx, int32_t codeIndex) {
     sljit_emit_enter(compiler, 0, SLJIT_ARGS2V(W, W), 3, 2, 0);
 
     uint8_t* bytecode = ctx->dataWin->bytecodeBuffer + (code->bytecodeAbsoluteOffset - ctx->dataWin->bytecodeBufferBase);
-    
+
     // Labels for each instruction offset
     struct sljit_label** labels = safeCalloc(code->length + 1, sizeof(struct sljit_label*));
     JumpFixup* fixups = NULL;
@@ -51,6 +51,9 @@ void VM_jitCompile(VMContext* ctx, int32_t codeIndex) {
             eDataSize = extraDataSize(instrType1(instr));
             ip += eDataSize;
         }
+
+        // Sync ctx->ip to the address of the NEXT instruction
+        sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip), SLJIT_IMM, (sljit_sw)ip);
 
         uint8_t opcode = instrOpcode(instr);
 
@@ -165,6 +168,7 @@ void VM_jitCompile(VMContext* ctx, int32_t codeIndex) {
             case OP_B: {
                 int32_t offset = instrJumpOffset(instr);
                 uint32_t target_ip = (uint32_t)((int32_t)instrAddr + offset);
+                sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip), SLJIT_IMM, (sljit_sw)target_ip);
                 struct sljit_jump* jump = sljit_emit_jump(compiler, SLJIT_JUMP);
                 JumpFixup jf = {jump, target_ip};
                 arrput(fixups, jf);
@@ -172,26 +176,42 @@ void VM_jitCompile(VMContext* ctx, int32_t codeIndex) {
             }
             case OP_BT: {
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R0, 0, SLJIT_S0, 0);
-                sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS1(W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(RValue_toBool_Pop));
-                
-                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, 0);
+                sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R1, 0, SLJIT_IMM, (sljit_sw)instr);
+                sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R2, 0, SLJIT_IMM, (sljit_sw)instrAddr);
+                sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS3V(W, W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(handleBranchTrue));
+
+                sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_R0, 0, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip));
                 int32_t offset = instrJumpOffset(instr);
                 uint32_t target_ip = (uint32_t)((int32_t)instrAddr + offset);
-                struct sljit_jump* jump = sljit_emit_jump(compiler, SLJIT_NOT_EQUAL); // If true
-                JumpFixup jf = {jump, target_ip};
-                arrput(fixups, jf);
+
+                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, (sljit_sw)target_ip);
+                struct sljit_jump* jump_to_target = sljit_emit_jump(compiler, SLJIT_EQUAL);
+                JumpFixup jf_target = {jump_to_target, target_ip};
+                arrput(fixups, jf_target);
+
+                struct sljit_jump* jump_to_next = sljit_emit_jump(compiler, SLJIT_JUMP);
+                JumpFixup jf_next = {jump_to_next, ip};
+                arrput(fixups, jf_next);
                 break;
             }
             case OP_BF: {
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R0, 0, SLJIT_S0, 0);
-                sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS1(W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(RValue_toBool_Pop));
-                
-                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, 0);
+                sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R1, 0, SLJIT_IMM, (sljit_sw)instr);
+                sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R2, 0, SLJIT_IMM, (sljit_sw)instrAddr);
+                sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS3V(W, W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(handleBranchFalse));
+
+                sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_R0, 0, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip));
                 int32_t offset = instrJumpOffset(instr);
                 uint32_t target_ip = (uint32_t)((int32_t)instrAddr + offset);
-                struct sljit_jump* jump = sljit_emit_jump(compiler, SLJIT_EQUAL); // If false
-                JumpFixup jf = {jump, target_ip};
-                arrput(fixups, jf);
+
+                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, (sljit_sw)target_ip);
+                struct sljit_jump* jump_to_target = sljit_emit_jump(compiler, SLJIT_EQUAL);
+                JumpFixup jf_target = {jump_to_target, target_ip};
+                arrput(fixups, jf_target);
+
+                struct sljit_jump* jump_to_next = sljit_emit_jump(compiler, SLJIT_JUMP);
+                JumpFixup jf_next = {jump_to_next, ip};
+                arrput(fixups, jf_next);
                 break;
             }
             case OP_CALL:
@@ -211,18 +231,48 @@ void VM_jitCompile(VMContext* ctx, int32_t codeIndex) {
                 sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS1V(W), SLJIT_IMM, SLJIT_FUNC_ADDR(VM_storeUndefined));
                 sljit_emit_return_void(compiler);
                 break;
-            case OP_PUSHENV:
+            case OP_PUSHENV: {
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R0, 0, SLJIT_S0, 0);
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R1, 0, SLJIT_IMM, (sljit_sw)instr);
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R2, 0, SLJIT_IMM, (sljit_sw)instrAddr);
                 sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS3V(W, W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(handlePushEnv));
+
+                // PushEnv can jump to the end of the with-block
+                sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_R0, 0, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip));
+                int32_t offset = instrJumpOffset(instr);
+                uint32_t target_ip = (uint32_t)((int32_t)instrAddr + offset);
+
+                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, (sljit_sw)target_ip);
+                struct sljit_jump* jump_to_target = sljit_emit_jump(compiler, SLJIT_EQUAL);
+                JumpFixup jf_target = {jump_to_target, target_ip};
+                arrput(fixups, jf_target);
+
+                struct sljit_jump* jump_to_next = sljit_emit_jump(compiler, SLJIT_JUMP);
+                JumpFixup jf_next = {jump_to_next, ip};
+                arrput(fixups, jf_next);
                 break;
-            case OP_POPENV:
+            }
+            case OP_POPENV: {
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R0, 0, SLJIT_S0, 0);
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R1, 0, SLJIT_IMM, (sljit_sw)instr);
                 sljit_emit_op1(compiler, SLJIT_MOV, SLJIT_R2, 0, SLJIT_IMM, (sljit_sw)instrAddr);
                 sljit_emit_icall(compiler, SLJIT_CALL, SLJIT_ARGS3V(W, W, W), SLJIT_IMM, SLJIT_FUNC_ADDR(handlePopEnv));
+
+                // PopEnv can jump back to the start of the with-block
+                sljit_emit_op1(compiler, SLJIT_MOV_U32, SLJIT_R0, 0, SLJIT_MEM1(SLJIT_S0), offsetof(VMContext, ip));
+                int32_t offset = instrJumpOffset(instr);
+                uint32_t target_ip = (uint32_t)((int32_t)instrAddr + offset);
+
+                sljit_emit_op2u(compiler, SLJIT_SUB | SLJIT_SET_Z, SLJIT_R0, 0, SLJIT_IMM, (sljit_sw)target_ip);
+                struct sljit_jump* jump_to_target = sljit_emit_jump(compiler, SLJIT_EQUAL);
+                JumpFixup jf_target = {jump_to_target, target_ip};
+                arrput(fixups, jf_target);
+
+                struct sljit_jump* jump_to_next = sljit_emit_jump(compiler, SLJIT_JUMP);
+                JumpFixup jf_next = {jump_to_next, ip};
+                arrput(fixups, jf_next);
                 break;
+            }
             case OP_BREAK:
                 break;
             default:
@@ -259,13 +309,6 @@ void VM_jitFree(CodeEntry* entry) {
 }
 
 // ===[ Helpers ]===
-sljit_sw RValue_toBool_Pop(VMContext* ctx) {
-    RValue val = stackPop(ctx);
-    bool b = RValue_toBool(val);
-    RValue_free(&val);
-    return b ? 1 : 0;
-}
-
 void VM_popAndStoreResult(VMContext* ctx, RValue* dest) {
     *dest = stackPop(ctx);
 }
