@@ -56,11 +56,17 @@ if(PLATFORM STREQUAL "glfw")
         target_link_options(butterscotch PRIVATE -fsanitize=address)
     endif()
 elseif(PLATFORM STREQUAL "ps2")
+    # The PS2 EE has a single-precision FPU only, so double is software-emulated
+    add_compile_definitions(USE_FLOAT_REALS)
+    # Treat unsuffixed float constants as single-precision to avoid accidental
+    # float->double promotions on platforms with no hardware double
+    add_compile_options(-fsingle-precision-constant)
+
     if(PS2)
         # Compiling on the Docker container
         target_include_directories(butterscotch PRIVATE $ENV{PS2SDK}/ee/include $ENV{PS2SDK}/common/include $ENV{PS2DEV}/ee/include $ENV{GSKIT}/include)
         target_link_directories(butterscotch PRIVATE $ENV{PS2SDK}/ee/lib $ENV{GSKIT}/lib)
-        target_link_libraries(butterscotch gskit dmakit pad mc patches kernel c m)
+        target_link_libraries(butterscotch gskit dmakit audsrv pad mc patches kernel c m)
 
         # Embed ps2sdk IRX modules (sio2man, padman) as C arrays via bin2c
         # This avoids loading from rom0: which has compatibility issues between fat/slim PS2
@@ -92,8 +98,20 @@ elseif(PLATFORM STREQUAL "ps2")
             DEPENDS ${IRX_DIR}/padman.irx
             COMMENT "Embedding padman.irx"
         )
+        add_custom_command(
+            OUTPUT ${IRX_GEN_DIR}/freesd_irx.c
+            COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/freesd.irx ${IRX_GEN_DIR}/freesd_irx.c freesd_irx
+            DEPENDS ${IRX_DIR}/freesd.irx
+            COMMENT "Embedding freesd.irx"
+        )
+        add_custom_command(
+            OUTPUT ${IRX_GEN_DIR}/audsrv_irx.c
+            COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/audsrv.irx ${IRX_GEN_DIR}/audsrv_irx.c audsrv_irx
+            DEPENDS ${IRX_DIR}/audsrv.irx
+            COMMENT "Embedding audsrv.irx"
+        )
 
-        target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/sio2man_irx.c ${IRX_GEN_DIR}/mcman_irx.c ${IRX_GEN_DIR}/mcserv_irx.c ${IRX_GEN_DIR}/padman_irx.c)
+        target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/sio2man_irx.c ${IRX_GEN_DIR}/mcman_irx.c ${IRX_GEN_DIR}/mcserv_irx.c ${IRX_GEN_DIR}/padman_irx.c ${IRX_GEN_DIR}/freesd_irx.c ${IRX_GEN_DIR}/audsrv_irx.c)
         target_include_directories(butterscotch PRIVATE ${IRX_GEN_DIR})
     else()
         # This block is for when we are developing Butterscotch with CLion!

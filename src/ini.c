@@ -33,7 +33,7 @@ static IniSection* addSection(IniFile* ini, const char* name) {
         ini->sections = safeRealloc(ini->sections, (size_t) ini->capacity * sizeof(IniSection));
     }
     IniSection* section = &ini->sections[ini->count++];
-    section->name = strdup(name);
+    section->name = safeStrdup(name);
     section->keys = nullptr;
     section->values = nullptr;
     section->count = 0;
@@ -47,8 +47,8 @@ static void addKeyValue(IniSection* section, const char* key, const char* value)
         section->keys = safeRealloc(section->keys, (size_t) section->capacity * sizeof(char*));
         section->values = safeRealloc(section->values, (size_t) section->capacity * sizeof(char*));
     }
-    section->keys[section->count] = strdup(key);
-    section->values[section->count] = strdup(value);
+    section->keys[section->count] = safeStrdup(key);
+    section->values[section->count] = safeStrdup(value);
     section->count++;
 }
 
@@ -69,7 +69,7 @@ IniFile* Ini_parse(const char* text) {
     }
 
     // Make a mutable copy to tokenize
-    char* data = strdup(text);
+    char* data = safeStrdup(text);
     IniSection* currentSection = nullptr;
 
     char* line = data;
@@ -120,7 +120,7 @@ IniFile* Ini_parse(const char* text) {
                 int existingIndex = findKeyIndex(currentSection, key);
                 if (existingIndex >= 0) {
                     free(currentSection->values[existingIndex]);
-                    currentSection->values[existingIndex] = strdup(value);
+                    currentSection->values[existingIndex] = safeStrdup(value);
                 } else {
                     addKeyValue(currentSection, key, value);
                 }
@@ -197,7 +197,7 @@ void Ini_setString(IniFile* ini, const char* section, const char* key, const cha
     int idx = findKeyIndex(sec, key);
     if (idx >= 0) {
         free(sec->values[idx]);
-        sec->values[idx] = strdup(value);
+        sec->values[idx] = safeStrdup(value);
     } else {
         addKeyValue(sec, key, value);
     }

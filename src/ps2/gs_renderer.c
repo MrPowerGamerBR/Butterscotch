@@ -40,12 +40,7 @@ static uint8_t* loadFileRaw(const char* path, uint32_t* outSize) {
     fseek(f, 0, SEEK_SET);
 
     // 128-byte aligned for DMA transfers
-    uint8_t* data = (uint8_t*) memalign(128, (size_t) size);
-    if (data == nullptr) {
-        fprintf(stderr, "GsRenderer: Failed to allocate %ld bytes for %s\n", size, path);
-        fclose(f);
-        abort();
-    }
+    uint8_t* data = (uint8_t*) safeMemalign(128, (size_t) size);
 
     size_t read = fread(data, 1, (size_t) size, f);
     fclose(f);
@@ -169,11 +164,7 @@ static void loadAndUploadCLUTs(GsRenderer* gs) {
 
     // 128-byte aligned temp buffer for DMA transfers (reused for each CLUT send)
     // Large enough for one 8bpp CLUT (1024 bytes)
-    uint8_t* tempBuf = (uint8_t*) memalign(128, CLUT8_ENTRY_SIZE);
-    if (tempBuf == nullptr) {
-        fprintf(stderr, "GsRenderer: Failed to allocate CLUT temp buffer\n");
-        abort();
-    }
+    uint8_t* tempBuf = (uint8_t*) safeMemalign(128, CLUT8_ENTRY_SIZE);
 
     // Load and upload CLUT4 (4bpp palettes: 16 colors * 4 bytes = 64 bytes each)
     {
@@ -382,17 +373,13 @@ static int32_t allocateChunks(GsRenderer* gs, int chunksNeeded) {
 // Caches compressed atlas data in a 4 MiB EE RAM buffer to avoid repeated
 // CDVD reads when atlases are evicted from VRAM and need to be re-uploaded.
 
-#define EE_CACHE_CAPACITY (4 * 1024 * 1024) // 4 MiB
+#define EE_CACHE_CAPACITY (2 * 1024 * 1024) // 2 MiB
 
 // Initialize the EE RAM cache. Called from gsInit after opening TEXTURES.BIN.
 static void initEeCache(GsRenderer* gs) {
     gs->eeCacheCapacity = EE_CACHE_CAPACITY;
     gs->eeCacheBumpPtr = 0;
-    gs->eeCache = (uint8_t*) memalign(128, EE_CACHE_CAPACITY);
-    if (gs->eeCache == nullptr) {
-        fprintf(stderr, "GsRenderer: Failed to allocate %u bytes for EE cache\n", EE_CACHE_CAPACITY);
-        abort();
-    }
+    gs->eeCache = (uint8_t*) safeMemalign(128, EE_CACHE_CAPACITY);
 
     gs->eeCacheEntries = safeMalloc(gs->atlasCount * sizeof(EeAtlasCacheEntry));
     repeat(gs->atlasCount, i) {
@@ -559,11 +546,7 @@ static void uploadAtlasToChunk(GsRenderer* gs, uint16_t atlasId, int32_t firstCh
     if (cached == nullptr) {
         // Cache miss: read from TEXTURES.BIN and insert into EE cache
         uint32_t dataSize = gs->atlasDataSizes[atlasId];
-        uint8_t* tempBuf = (uint8_t*) memalign(128, dataSize);
-        if (tempBuf == nullptr) {
-            fprintf(stderr, "GsRenderer: Failed to allocate %u bytes for atlas %u temp buffer\n", dataSize, atlasId);
-            abort();
-        }
+        uint8_t* tempBuf = (uint8_t*) safeMemalign(128, dataSize);
 
         fseek(gs->texturesFile, (long) gs->atlasOffsets[atlasId], SEEK_SET);
         size_t bytesRead = fread(tempBuf, 1, dataSize, gs->texturesFile);
@@ -591,14 +574,14 @@ static void uploadAtlasToChunk(GsRenderer* gs, uint16_t atlasId, int32_t firstCh
             uint32_t pixelDataSize = BinaryUtils_readUint32(header + 6);
             uint8_t compressionType = BinaryUtils_readUint8(header + 10);
 
-            uint8_t* rawData = (uint8_t*) memalign(128, pixelDataSize);
+            uint8_t* rawData = (uint8_t*) safeMemalign(128, pixelDataSize);
             fread(rawData, 1, pixelDataSize, gs->texturesFile);
 
             // Decompress + upload (duplicated for fallback path)
             uint8_t* pixelData;
             if (compressionType == 1) {
                 uint32_t uncompressedSize = (bpp == 4) ? (uint32_t)((width * height + 1) / 2) : (uint32_t)(width * height);
-                pixelData = (uint8_t*) memalign(128, uncompressedSize);
+                pixelData = (uint8_t*) safeMemalign(128, uncompressedSize);
                 uint32_t srcPos = 0, dstPos = 0;
                 while (pixelDataSize > srcPos + 1 && uncompressedSize > dstPos) {
                     uint8_t runLength = rawData[srcPos++];
@@ -654,11 +637,7 @@ static void uploadAtlasToChunk(GsRenderer* gs, uint16_t atlasId, int32_t firstCh
     }
 
     // Copy compressed pixel data into DMA-aligned buffer
-    uint8_t* rawData = (uint8_t*) memalign(128, pixelDataSize);
-    if (rawData == nullptr) {
-        fprintf(stderr, "GsRenderer: Failed to allocate %u bytes for atlas %u pixel data\n", pixelDataSize, atlasId);
-        abort();
-    }
+    uint8_t* rawData = (uint8_t*) safeMemalign(128, pixelDataSize);
     memcpy(rawData, cached + TEX_HEADER_SIZE, pixelDataSize);
 
     // Decompress if needed
@@ -666,11 +645,7 @@ static void uploadAtlasToChunk(GsRenderer* gs, uint16_t atlasId, int32_t firstCh
     if (compressionType == 1) {
         // RLE decompression
         uint32_t uncompressedSize = (bpp == 4) ? (uint32_t)((width * height + 1) / 2) : (uint32_t)(width * height);
-        pixelData = (uint8_t*) memalign(128, uncompressedSize);
-        if (pixelData == nullptr) {
-            fprintf(stderr, "GsRenderer: Failed to allocate %u bytes for atlas %u decompressed data\n", uncompressedSize, atlasId);
-            abort();
-        }
+        pixelData = (uint8_t*) safeMemalign(128, uncompressedSize);
 
         uint32_t srcPos = 0;
         uint32_t dstPos = 0;
@@ -1221,6 +1196,11 @@ static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y
     gs->zCounter++;
 }
 
+// PS2 gsKit doesn't support per-vertex colors on lines, so we just use color1
+static void gsDrawLineColor(Renderer* renderer, float x1, float y1, float x2, float y2, float width, uint32_t color1, [[maybe_unused]] uint32_t color2, float alpha) {
+    renderer->vtable->drawLine(renderer, x1, y1, x2, y2, width, color1, alpha);
+}
+
 static void gsDrawText(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, [[maybe_unused]] float angleDeg) {
     GsRenderer* gs = (GsRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -1429,6 +1409,7 @@ static RendererVtable gsVtable = {
     .drawSpritePart = gsDrawSpritePart,
     .drawRectangle = gsDrawRectangle,
     .drawLine = gsDrawLine,
+    .drawLineColor = gsDrawLineColor,
     .drawText = gsDrawText,
     .flush = gsFlush,
     .createSpriteFromSurface = gsCreateSpriteFromSurface,

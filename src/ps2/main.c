@@ -10,6 +10,7 @@
 #include <libpad.h>
 #include <libmc.h>
 #include <timer.h>
+#include <unistd.h>
 #include <sbv_patches.h>
 
 #include "runner.h"
@@ -18,6 +19,7 @@
 #include "../data_win.h"
 #include "../json_reader.h"
 #include "ps2_file_system.h"
+#include "ps2_audio_system.h"
 #include "gs_renderer.h"
 #include "ps2_utils.h"
 #include "utils.h"
@@ -31,6 +33,10 @@ extern unsigned char mcserv_irx[];
 extern unsigned int size_mcserv_irx;
 extern unsigned char padman_irx[];
 extern unsigned int size_padman_irx;
+extern unsigned char freesd_irx[];
+extern unsigned int size_freesd_irx;
+extern unsigned char audsrv_irx[];
+extern unsigned int size_audsrv_irx;
 
 // The maximum memory of a normal PS2 console
 // Developer consoles may have more memory, but because ps2sdk does not have a way to know
@@ -190,9 +196,10 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
 
     // Memory usage below the status text
     u64 gray = GS_SETREG_RGBAQ(0xAA, 0xAA, 0xAA, 0x80, 0x00);
-    struct mallinfo mi = mallinfo();
+    void* heapTop = sbrk(0);
+    int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
     char memText[48];
-    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", mi.uordblks / (1024.0f * 1024.0f), MAX_MEMORY_BYTES / (1024.0f * 1024.0f));
+    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", usedBytes / (1024.0f * 1024.0f), MAX_MEMORY_BYTES / (1024.0f * 1024.0f));
     gsKit_fontm_print_scaled(gs, fontm, 320.0f, barY + barH + 30.0f, 1, 0.4f, gray, memText);
 
     // Record item counts for already-parsed chunks (callback fires before parsing, so we scan all counts each time and add any newly non-zero ones in the order they appear)
@@ -315,6 +322,16 @@ int main(int argc, char* argv[]) {
     padInit(0);
     padPortOpen(0, 0, padBuf);
 
+    // ===[ Load Audio IOP Modules ]===
+    ret = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        printf("Failed to load freesd: %d\n", ret);
+    }
+    ret = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        printf("Failed to load audsrv: %d\n", ret);
+    }
+
     // Wait for pad to be ready
     drawStatusScreen(gsGlobal, gsFontM, nullptr, "Waiting for controller...", nullptr);
 
@@ -368,8 +385,10 @@ int main(int argc, char* argv[]) {
     free(dataWinPath);
 
     {
-        struct mallinfo mi = mallinfo();
-        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, MAX_MEMORY_BYTES - mi.uordblks, (MAX_MEMORY_BYTES - mi.uordblks) / 1024.0f);
+        void* heapTop = sbrk(0);
+        int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
+        int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
+        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
     }
     // ===[ Create texture cache and renderer ]===
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Creating renderer...", &loadingState);
@@ -429,12 +448,32 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Parse deferDrawToAfterAllSteps from CONFIG.JSN
+    // When true, Runner_draw runs once after all catch-up Runner_step calls (old behavior) instead of running immediately after each Runner_step (new behavior)
+    bool deferDrawToAfterAllSteps = false;
+    JsonValue* deferDrawVal = JsonReader_getObject(configRoot, "deferDrawToAfterAllSteps");
+    if (deferDrawVal != nullptr) {
+        deferDrawToAfterAllSteps = JsonReader_getBool(deferDrawVal);
+        if (deferDrawToAfterAllSteps) {
+            printf("CONFIG.JSN: deferDrawToAfterAllSteps = true (draw once after all steps)\n");
+        }
+    }
+
     {
-        struct mallinfo mi = mallinfo();
-        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", mi.uordblks, mi.uordblks / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, MAX_MEMORY_BYTES - mi.uordblks, (MAX_MEMORY_BYTES - mi.uordblks) / 1024.0f);
+        void* heapTop = sbrk(0);
+        int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
+        int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
+        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
     }
 
     runner->renderer = renderer;
+
+    // ===[ Initialize Audio System ]===
+    drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing audio...", &loadingState);
+    Ps2AudioSystem* ps2Audio = Ps2AudioSystem_create();
+    AudioSystem* audioSystem = (AudioSystem*) ps2Audio;
+    audioSystem->vtable->init(audioSystem, dataWin, fileSystem);
+    runner->audioSystem = audioSystem;
 
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing renderer...", &loadingState);
     renderer->vtable->init(renderer, dataWin);
@@ -468,8 +507,6 @@ int main(int argc, char* argv[]) {
         // Calculate delta time since last vsync
         double deltaTime = (double) (frameStartTime - lastVsyncTime) / (double) kBUSCLK;
         lastVsyncTime = frameStartTime;
-
-        struct mallinfo mi = mallinfo();
 
         // ===[ Poll Controller (always poll every vsync) ]===
         // NOTE: We do NOT call RunnerKeyboard_beginFrame here! Pressed/released edges accumulate across vsyncs so that quick taps on non-game-frame
@@ -518,7 +555,7 @@ int main(int argc, char* argv[]) {
         if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEDOWN)) {
             DataWin* dw = runner->dataWin;
             forEachIndexed(Room, room, i, dw->room.rooms, dw->room.count) {
-                if (strcmp(room->name, "room_castle_barrier") == 0) {
+                if (strcmp(room->name, "room_asrielappears") == 0) {
                     runner->pendingRoom = i;
                     break;
                 }
@@ -555,28 +592,81 @@ int main(int argc, char* argv[]) {
 
         int gameFramesRan = 0;
         while (accumulator >= targetFrameTime) {
-            // Clear pressed/released before 2nd+ steps so press events, don't fire multiple times when catching up
+            // Clear pressed/released before 2nd+ steps so press events don't fire multiple times when catching up
             if (gameFramesRan > 0)
                 RunnerKeyboard_beginFrame(runner->keyboard);
 
             Runner_step(runner);
+
+            if (!deferDrawToAfterAllSteps) {
+                gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x80, 0x00));
+
+                renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 448);
+
+                // Clear with room background color
+                if (runner->drawBackgroundColor) {
+                    uint8_t bgR = BGR_R(runner->backgroundColor);
+                    uint8_t bgG = BGR_G(runner->backgroundColor);
+                    uint8_t bgB = BGR_B(runner->backgroundColor);
+                    u64 bgColor = GS_SETREG_RGBAQ(bgR, bgG, bgB, 0x80, 0x00);
+                    gsKit_prim_sprite(gsGlobal, 0, 0, 640, 448, 0, bgColor);
+                }
+
+                // Render views
+                Room* activeRoom = runner->currentRoom;
+                bool anyViewRendered = false;
+
+                bool viewsEnabled = (activeRoom->flags & 1) != 0;
+
+                if (viewsEnabled) {
+                    repeat(8, vi) {
+                        if (!activeRoom->views[vi].enabled) continue;
+
+                        int32_t viewX = activeRoom->views[vi].viewX;
+                        int32_t viewY = activeRoom->views[vi].viewY;
+                        int32_t viewW = activeRoom->views[vi].viewWidth;
+                        int32_t viewH = activeRoom->views[vi].viewHeight;
+                        int32_t portX = activeRoom->views[vi].portX;
+                        int32_t portY = activeRoom->views[vi].portY;
+                        int32_t portW = activeRoom->views[vi].portWidth;
+                        int32_t portH = activeRoom->views[vi].portHeight;
+                        float viewAngle = runner->viewAngles[vi];
+
+                        runner->viewCurrent = (int32_t) vi;
+                        renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
+
+                        Runner_draw(runner);
+
+                        renderer->vtable->endView(renderer);
+                        anyViewRendered = true;
+                    }
+                }
+
+                if (!anyViewRendered) {
+                    // No views enabled: render with default full-screen view
+                    runner->viewCurrent = 0;
+                    renderer->vtable->beginView(renderer, 0, 0, gameW, gameH, 0, 0, gameW, gameH, 0.0f);
+                    Runner_draw(runner);
+                    renderer->vtable->endView(renderer);
+                }
+
+                runner->viewCurrent = 0;
+
+                renderer->vtable->endFrame(renderer);
+            }
+
             accumulator -= targetFrameTime;
             gameFramesRan++;
+
+            // For intermediate catch-up frames, flush the GS queue so it doesn't accumulate
+            // (the back buffer will be overwritten by the next iteration's rendering anyway)
+            if (!deferDrawToAfterAllSteps && accumulator >= targetFrameTime) {
+                gsKit_queue_exec(gsGlobal);
+            }
         }
 
-        // Update FPS counter (counts actual rendered frames, not game logic steps)
-        if (gameFramesRan > 0) {
-            renderFpsCounter++;
-        }
-        u64 fpsElapsed = frameStartTime - fpsTimerStart;
-        if (fpsElapsed >= (u64) kBUSCLK) {
-            displayedRenderFps = renderFpsCounter;
-            renderFpsCounter = 0;
-            fpsTimerStart = frameStartTime;
-        }
-
-        // ===[ Render (only if game logic ran) ]===
-        if (gameFramesRan > 0) {
+        // When deferDrawToAfterAllSteps is enabled, render once after all catch-up steps
+        if (deferDrawToAfterAllSteps && gameFramesRan > 0) {
             gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x80, 0x00));
 
             renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 448);
@@ -631,7 +721,28 @@ int main(int argc, char* argv[]) {
             runner->viewCurrent = 0;
 
             renderer->vtable->endFrame(renderer);
+        }
 
+        // Update audio system (gain fading, stream to audsrv)
+        if (runner->audioSystem != nullptr) {
+            float dt = (float) deltaTime;
+            if (0.0f > dt) dt = 0.0f;
+            if (dt > 0.1f) dt = 0.1f;
+            runner->audioSystem->vtable->update(runner->audioSystem, dt);
+        }
+
+        // Update FPS counter (counts actual rendered frames, not game logic steps)
+        if (gameFramesRan > 0) {
+            renderFpsCounter++;
+        }
+        u64 fpsElapsed = frameStartTime - fpsTimerStart;
+        if (fpsElapsed >= (u64) kBUSCLK) {
+            displayedRenderFps = renderFpsCounter;
+            renderFpsCounter = 0;
+            fpsTimerStart = frameStartTime;
+        }
+
+        if (gameFramesRan > 0) {
             // Measure frame time BEFORE flipping
             u64 frameEndTime = GetTimerSystemTime();
             lastFrameTimeMs = (float) (frameEndTime - frameStartTime) / (float) (kBUSCLK / 1000);
@@ -639,7 +750,9 @@ int main(int argc, char* argv[]) {
             // ===[ Debug Overlay ]===
             {
                 u64 debugColor = GS_SETREG_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x00);
-                int32_t freeBytes = MAX_MEMORY_BYTES - mi.uordblks;
+                // sbrk(0) returns the actual heap frontier; true free = top of RAM - sbrk frontier
+                void* heapTop = sbrk(0);
+                int32_t freeBytes = MAX_MEMORY_BYTES - (int32_t) (uintptr_t) heapTop;
 
                 char debugText[256];
                 uint32_t vramFreeBytes = GS_VRAM_SIZE - gsGlobal->CurrentPointer;
@@ -660,9 +773,7 @@ int main(int argc, char* argv[]) {
             // Clear accumulated input after both Step and Draw events have consumed it, so edges don't re-fire on the next game frame
             // This MUST be after Runner_draw because games CAN handle input in Draw events (example: Undertale's naming screen)
             RunnerKeyboard_beginFrame(runner->keyboard);
-        }
 
-        if (gameFramesRan > 0) {
             // Execute draw queue and flip buffers
             gsKit_queue_exec(gsGlobal);
             gsKit_sync_flip(gsGlobal);
@@ -673,6 +784,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    if (runner->audioSystem != nullptr) {
+        runner->audioSystem->vtable->destroy(runner->audioSystem);
+        runner->audioSystem = nullptr;
+    }
     renderer->vtable->destroy(renderer);
     DataWin_free(dataWin);
 

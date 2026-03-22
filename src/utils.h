@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "real_type.h"
+
 #define forEach(type, item, array, count) \
     for (typeof(count) item##_i_ = 0; item##_i_ < (count); item##_i_++) \
     for (type* item = &(array)[item##_i_]; item; item = NULL)
@@ -79,9 +81,27 @@ _val; \
     _ptr; \
 })
 
+#define safeMemalign(alignment, size) ({ \
+    void* _ptr = memalign(alignment, size); \
+    if (_ptr == nullptr) { \
+        fprintf(stderr, "FATAL: memalign(%zu, %zu) failed at %s:%d\n", (size_t)(alignment), (size_t)(size), __FILE__, __LINE__); \
+        abort(); \
+    } \
+    _ptr; \
+})
+
+#define safeStrdup(str) ({ \
+    char* _ptr = strdup(str); \
+    if (_ptr == nullptr) { \
+        fprintf(stderr, "FATAL: strdup() failed at %s:%d\n", __FILE__, __LINE__); \
+        abort(); \
+    } \
+    _ptr; \
+})
+
 // Truncates to 6 decimal places, matching the HTML5 runner's ClampFloat
-static inline double clampFloat(double f) {
-    return ((double) ((int64_t) (f * 1000000.0))) / 1000000.0;
+static inline GMLReal clampFloat(GMLReal f) {
+    return ((GMLReal) ((int64_t) (f * 1000000.0))) / 1000000.0;
 }
 
 #define BGR_B(c) (((c) >> 16) & 0xFF)

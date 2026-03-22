@@ -205,7 +205,7 @@ const char* JsonWriter_getOutput(const JsonWriter* writer) {
 }
 
 char* JsonWriter_copyOutput(const JsonWriter* writer) {
-    return strdup(writer->buffer);
+    return safeStrdup(writer->buffer);
 }
 
 size_t JsonWriter_getLength(const JsonWriter* writer) {

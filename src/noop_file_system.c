@@ -21,7 +21,7 @@ typedef struct {
 // ===[ Vtable Implementations ]===
 
 static char* noopResolvePath([[maybe_unused]] FileSystem* fs, [[maybe_unused]] const char* relativePath) {
-    return strdup("./");
+    return safeStrdup("./");
 }
 
 static bool noopFileExists(FileSystem* fs, const char* relativePath) {
@@ -34,7 +34,7 @@ static char* noopReadFileText(FileSystem* fs, const char* relativePath) {
     ptrdiff_t idx = shgeti(nfs->files, relativePath);
     if (0 > idx)
         return nullptr;
-    return strdup(nfs->files[idx].value);
+    return safeStrdup(nfs->files[idx].value);
 }
 
 static bool noopWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
@@ -44,9 +44,9 @@ static bool noopWriteFileText(FileSystem* fs, const char* relativePath, const ch
     ptrdiff_t idx = shgeti(nfs->files, relativePath);
     if (idx >= 0) {
         free(nfs->files[idx].value);
-        nfs->files[idx].value = strdup(contents);
+        nfs->files[idx].value = safeStrdup(contents);
     } else {
-        shput(nfs->files, relativePath, strdup(contents));
+        shput(nfs->files, relativePath, safeStrdup(contents));
     }
 
     return true;
