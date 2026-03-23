@@ -1163,6 +1163,69 @@ static RValue builtinRoomSetPersistent(VMContext* ctx, RValue* args, [[maybe_unu
     return RValue_makeUndefined();
 }
 
+// GMS2 camera compatibility - we treat view index as camera ID
+static RValue builtinViewGetCamera([[maybe_unused]] VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    int32_t viewIndex = RValue_toInt32(args[0]);
+    if (viewIndex >= 0 && MAX_VIEWS > viewIndex) {
+        return RValue_makeReal((double) viewIndex);
+    }
+    return RValue_makeReal(-1);
+}
+
+static RValue builtinCameraGetViewX(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    Runner* runner = requireNotNullMessage(ctx->runner, "VM: camera_get_view_x called but no runner!");
+    int32_t cameraId = RValue_toInt32(args[0]);
+    if (cameraId >= 0 && MAX_VIEWS > cameraId) {
+        return RValue_makeReal((double) runner->currentRoom->views[cameraId].viewX);
+    }
+    return RValue_makeReal(-1);
+}
+
+static RValue builtinCameraGetViewY(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    Runner* runner = requireNotNullMessage(ctx->runner, "VM: camera_get_view_y called but no runner!");
+    int32_t cameraId = RValue_toInt32(args[0]);
+    if (cameraId >= 0 && MAX_VIEWS > cameraId) {
+        return RValue_makeReal((double) runner->currentRoom->views[cameraId].viewY);
+    }
+    return RValue_makeReal(-1);
+}
+
+static RValue builtinCameraGetViewWidth(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    Runner* runner = requireNotNullMessage(ctx->runner, "VM: camera_get_view_width called but no runner!");
+    int32_t cameraId = RValue_toInt32(args[0]);
+    if (cameraId >= 0 && MAX_VIEWS > cameraId) {
+        return RValue_makeReal((double) runner->currentRoom->views[cameraId].viewWidth);
+    }
+    return RValue_makeReal(-1);
+}
+
+static RValue builtinCameraGetViewHeight(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    Runner* runner = requireNotNullMessage(ctx->runner, "VM: camera_get_view_height called but no runner!");
+    int32_t cameraId = RValue_toInt32(args[0]);
+    if (cameraId >= 0 && MAX_VIEWS > cameraId) {
+        return RValue_makeReal((double) runner->currentRoom->views[cameraId].viewHeight);
+    }
+    return RValue_makeReal(-1);
+}
+
+static RValue builtinCameraSetViewPos(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(-1);
+    Runner* runner = requireNotNullMessage(ctx->runner, "VM: camera_get_view_height called but no runner!");
+    int32_t cameraId = RValue_toInt32(args[0]);
+    int32_t x = RValue_toInt32(args[1]);
+    int32_t y = RValue_toInt32(args[2]);
+    if (cameraId >= 0 && MAX_VIEWS > cameraId) {
+        runner->currentRoom->views[cameraId].viewX = x;
+        runner->currentRoom->views[cameraId].viewY = y;
+    }
+    return RValue_makeUndefined();
+}
+
 // ===[ VARIABLE FUNCTIONS ]===
 
 static RValue builtinVariableGlobalExists(VMContext* ctx, RValue* args, int32_t argCount) {
@@ -3747,6 +3810,14 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("room_previous", builtinRoomPrevious);
     registerBuiltin("room_set_persistent", builtinRoomSetPersistent);
 
+    // GMS2 camera compatibility
+    registerBuiltin("view_get_camera", builtinViewGetCamera);
+    registerBuiltin("camera_get_view_x", builtinCameraGetViewX);
+    registerBuiltin("camera_get_view_y", builtinCameraGetViewY);
+    registerBuiltin("camera_get_view_width", builtinCameraGetViewWidth);
+    registerBuiltin("camera_get_view_height", builtinCameraGetViewHeight);
+    registerBuiltin("camera_set_view_pos", builtinCameraSetViewPos);
+
     // Variables
     registerBuiltin("variable_global_exists", builtinVariableGlobalExists);
     registerBuiltin("variable_global_get", builtinVariableGlobalGet);
@@ -3933,6 +4004,8 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("draw_set_halign", builtin_drawSetHalign);
     registerBuiltin("draw_set_valign", builtin_drawSetValign);
     registerBuiltin("draw_text", builtin_drawText);
+    registerBuiltin("draw_text_colour", builtin_drawText);
+    registerBuiltin("draw_text_color", builtin_drawText);
     registerBuiltin("draw_text_transformed", builtin_drawTextTransformed);
     registerBuiltin("draw_text_ext", builtin_draw_text_ext);
     registerBuiltin("draw_text_ext_transformed", builtin_draw_text_ext_transformed);
