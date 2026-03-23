@@ -52,21 +52,8 @@ typedef struct {
     int32_t gmlKey;
 } PadMapping;
 
-static const PadMapping PAD_MAPPINGS[] = {
-    { PAD_UP,       VK_UP },
-    { PAD_DOWN,     VK_DOWN },
-    { PAD_LEFT,     VK_LEFT },
-    { PAD_RIGHT,    VK_RIGHT },
-    { PAD_CROSS,    'Z' },
-    { PAD_SQUARE,   'X' },
-    { PAD_START,    'C' },
-    { PAD_TRIANGLE, VK_ESCAPE },
-    { PAD_L1, VK_PAGEDOWN },
-    { PAD_R1, VK_PAGEUP },
-    { PAD_L2, VK_F10 }
-};
-
-static const int PAD_MAPPING_COUNT = sizeof(PAD_MAPPINGS) / sizeof(PAD_MAPPINGS[0]);
+static PadMapping* padMappings = nullptr;
+static int padMappingCount = 0;
 
 // Previous frame's button state for detecting press/release edges
 static uint16_t prevButtons = 0xFFFF; // All buttons released (buttons are active-low)
@@ -459,6 +446,20 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Parse controllerMappings from CONFIG.JSN
+    JsonValue* controllerMappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
+    if (controllerMappingsObj != nullptr && JsonReader_isObject(controllerMappingsObj)) {
+        padMappingCount = JsonReader_objectLength(controllerMappingsObj);
+        padMappings = safeMalloc(sizeof(PadMapping) * padMappingCount);
+        repeat(padMappingCount, i) {
+            const char* padButtonStr = JsonReader_getObjectKey(controllerMappingsObj, i);
+            JsonValue* gmlKeyVal = JsonReader_getObjectValue(controllerMappingsObj, i);
+            padMappings[i].padButton = (uint16_t) atoi(padButtonStr);
+            padMappings[i].gmlKey = (int32_t) JsonReader_getInt(gmlKeyVal);
+            printf("CONFIG.JSN: controllerMapping pad=%d -> gmlKey=%d\n", padMappings[i].padButton, padMappings[i].gmlKey);
+        }
+    }
+
     {
         void* heapTop = sbrk(0);
         int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
@@ -495,6 +496,7 @@ int main(int argc, char* argv[]) {
     float lastFrameTimeMs = 0.0f;
     u64 lastVsyncTime = GetTimerSystemTime();
     double accumulator = 0.0; // seconds of game time accumulated
+    bool debugOverlayEnabled = JsonReader_getBool(JsonReader_getObject(configRoot, "debugOverlayEnabled"));
 
     // FPS tracking: count rendered frames (screen flips) over a 1-second window
     int renderFpsCounter = 0;
@@ -520,9 +522,9 @@ int main(int argc, char* argv[]) {
         if (padResult != 0) {
             buttons = padStatus.btns;
 
-            for (int i = 0; PAD_MAPPING_COUNT > i; i++) {
-                uint16_t mask = PAD_MAPPINGS[i].padButton;
-                int32_t gmlKey = PAD_MAPPINGS[i].gmlKey;
+            repeat(padMappingCount, i) {
+                uint16_t mask = padMappings[i].padButton;
+                int32_t gmlKey = padMappings[i].gmlKey;
 
                 // PS2 buttons are active-low: 0 = pressed, 1 = released
                 bool wasPressed = (prevButtons & mask) == 0;
@@ -560,6 +562,10 @@ int main(int argc, char* argv[]) {
                     break;
                 }
             }
+        }
+
+        if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)) {
+            debugOverlayEnabled = !debugOverlayEnabled;
         }
 
         // Reset global interact state because I HATE when I get stuck while moving through rooms
@@ -748,7 +754,7 @@ int main(int argc, char* argv[]) {
             lastFrameTimeMs = (float) (frameEndTime - frameStartTime) / (float) (kBUSCLK / 1000);
 
             // ===[ Debug Overlay ]===
-            {
+            if (debugOverlayEnabled) {
                 u64 debugColor = GS_SETREG_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x00);
                 // sbrk(0) returns the actual heap frontier; true free = top of RAM - sbrk frontier
                 void* heapTop = sbrk(0);
