@@ -519,7 +519,7 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
             }
         }
 
-        // 'check' is the texture count not -1 (start of SimpleList)
+        // 'check' is the texture count (start of SimpleList)
         spr->textureCount = (uint32_t)check;
         if (spr->textureCount > 0) {
             spr->textureOffsets = safeMalloc(spr->textureCount * sizeof(uint32_t));
