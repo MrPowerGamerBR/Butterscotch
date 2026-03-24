@@ -3982,6 +3982,10 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("draw_text_color_transformed", builtin_drawTextColorTransformed);
     registerBuiltin("draw_text_color_ext", builtin_draw_text_color_ext);
     registerBuiltin("draw_text_color_ext_transformed", builtin_draw_text_color_ext_transformed);
+    registerBuiltin("draw_text_colour", builtin_drawTextColor);
+    registerBuiltin("draw_text_colour_transformed", builtin_drawTextColorTransformed);
+    registerBuiltin("draw_text_colour_ext", builtin_draw_text_color_ext);
+    registerBuiltin("draw_text_colour_ext_transformed", builtin_draw_text_color_ext_transformed);
     registerBuiltin("draw_surface", builtin_draw_surface);
     registerBuiltin("draw_surface_ext", builtin_draw_surface_ext);
     registerBuiltin("draw_background", builtin_drawBackground);
