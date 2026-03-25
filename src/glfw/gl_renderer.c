@@ -769,7 +769,7 @@ static void glDrawText(Renderer* renderer, const char* text, float x, float y, f
     free(processed);
 }
 
-static void glDrawTextColor(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, float angleDeg, int32_t c1, int32_t c2, int32_t c3, int32_t c4, float alpha) {
+static void glDrawTextColor(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, float angleDeg, int32_t _c1, int32_t _c2, int32_t _c3, int32_t _c4, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
@@ -794,6 +794,7 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
     // Preprocess: convert # to \n (and \# to literal #)
     char* processed = TextUtils_preprocessGmlText(text);
     int32_t textLen = (int32_t) strlen(processed);
+    if(textLen == 0) return;
 
     // Count lines, treating \r\n and \n\r as single breaks
     int32_t lineCount = TextUtils_countLines(processed, textLen);
@@ -812,6 +813,25 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
     // Iterate through lines
     float cursorY = valignOffset;
     int32_t lineStart = 0;
+
+    // get delta's  (16.16 format)
+	int32_t left_r_dx = ((_c2 & 0xff0000) - (_c1 & 0xff0000)) / textLen;
+	int32_t left_g_dx = ((((_c2 & 0xff00) << 8) - ((_c1 & 0xff00) << 8))) / textLen;
+	int32_t left_b_dx = ((((_c2 & 0xff) << 16) - ((_c1 & 0xff) << 16))) / textLen;
+
+	int32_t right_r_dx = ((_c3 & 0xff0000) - (_c4 & 0xff0000)) / textLen;
+	int32_t right_g_dx = ((((_c3 & 0xff00) << 8) - ((_c4 & 0xff00) << 8))) / textLen;
+	int32_t right_b_dx = ((((_c3 & 0xff) << 16) - ((_c4 & 0xff) << 16))) / textLen;
+
+    int32_t left_delta_r = left_r_dx;
+	int32_t left_delta_g = left_g_dx;
+	int32_t left_delta_b = left_b_dx;
+	int32_t right_delta_r = right_r_dx;
+	int32_t right_delta_g = right_g_dx;
+	int32_t right_delta_b = right_b_dx;
+
+    int32_t c1 = _c1;
+    int32_t c4 = _c4;
 
     for (int32_t lineIdx = 0; lineCount > lineIdx; lineIdx++) {
         // Find end of current line
@@ -832,6 +852,21 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
         // Render each glyph in the line
         int32_t pos = 0;
         while (lineLen > pos) {
+            // do 16.16 maths
+            int32_t c2 = ((c1 & 0xff0000) + (left_delta_r & 0xff0000)) & 0xff0000;
+                c2 |= ((c1 & 0xff00) + (left_delta_g >> 8) & 0xff00) & 0xff00;
+                c2 |= ((c1 & 0xff) + (left_delta_b >> 16)) & 0xff;
+            int32_t c3 = ((c4 & 0xff0000) + (right_delta_r & 0xff0000)) & 0xff0000;
+                c3 |= ((c4 & 0xff00) + (right_delta_g >> 8) & 0xff00) & 0xff00;
+                c3 |= ((c4 & 0xff) + (right_delta_b >> 16)) & 0xff;
+
+            left_delta_r += left_r_dx;
+            left_delta_g += left_g_dx;
+            left_delta_b += left_b_dx;
+            right_delta_r += right_r_dx;
+            right_delta_g += right_g_dx;
+            right_delta_b += right_b_dx;
+
             uint16_t ch = TextUtils_decodeUtf8(processed + lineStart, lineLen, &pos);
             FontGlyph* glyph = TextUtils_findGlyph(font, ch);
             if (glyph == nullptr) continue;
@@ -873,15 +908,15 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
 
             // top right
             verts[8]  = px1; verts[9]  = py1; verts[10] = u1; verts[11] = v0;
-            verts[4] = ((float) BGR_R(c2) / 255.0f); verts[5] = ((float) BGR_G(c2) / 255.0f); verts[6] = ((float) BGR_B(c2) / 255.0f); verts[7] = alpha;
+            verts[12] = ((float) BGR_R(c2) / 255.0f); verts[13] = ((float) BGR_G(c2) / 255.0f); verts[14] = ((float) BGR_B(c2) / 255.0f); verts[15] = alpha;
 
             // bottom right
             verts[16] = px2; verts[17] = py2; verts[18] = u1; verts[19] = v1;
-            verts[4] = ((float) BGR_R(c3) / 255.0f); verts[5] = ((float) BGR_G(c3) / 255.0f); verts[6] = ((float) BGR_B(c3) / 255.0f); verts[7] = alpha;
+            verts[20] = ((float) BGR_R(c3) / 255.0f); verts[21] = ((float) BGR_G(c3) / 255.0f); verts[22] = ((float) BGR_B(c3) / 255.0f); verts[23] = alpha;
 
             // bottom left
             verts[24] = px3; verts[25] = py3; verts[26] = u0; verts[27] = v1;
-            verts[4] = ((float) BGR_R(c4) / 255.0f); verts[5] = ((float) BGR_G(c4) / 255.0f); verts[6] = ((float) BGR_B(c4) / 255.0f); verts[7] = alpha;
+            verts[28] = ((float) BGR_R(c4) / 255.0f); verts[29] = ((float) BGR_G(c4) / 255.0f); verts[30] = ((float) BGR_B(c4) / 255.0f); verts[31] = alpha;
 
             gl->quadCount++;
 
@@ -893,6 +928,8 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
                 pos = savedPos;
                 cursorX += TextUtils_getKerningOffset(glyph, nextCh);
             }
+            c4 = c3;    // set left edge to be what the last right edge was....
+		    c1 = c2;    //
         }
 
         cursorY += (float) font->emSize;

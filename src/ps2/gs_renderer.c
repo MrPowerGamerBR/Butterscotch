@@ -1339,7 +1339,7 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
     free(processed);
 }
 
-static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, [[maybe_unused]] float angleDeg, int32_t c1, int32_t c2, int32_t c3, int32_t c4, float alpha) {
+static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, [[maybe_unused]] float angleDeg, int32_t _c1, int32_t _c2, int32_t _c3, int32_t _c4, float alpha) {
     GsRenderer* gs = (GsRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
 
@@ -1369,31 +1369,10 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
         }
     }
 
-    // GS modulate mode: Output = Texture * Vertex / 128
-    // Scale vertex RGB from 0-255 to 0-128 so white (255) becomes 1.0x multiplier
-    uint8_t r1 = hasTexture ? (BGR_R(c1) >> 1) : BGR_R(c1);
-    uint8_t g1 = hasTexture ? (BGR_G(c1) >> 1) : BGR_G(c1);
-    uint8_t b1 = hasTexture ? (BGR_B(c1) >> 1) : BGR_B(c1);
-    u64 textColor1 = GS_SETREG_RGBAQ(r1, g1, b1, alpha, 0x00);
-
-    uint8_t r2 = hasTexture ? (BGR_R(c2) >> 1) : BGR_R(c2);
-    uint8_t g2 = hasTexture ? (BGR_G(c2) >> 1) : BGR_G(c2);
-    uint8_t b2 = hasTexture ? (BGR_B(c2) >> 1) : BGR_B(c2);
-    u64 textColor2 = GS_SETREG_RGBAQ(r2, g2, b2, alpha, 0x00);
-
-    uint8_t r3 = hasTexture ? (BGR_R(c3) >> 1) : BGR_R(c1);
-    uint8_t g3 = hasTexture ? (BGR_G(c3) >> 1) : BGR_G(c1);
-    uint8_t b3 = hasTexture ? (BGR_B(c3) >> 1) : BGR_B(c1);
-    u64 textColor3 = GS_SETREG_RGBAQ(r3, g3, b3, alpha, 0x00);
-
-    uint8_t r4 = hasTexture ? (BGR_R(c4) >> 1) : BGR_R(c4);
-    uint8_t g4 = hasTexture ? (BGR_G(c4) >> 1) : BGR_G(c4);
-    uint8_t b4 = hasTexture ? (BGR_B(c4) >> 1) : BGR_B(c4);
-    u64 textColor4 = GS_SETREG_RGBAQ(r4, g4, b4, alpha, 0x00);
-
     // Preprocess GML text (# -> \n, \# -> #)
     char* processed = TextUtils_preprocessGmlText(text);
     int32_t textLen = (int32_t) strlen(processed);
+    if(textLen == 0) return;
 
     // Vertical alignment
     int32_t lineCount = TextUtils_countLines(processed, textLen);
@@ -1405,7 +1384,41 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
     float cursorY = valignOffset;
     int32_t lineStart = 0;
 
+    // get delta's  (16.16 format)
+	int32_t left_r_dx = ((_c2 & 0xff0000) - (_c1 & 0xff0000)) / textLen;
+	int32_t left_g_dx = ((((_c2 & 0xff00) << 8) - ((_c1 & 0xff00) << 8))) / textLen;
+	int32_t left_b_dx = ((((_c2 & 0xff) << 16) - ((_c1 & 0xff) << 16))) / textLen;
+
+	int32_t right_r_dx = ((_c3 & 0xff0000) - (_c4 & 0xff0000)) / textLen;
+	int32_t right_g_dx = ((((_c3 & 0xff00) << 8) - ((_c4 & 0xff00) << 8))) / textLen;
+	int32_t right_b_dx = ((((_c3 & 0xff) << 16) - ((_c4 & 0xff) << 16))) / textLen;
+
+    int32_t left_delta_r = left_r_dx;
+	int32_t left_delta_g = left_g_dx;
+	int32_t left_delta_b = left_b_dx;
+	int32_t right_delta_r = right_r_dx;
+	int32_t right_delta_g = right_g_dx;
+	int32_t right_delta_b = right_b_dx;
+
+    int32_t c1 = _c1;
+    int32_t c4 = _c4;
+
     while (textLen >= lineStart) {
+        // do 16.16 maths
+        int32_t c2 = ((c1 & 0xff0000) + (left_delta_r & 0xff0000)) & 0xff0000;
+            c2 |= ((c1 & 0xff00) + (left_delta_g >> 8) & 0xff00) & 0xff00;
+            c2 |= ((c1 & 0xff) + (left_delta_b >> 16)) & 0xff;
+        int32_t c3 = ((c4 & 0xff0000) + (right_delta_r & 0xff0000)) & 0xff0000;
+            c3 |= ((c4 & 0xff00) + (right_delta_g >> 8) & 0xff00) & 0xff00;
+            c3 |= ((c4 & 0xff) + (right_delta_b >> 16)) & 0xff;
+
+        left_delta_r += left_r_dx;
+        left_delta_g += left_g_dx;
+        left_delta_b += left_b_dx;
+        right_delta_r += right_r_dx;
+        right_delta_g += right_g_dx;
+        right_delta_b += right_b_dx;
+
         // Find end of current line
         int32_t lineEnd = lineStart;
         while (textLen > lineEnd && !TextUtils_isNewlineChar(processed[lineEnd])) {
@@ -1440,6 +1453,28 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
                 float sy1 = (glyphY - (float) gs->viewY) * gs->scaleY + gs->offsetY;
                 float sx2 = (glyphX + glyphW - (float) gs->viewX) * gs->scaleX + gs->offsetX;
                 float sy2 = (glyphY + glyphH - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+
+                // GS modulate mode: Output = Texture * Vertex / 128
+                // Scale vertex RGB from 0-255 to 0-128 so white (255) becomes 1.0x multiplier
+                uint8_t r1 = hasTexture ? (BGR_R(c1) >> 1) : BGR_R(c1);
+                uint8_t g1 = hasTexture ? (BGR_G(c1) >> 1) : BGR_G(c1);
+                uint8_t b1 = hasTexture ? (BGR_B(c1) >> 1) : BGR_B(c1);
+                u64 textColor1 = GS_SETREG_RGBAQ(r1, g1, b1, alpha, 0x00);
+
+                uint8_t r2 = hasTexture ? (BGR_R(c2) >> 1) : BGR_R(c2);
+                uint8_t g2 = hasTexture ? (BGR_G(c2) >> 1) : BGR_G(c2);
+                uint8_t b2 = hasTexture ? (BGR_B(c2) >> 1) : BGR_B(c2);
+                u64 textColor2 = GS_SETREG_RGBAQ(r2, g2, b2, alpha, 0x00);
+
+                uint8_t r3 = hasTexture ? (BGR_R(c3) >> 1) : BGR_R(c3);
+                uint8_t g3 = hasTexture ? (BGR_G(c3) >> 1) : BGR_G(c3);
+                uint8_t b3 = hasTexture ? (BGR_B(c3) >> 1) : BGR_B(c3);
+                u64 textColor3 = GS_SETREG_RGBAQ(r3, g3, b3, alpha, 0x00);
+
+                uint8_t r4 = hasTexture ? (BGR_R(c4) >> 1) : BGR_R(c4);
+                uint8_t g4 = hasTexture ? (BGR_G(c4) >> 1) : BGR_G(c4);
+                uint8_t b4 = hasTexture ? (BGR_B(c4) >> 1) : BGR_B(c4);
+                u64 textColor4 = GS_SETREG_RGBAQ(r4, g4, b4, alpha, 0x00);
 
                 if (hasTexture) {
                     // Compute UV coordinates: map glyph position within the font TPAG to atlas space
@@ -1484,6 +1519,8 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
         } else {
             break;
         }
+        c4 = c3;    // set left edge to be what the last right edge was....
+		c1 = c2;    //
     }
 
     free(processed);
