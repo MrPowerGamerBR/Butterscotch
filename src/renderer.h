@@ -289,3 +289,18 @@ static void Renderer_drawTile(Renderer* renderer, RoomTile* tile, float offsetX,
 
     renderer->vtable->drawSpritePart(renderer, tpagIndex, atlasOffX, atlasOffY, srcW, srcH, drawX, drawY, tile->scaleX, tile->scaleY, bgr, alpha);
 }
+
+// Mixes 2 colors with a blend factor
+static uint32_t Renderer_mixColors(uint32_t color1, uint32_t color2, float blending) {
+    // Extracts the color values out of each color
+    uint8_t r1 = BGR_R(color1), g1 = BGR_G(color1), b1 = BGR_B(color1);
+    uint8_t r2 = BGR_R(color2), g2 = BGR_G(color2), b2 = BGR_B(color2);
+
+    // mixes each color together using linear interpolation
+    uint8_t mixr = (uint8_t)(r1 * (1 - blending) + r2 * blending);
+    uint8_t mixg = (uint8_t)(g1 * (1 - blending) + g2 * blending);
+    uint8_t mixb = (uint8_t)(b1 * (1 - blending) + b2 * blending);
+
+    uint32_t resultColor = ((mixr << 0) | (mixg << 8) | (mixb << 16)) & 0x00FFFFFF;
+    return resultColor;
+}
