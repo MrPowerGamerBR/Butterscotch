@@ -351,11 +351,9 @@ void Runner_draw(Runner* runner) {
     Drawable* drawables = nullptr;
 
     // Add visible instances
-    if(!runner->isGMS2) {
-        repeat(drawCount, i) {
-            Drawable d = { .type = DRAWABLE_INSTANCE, .depth = drawList[i]->depth, .instance = drawList[i] };
-            arrput(drawables, d);
-        }
+    repeat(drawCount, i) {
+        Drawable d = { .type = DRAWABLE_INSTANCE, .depth = drawList[i]->depth, .instance = drawList[i] };
+        arrput(drawables, d);
     }
 
     // Add tiles (skip hidden layers)
@@ -529,38 +527,12 @@ void Runner_draw(Runner* runner) {
                         }
             } else if(d->layer->type == RoomLayerType_Instances) {
                 RoomLayerInstancesData *data = d->layer->instancesData;
-                // TODO: Use this for ordering instances in GMS2
+                // TODO: This isn't the right way to do this
                 for(uint32_t i = 0; i < data->instanceCount; i++)
                 {
                     Instance* inst = hmget(runner->instancesToId, data->instanceIds[i]);
-                    for(int32_t i = 0; i < drawCount; i++)
-                    {
-                        Instance* drawInst = drawList[i];
-                        if(inst->instanceId == drawInst->instanceId)
-                        {
-                            arrdel(drawList, i);
-                        }
-                    }
-                    int32_t codeId = findEventCodeIdAndOwner(runner->dataWin, inst->objectIndex, EVENT_DRAW, DRAW_NORMAL, nullptr);
-                    if(!inst->visible) continue;
-                    if (codeId >= 0) {
-                        Runner_executeEvent(runner, inst, EVENT_DRAW, DRAW_NORMAL);
-                    } else if (runner->renderer != nullptr) {
-                        Renderer_drawSelf(runner->renderer, inst);
-                    }
+                    inst->depth = d->layer->depth;
                 }
-            }
-        }
-    }
-
-    if(runner->isGMS2) {
-        for(int32_t i = 0; i < drawCount; i++) {
-            Instance* inst = drawList[i];
-            int32_t codeId = findEventCodeIdAndOwner(runner->dataWin, inst->objectIndex, EVENT_DRAW, DRAW_NORMAL, nullptr);
-            if (codeId >= 0) {
-                Runner_executeEvent(runner, inst, EVENT_DRAW, DRAW_NORMAL);
-            } else if (runner->renderer != nullptr) {
-                Renderer_drawSelf(runner->renderer, inst);
             }
         }
     }
