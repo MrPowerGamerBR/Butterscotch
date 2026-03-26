@@ -601,12 +601,16 @@ int main(int argc, char* argv[]) {
         int gameFramesRan = 0;
         while (accumulator >= targetFrameTime) {
             // Clear pressed/released before 2nd+ steps so press events don't fire multiple times when catching up
-            if (gameFramesRan > 0)
+            if (gameFramesRan != 0)
                 RunnerKeyboard_beginFrame(runner->keyboard);
 
             Runner_step(runner);
 
-            if (!deferDrawToAfterAllSteps) {
+            // The reason why we ALWAYS run this EVEN if gameFramesRan == 0 is to at least *try* to avoid logic issues with draw calls
+            // In Undertale, if the game is lagging, the game will ignore inputs in GML scripts that are called on the draw events
+            // (Example: inventory menu)
+            // TODO: We could make that the gsKit calls are ignored here for this case
+            if (!deferDrawToAfterAllSteps || gameFramesRan == 0) {
                 gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x80, 0x00));
 
                 renderer->vtable->beginFrame(renderer, gameW, gameH, 640, 448);
