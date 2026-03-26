@@ -1342,7 +1342,7 @@ static void gsDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
         float g = (float) BGR_G(renderer->drawColor) / 255.0f;
         float b = (float) BGR_B(renderer->drawColor) / 255.0f;
 
-        u64 triColor = GS_SETREG_RGBAQ(r, g, b, alphaToGs(renderer->drawAlpha), 0x00);
+        u64 triColor = GS_SETREG_RGBAQ(r, g, b, alphaToGS(renderer->drawAlpha), 0x00);
         gsKit_prim_triangle(x1, y1, x2, y2, x3, y3, gz->zCounter, triColor);
         gs->zCounter++;
     }
