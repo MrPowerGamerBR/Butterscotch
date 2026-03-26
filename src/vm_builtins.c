@@ -2459,6 +2459,27 @@ static RValue builtinInstanceCreate(VMContext* ctx, RValue* args, int32_t argCou
     return RValue_makeReal((GMLReal) inst->instanceId);
 }
 
+static RValue builtinInstanceCreateDepth(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    GMLReal x = RValue_toReal(args[0]);
+    GMLReal y = RValue_toReal(args[1]);
+    int32_t depth = RValue_toInt32(args[2]);
+    int32_t objectIndex = RValue_toInt32(args[3]);
+    if (0 > objectIndex || runner->dataWin->objt.count <= (uint32_t) objectIndex) {
+        fprintf(stderr, "VM: instance_create: objectIndex %d out of range\n", objectIndex);
+        return RValue_makeReal(0.0);
+    }
+    Instance* callerInst = (Instance*) ctx->currentInstance;
+    Instance* inst = Runner_createInstance(runner, x, y, objectIndex);
+    if (inst == nullptr) return RValue_makeReal(-4.0); // noone
+    if (callerInst != nullptr && ctx->creatorVarID >= 0) {
+        Instance_setSelfVar(inst, ctx->creatorVarID, RValue_makeReal((GMLReal) callerInst->instanceId));
+    }
+    inst->depth = depth;
+    return RValue_makeReal((GMLReal) inst->instanceId);
+}
+
 static RValue builtinInstanceChange(VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
     Runner* runner = (Runner*) ctx->runner;
@@ -3893,7 +3914,7 @@ STUB_RETURN_VALUE(font_add_sprite_ext, -1.0)
 
 // ===[ REGISTRATION ]===
 
-void VMBuiltins_registerAll(void) {
+void VMBuiltins_registerAll(bool isGMS2) {
     requireMessage(!initialized, "Attempting to register all VMBuiltins, but it was already registered!");
     initialized = true;
 
@@ -4117,7 +4138,12 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("instance_number", builtinInstanceNumber);
     registerBuiltin("instance_find", builtinInstanceFind);
     registerBuiltin("instance_destroy", builtinInstanceDestroy);
-    registerBuiltin("instance_create", builtinInstanceCreate);
+    if(isGMS2) {
+        registerBuiltin("instance_create", builtinInstanceCreate);
+    }
+    else {
+        registerBuiltin("instance_create_depth", builtinInstanceCreateDepth);
+    }
     registerBuiltin("instance_change", builtinInstanceChange);
     registerBuiltin("instance_deactivate_all", builtinInstanceDeactivateAll);
     registerBuiltin("instance_activate_all", builtinInstanceActivateAll);
@@ -4171,12 +4197,14 @@ void VMBuiltins_registerAll(void) {
     registerBuiltin("draw_text_ext_transformed", builtin_draw_text_ext_transformed);
     registerBuiltin("draw_surface", builtin_draw_surface);
     registerBuiltin("draw_surface_ext", builtin_draw_surface_ext);
-    registerBuiltin("draw_background", builtin_drawBackground);
-    registerBuiltin("draw_background_ext", builtin_drawBackgroundExt);
-    registerBuiltin("draw_background_stretched", builtin_drawBackgroundStretched);
-    registerBuiltin("draw_background_part_ext", builtin_drawBackgroundPartExt);
-    registerBuiltin("background_get_width", builtinBackgroundGetWidth);
-    registerBuiltin("background_get_height", builtinBackgroundGetHeight);
+    if(!isGMS2) {
+        registerBuiltin("draw_background", builtin_drawBackground);
+        registerBuiltin("draw_background_ext", builtin_drawBackgroundExt);
+        registerBuiltin("draw_background_stretched", builtin_drawBackgroundStretched);
+        registerBuiltin("draw_background_part_ext", builtin_drawBackgroundPartExt);
+        registerBuiltin("background_get_width", builtinBackgroundGetWidth);
+        registerBuiltin("background_get_height", builtinBackgroundGetHeight);
+    }
     registerBuiltin("draw_self", builtin_draw_self);
     registerBuiltin("draw_line", builtin_draw_line);
     registerBuiltin("draw_line_width", builtin_draw_line_width);
