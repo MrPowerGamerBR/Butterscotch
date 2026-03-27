@@ -557,6 +557,12 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
             spr->masks = nullptr;
         }
     }
+    
+    // Build sprtOffsetMap: absolute file offset -> SPRT index
+    // TODO: This is only needed for GMS2
+    repeat(count, i) {
+        hmput(dw->sprtOffsetMap, ptrs[i], (int32_t) i);
+    }
     free(ptrs);
 }
 
@@ -1076,6 +1082,7 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                     RoomTile* tile = &room->tiles[j];
                     tile->x = BinaryReader_readInt32(reader);
                     tile->y = BinaryReader_readInt32(reader);
+                    tile->useSpriteDefinition = (dw->gen8.major >= 2);
                     tile->backgroundDefinition = BinaryReader_readInt32(reader);
                     tile->sourceX = BinaryReader_readInt32(reader);
                     tile->sourceY = BinaryReader_readInt32(reader);
@@ -1117,15 +1124,69 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                         layer->yOffset = BinaryReader_readFloat32(reader);
                         layer->hSpeed = BinaryReader_readFloat32(reader);
                         layer->vSpeed = BinaryReader_readFloat32(reader);
+                        layer->visible = BinaryReader_readBool32(reader);
                         switch (layer->type) {
                             case RoomLayerType_Path:
                                 break; // Nothing to do;
                             
                             case RoomLayerType_Assets: {
                                 RoomLayerAssetsData* assets = malloc(sizeof(RoomLayerAssetsData));
-                                assets->legacyTilesPtr = BinaryReader_readUint32(reader);
-                                assets->spritesPtr = BinaryReader_readUint32(reader);
+                                uint32_t legacyTilesPtr = BinaryReader_readUint32(reader);
+                                uint32_t spritesPtr = BinaryReader_readUint32(reader);
+
+                                BinaryReader_seek(reader, legacyTilesPtr);
+                                uint32_t *tilePtrs = readPointerTable(reader, &assets->legacyTileCount);
+                                if (assets->legacyTileCount > 0) {
+                                    assets->legacyTiles = safeMalloc(assets->legacyTileCount * sizeof(RoomTile));
+                                    repeat(assets->legacyTileCount, j) {
+                                        BinaryReader_seek(reader, tilePtrs[j]);
+                                        RoomTile* tile = &assets->legacyTiles[j];
+                                        tile->x = BinaryReader_readInt32(reader);
+                                        tile->y = BinaryReader_readInt32(reader);
+                                        tile->useSpriteDefinition = (dw->gen8.major >= 2);
+                                        tile->backgroundDefinition = BinaryReader_readInt32(reader);
+                                        tile->sourceX = BinaryReader_readInt32(reader);
+                                        tile->sourceY = BinaryReader_readInt32(reader);
+                                        tile->width = BinaryReader_readUint32(reader);
+                                        tile->height = BinaryReader_readUint32(reader);
+                                        tile->tileDepth = BinaryReader_readInt32(reader);
+                                        tile->instanceID = BinaryReader_readUint32(reader);
+                                        tile->scaleX = BinaryReader_readFloat32(reader);
+                                        tile->scaleY = BinaryReader_readFloat32(reader);
+                                        tile->color = BinaryReader_readUint32(reader);
+                                    }
+                                } else {
+                                    assets->legacyTiles = nullptr;
+                                }
+                                free(tilePtrs);
+                                
+                                BinaryReader_seek(reader, spritesPtr);
+                                uint32_t *spritePtrs = readPointerTable(reader, &assets->spriteCount);
+                                if (assets->spriteCount > 0) {
+                                    assets->sprites = safeMalloc(assets->spriteCount * sizeof(SpriteInstance));
+                                    repeat(assets->spriteCount, j) {
+                                        BinaryReader_seek(reader, spritePtrs[j]);
+                                        SpriteInstance* sprite = &assets->sprites[j];
+                                        sprite->name = readStringPtr(reader, dw);
+                                        sprite->spritePtr = BinaryReader_readUint32(reader);;
+                                        sprite->x = BinaryReader_readInt32(reader);
+                                        sprite->y = BinaryReader_readInt32(reader);
+                                        sprite->scaleX = BinaryReader_readFloat32(reader);
+                                        sprite->scaleY = BinaryReader_readFloat32(reader);
+                                        sprite->color = BinaryReader_readUint32(reader);
+                                        sprite->animationSpeed = BinaryReader_readFloat32(reader);
+                                        sprite->animationSpeedType = BinaryReader_readUint32(reader);
+                                        sprite->frameIndex = BinaryReader_readFloat32(reader);
+                                        sprite->rotation = BinaryReader_readFloat32(reader);
+                                    }
+                                } else {
+                                    assets->sprites = nullptr;
+                                }
+                                free(spritePtrs);
+
                                 // TODO: GMS2.3+ Specil Fields
+
+                                layer->assetsData = assets;
                                 break;
                             }
 
@@ -1673,7 +1734,9 @@ void DataWin_free(DataWin* dw) {
             }
         }
         free(dw->sprt.sprites);
+        hmfree(dw->sprtOffsetMap);
     }
+
 
     // BGND
     free(dw->bgnd.backgrounds);
@@ -1817,4 +1880,12 @@ int32_t DataWin_resolveTPAG(DataWin* dw, uint32_t offset) {
     ptrdiff_t idx = hmgeti(dw->tpagOffsetMap, offset);
     if (0 > idx) return -1;
     return dw->tpagOffsetMap[idx].value;
+}
+
+// ===[ SPRT Offset Resolution ]===
+
+int32_t DataWin_resolveSPRT(DataWin* dw, uint32_t offset) {
+    ptrdiff_t idx = hmgeti(dw->sprtOffsetMap, offset);
+    if (0 > idx) return -1;
+    return dw->sprtOffsetMap[idx].value;
 }

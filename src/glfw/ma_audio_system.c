@@ -143,8 +143,8 @@ static void maUpdate(AudioSystem* audio, float deltaTime) {
             ma_sound_set_volume(&inst->maSound, inst->currentGain);
         }
 
-        // Clean up ended non-looping sounds
-        if (!ma_sound_is_playing(&inst->maSound) && !ma_sound_is_looping(&inst->maSound)) {
+        // Clean up ended non-looping sounds (ma_sound_at_end avoids reaping still-loading async sounds)
+        if (ma_sound_at_end(&inst->maSound) && !ma_sound_is_looping(&inst->maSound)) {
             ma_sound_uninit(&inst->maSound);
             if (inst->ownsDecoder) {
                 ma_decoder_uninit(&inst->decoder);
@@ -189,7 +189,7 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
 
     if (isStream) {
         // Stream audio: load from file path stored in stream entry
-        result = ma_sound_init_from_file(&ma->engine, streamPath, 0, nullptr, nullptr, &slot->maSound);
+        result = ma_sound_init_from_file(&ma->engine, streamPath, MA_SOUND_FLAG_ASYNC, nullptr, nullptr, &slot->maSound);
         if (result != MA_SUCCESS) {
             fprintf(stderr, "Audio: Failed to load stream file '%s' (error %d)\n", streamPath, result);
             return -1;
@@ -229,7 +229,7 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
                 return -1;
             }
 
-            result = ma_sound_init_from_file(&ma->engine, path, 0, nullptr, nullptr, &slot->maSound);
+            result = ma_sound_init_from_file(&ma->engine, path, MA_SOUND_FLAG_ASYNC, nullptr, nullptr, &slot->maSound);
             if (result != MA_SUCCESS) {
                 fprintf(stderr, "Audio: Failed to load file for '%s' at '%s' (error %d)\n", sound->name, path, result);
                 free(path);

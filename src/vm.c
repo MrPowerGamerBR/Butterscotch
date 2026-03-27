@@ -1935,7 +1935,7 @@ VMContext* VM_create(DataWin* dataWin) {
     }
 
     // Register built-in functions
-    VMBuiltins_registerAll();
+    VMBuiltins_registerAll(dataWin->gen8.major >= 2);
 
     fprintf(stderr, "VM: Initialized with %u global vars, sparse self vars (hashmap), %u functions mapped\n", ctx->globalVarCount, (uint32_t) shlen(ctx->funcMap));
 

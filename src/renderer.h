@@ -167,6 +167,21 @@ static int32_t Renderer_resolveBackgroundTPAGIndex(DataWin* dataWin, int32_t bgn
     return DataWin_resolveTPAG(dataWin, bg->textureOffset);
 }
 
+// Resolves a SPRT index to a TPAG index via Sprite.textureOffset -> DataWin_resolveTPAG()
+static int32_t Renderer_resolveSpriteTPAGIndex(DataWin* dataWin, int32_t sprtIndex) {
+    if (0 > sprtIndex || (uint32_t) sprtIndex >= dataWin->sprt.count) return -1;
+    Sprite* bg = &dataWin->sprt.sprites[sprtIndex];
+    return DataWin_resolveTPAG(dataWin, bg->textureOffsets[0]);
+}
+
+// Resolves a SPRT or BGND index to a TPAG index
+static int32_t Renderer_resolveObjectTPAGIndex(DataWin* dataWin, RoomTile *tile) {
+    if(!tile->useSpriteDefinition)
+        return Renderer_resolveBackgroundTPAGIndex(dataWin, tile->backgroundDefinition);
+    else
+        return Renderer_resolveSpriteTPAGIndex(dataWin, tile->backgroundDefinition);
+}
+
 // Draws a tiled background
 static void Renderer_drawBackgroundTiled(Renderer* renderer, int32_t tpagIndex, float bgX, float bgY, bool tileX, bool tileY, float roomW, float roomH, float alpha) {
     DataWin* dw = renderer->dataWin;
@@ -234,7 +249,7 @@ static void Renderer_drawTile(Renderer* renderer, RoomTile* tile, float offsetX,
         return;
     }
 
-    int32_t tpagIndex = Renderer_resolveBackgroundTPAGIndex(renderer->dataWin, tile->backgroundDefinition);
+    int32_t tpagIndex = Renderer_resolveObjectTPAGIndex(renderer->dataWin, tile);
     if (0 > tpagIndex) return;
 
     TexturePageItem* tpag = &renderer->dataWin->tpag.items[tpagIndex];

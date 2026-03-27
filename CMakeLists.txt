@@ -59,9 +59,13 @@ if(PLATFORM STREQUAL "glfw")
         target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl)
     endif()
 
-    # Enable useful things to figure out when things have gone wrong related to memory corruption
-    # (Also set -DCMAKE_BUILD_TYPE=Debug to get debug symbols!)
-    set(ENABLE_ASAN OFF CACHE BOOL "Enable AddressSanitizer")
+    # Enable AddressSanitizer by default in Debug builds
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(ENABLE_ASAN_DEFAULT ON)
+    else()
+        set(ENABLE_ASAN_DEFAULT OFF)
+    endif()
+    set(ENABLE_ASAN ${ENABLE_ASAN_DEFAULT} CACHE BOOL "Enable AddressSanitizer")
     if(ENABLE_ASAN AND NOT MINGW)
         target_compile_options(butterscotch PRIVATE -fsanitize=address -fno-omit-frame-pointer)
         target_link_options(butterscotch PRIVATE -fsanitize=address)
