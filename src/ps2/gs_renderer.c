@@ -1338,12 +1338,23 @@ static void gsDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
         gsDrawLine(renderer, x2, y2, x3, y3, 1, renderer->drawColor, 1.0);
         gsDrawLine(renderer, x3, y3, x1, y1, 1, renderer->drawColor, 1.0);
     } else {
-        float r = (float) BGR_R(renderer->drawColor) / 255.0f;
-        float g = (float) BGR_G(renderer->drawColor) / 255.0f;
-        float b = (float) BGR_B(renderer->drawColor) / 255.0f;
+        float sx1 = (x1 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+        float sy1 = (y1 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+        float sx2 = (x2 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+        float sy2 = (y2 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+        float sx3 = (x3 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+        float sy3 = (y3 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+
+        float r = (float) BGR_R(renderer->drawColor);
+        float g = (float) BGR_G(renderer->drawColor);
+        float b = (float) BGR_B(renderer->drawColor);
 
         u64 triColor = GS_SETREG_RGBAQ(r, g, b, alphaToGS(renderer->drawAlpha), 0x00);
-        gsKit_prim_triangle(gs->gsGlobal, x1, y1, x2, y2, x3, y3, gs->zCounter, triColor);
+        gsKit_prim_triangle_gouraud_3d(gs->gsGlobal, 
+            sx1, sy1, gs->zCounter,
+            sx2, sy2, gs->zCounter,
+            sx3, sy3, gs->zCounter,
+            triColor, triColor, triColor);
         gs->zCounter++;
     }
 }
