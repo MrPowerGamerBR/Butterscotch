@@ -3051,6 +3051,48 @@ static RValue builtin_drawTextTransformed(VMContext* ctx, RValue* args, [[maybe_
 }
 STUB_RETURN_UNDEFINED(draw_text_ext)
 STUB_RETURN_UNDEFINED(draw_text_ext_transformed)
+
+static RValue builtin_drawTextColor(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    int32_t c1 = (float) RValue_toInt32(args[3]);
+    int32_t c2 = (float) RValue_toInt32(args[4]);
+    int32_t c3 = (float) RValue_toInt32(args[5]);
+    int32_t c4 = (float) RValue_toInt32(args[6]);
+    float alpha = (float) RValue_toReal(args[7]);
+
+    runner->renderer->vtable->drawTextColor(runner->renderer, str, x, y, 1.0f, 1.0f, 0.0f, c1, c2, c3, c4, alpha);
+    free(str);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_drawTextColorTransformed(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    float xscale = (float) RValue_toReal(args[3]);
+    float yscale = (float) RValue_toReal(args[4]);
+    float angle = (float) RValue_toReal(args[5]);
+    int32_t c1 = (float) RValue_toInt32(args[6]);
+    int32_t c2 = (float) RValue_toInt32(args[7]);
+    int32_t c3 = (float) RValue_toInt32(args[8]);
+    int32_t c4 = (float) RValue_toInt32(args[9]);
+    float alpha = (float) RValue_toReal(args[10]);
+
+    runner->renderer->vtable->drawTextColor(runner->renderer, str, x, y, xscale, yscale, angle, c1, c2, c3, c4, alpha);
+    free(str);
+    return RValue_makeUndefined();
+}
+STUB_RETURN_UNDEFINED(draw_text_color_ext)
+STUB_RETURN_UNDEFINED(draw_text_color_ext_transformed)
+
 STUB_RETURN_UNDEFINED(draw_surface)
 STUB_RETURN_UNDEFINED(draw_surface_ext)
 static RValue builtin_drawBackground(VMContext* ctx, RValue* args, [[maybe_unused]] int32_t argCount) {
@@ -4284,6 +4326,14 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("draw_text_transformed", builtin_drawTextTransformed);
     registerBuiltin("draw_text_ext", builtin_draw_text_ext);
     registerBuiltin("draw_text_ext_transformed", builtin_draw_text_ext_transformed);
+    registerBuiltin("draw_text_color", builtin_drawTextColor);
+    registerBuiltin("draw_text_color_transformed", builtin_drawTextColorTransformed);
+    registerBuiltin("draw_text_color_ext", builtin_draw_text_color_ext);
+    registerBuiltin("draw_text_color_ext_transformed", builtin_draw_text_color_ext_transformed);
+    registerBuiltin("draw_text_colour", builtin_drawTextColor);
+    registerBuiltin("draw_text_colour_transformed", builtin_drawTextColorTransformed);
+    registerBuiltin("draw_text_colour_ext", builtin_draw_text_color_ext);
+    registerBuiltin("draw_text_colour_ext_transformed", builtin_draw_text_color_ext_transformed);
     registerBuiltin("draw_surface", builtin_draw_surface);
     registerBuiltin("draw_surface_ext", builtin_draw_surface_ext);
     if(!isGMS2) {
