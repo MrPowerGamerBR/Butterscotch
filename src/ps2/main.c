@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <sifrpc.h>
+#include <iopcontrol.h>
 #include <loadfile.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -233,9 +234,23 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
     endStatusScreen(gs, fontm);
 }
 
-int main(int argc, char* argv[]) {
+static void initIop() {
+    SifInitRpc(0);
+
+#if defined(PS2_DTL_SUPPORT)
+    // Required to get console output on DTL systems.
+    while (!SifIopReset("rom0:UDNL", 0));
+#else
+    while (!SifIopReset("", 0));
+#endif // PS2_DTL_SUPPORT
+
+    while (!SifIopSync());
     SifInitRpc(0);
     sbv_patch_enable_lmb();
+}
+
+int main(int argc, char* argv[]) {
+    initIop();
 
     PS2Utils_extractDeviceKey(argv[0]);
 
