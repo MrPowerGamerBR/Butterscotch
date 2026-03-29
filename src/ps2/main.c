@@ -10,6 +10,7 @@
 #include <gsFontM.h>
 #include <libpad.h>
 #include <libmc.h>
+#include <libcdvd.h>
 #include <timer.h>
 #include <unistd.h>
 #include <sbv_patches.h>
@@ -221,7 +222,9 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
     endStatusScreen(gs, fontm);
 }
 
-static void initIop() {
+// Initialize the IOP with all necessary modules.
+// Returns 0 on success, nonzero on failure.
+static int initIop() {
     SifInitRpc(0);
 
 #if defined(PS2_DTL_SUPPORT)
@@ -234,21 +237,78 @@ static void initIop() {
     while (!SifIopSync());
     SifInitRpc(0);
     sbv_patch_enable_lmb();
+
+    printf("Preparing IOP modules...\n");
+    int ret;
+
+    // SIO
+    ret = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load sio2man: %d\n", ret);
+        return 1;
+    }
+
+    // Memory Card
+    ret = SifExecModuleBuffer(mcman_irx, size_mcman_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load mcman: %d\n", ret);
+        return 1;
+    }
+    ret = SifExecModuleBuffer(mcserv_irx, size_mcserv_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load mcserv: %d\n", ret);
+        return 1;
+    }
+
+    // Pad
+    ret = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load padman: %d\n", ret);
+        return 1;
+    }
+    
+    // Audio
+    ret = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load freesd: %d\n", ret);
+        return 1;
+    }
+    ret = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, nullptr, nullptr);
+    if (0 > ret) {
+        fprintf(stderr, "Failed to load audsrv: %d\n", ret);
+        return 1;
+    }
+
+    // CDVD Drivers (if running from disc)
+    if (deviceKey.usesISO9660) {
+        ret = SifLoadModule("rom0:CDVDMAN", 0, nullptr);
+        if (0 > ret) {
+            fprintf(stderr, "PS2Utils: Failed to load CDVDMAN: %d\n", ret);
+            return 1;
+        }
+
+        ret = SifLoadModule("rom0:CDVDFSV", 0, nullptr);
+        if (0 > ret) {
+            fprintf(stderr, "PS2Utils: Failed to load CDVDFSV: %d\n", ret);
+            return 1;
+        }
+
+        sceCdInit(SCECdINIT);
+    }
+
+    return 0;
 }
 
 int main(int argc, char* argv[]) {
-    initIop();
-
     PS2Utils_extractDeviceKey(argv[0]);
+    if (initIop() != 0) {
+        fprintf(stderr, "IOP could not be initialized.\n");
+        return 1;
+    }
 
     fprintf(stderr, "argv0 is %s, device key is %s\n", argv[0], deviceKey.key);
 
-    PS2Utils_loadFSDrivers();
-
-    fprintf(stderr, "Loaded FS drivers!\n");
-
     const char* dataWinPath = PS2Utils_createDevicePath("DATA.WIN");
-
     printf("Butterscotch PS2 - Loading %s\n", dataWinPath);
 
     // ===[ Initialize gsKit ]===
@@ -281,45 +341,14 @@ int main(int argc, char* argv[]) {
     // ===[ Initialize Controller ]===
     drawStatusScreen(gsGlobal, gsFontM, nullptr, "Initializing controller...", nullptr);
 
-    int ret;
-    ret = SifExecModuleBuffer(sio2man_irx, size_sio2man_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load sio2man: %d\n", ret);
-        return 1;
-    }
-    ret = SifExecModuleBuffer(mcman_irx, size_mcman_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load mcman: %d\n", ret);
-        return 1;
-    }
-    ret = SifExecModuleBuffer(mcserv_irx, size_mcserv_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load mcserv: %d\n", ret);
-        return 1;
-    }
-    ret = mcInit(MC_TYPE_MC);
+    int ret = mcInit(MC_TYPE_MC);
     if (0 > ret) {
         printf("Failed to init libmc: %d\n", ret);
-        return 1;
-    }
-    ret = SifExecModuleBuffer(padman_irx, size_padman_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load padman: %d\n", ret);
         return 1;
     }
 
     padInit(0);
     padPortOpen(0, 0, padBuf);
-
-    // ===[ Load Audio IOP Modules ]===
-    ret = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load freesd: %d\n", ret);
-    }
-    ret = SifExecModuleBuffer(audsrv_irx, size_audsrv_irx, 0, nullptr, nullptr);
-    if (0 > ret) {
-        printf("Failed to load audsrv: %d\n", ret);
-    }
 
     // Wait for pad to be ready
     drawStatusScreen(gsGlobal, gsFontM, nullptr, "Waiting for controller...", nullptr);

@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <loadfile.h>
-#include <libcdvd.h>
 #include "../utils.h"
 #include "ps2_utils.h"
 
@@ -27,32 +26,6 @@ void PS2Utils_extractDeviceKey(const char* path) {
     };
 
     deviceKeyLoaded = true;
-}
-
-// Loads the required IOP drivers based on the current device key
-// For cdrom devices, this loads the CDVD filesystem modules so we can read from the disc
-void PS2Utils_loadFSDrivers() {
-    require(deviceKeyLoaded);
-
-    if (deviceKey.usesISO9660) {
-        fprintf(stderr, "PS2Utils: Loading CDVD drivers for device key '%s'\n", deviceKey.key);
-
-        int ret;
-        ret = SifLoadModule("rom0:CDVDMAN", 0, nullptr);
-        if (0 > ret) {
-            fprintf(stderr, "PS2Utils: Failed to load CDVDMAN: %d\n", ret);
-            abort();
-        }
-
-        ret = SifLoadModule("rom0:CDVDFSV", 0, nullptr);
-        if (0 > ret) {
-            fprintf(stderr, "PS2Utils: Failed to load CDVDFSV: %d\n", ret);
-            abort();
-        }
-
-        sceCdInit(SCECdINIT);
-        fprintf(stderr, "PS2Utils: CDVD initialized\n");
-    }
 }
 
 // Creates a path with the device key + path for the loaded device key

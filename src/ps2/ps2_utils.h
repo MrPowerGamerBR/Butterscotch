@@ -23,5 +23,4 @@ extern PS2DeviceKey deviceKey;
 extern bool deviceKeyLoaded;
 
 void PS2Utils_extractDeviceKey(const char* path);
-void PS2Utils_loadFSDrivers();
 char* PS2Utils_createDevicePath(const char* path);
