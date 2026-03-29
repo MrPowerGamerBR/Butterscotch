@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
 set(PLATFORM "" CACHE STRING "Platform backend")
+option(PS2_DTL_SUPPORT "Support Sony DTL PS2 development kits when building PLATFORM=ps2." OFF)
 
 # Build metadata
 set(BUTTERSCOTCH_COMMIT_HASH "unknown" CACHE STRING "Git commit hash")
@@ -78,6 +79,10 @@ elseif(PLATFORM STREQUAL "ps2")
     # Treat unsuffixed float constants as single-precision to avoid accidental
     # float->double promotions on platforms with no hardware double
     add_compile_options(-fsingle-precision-constant)
+
+    if(PS2_DTL_SUPPORT)
+        target_compile_definitions(butterscotch PRIVATE PS2_DTL_SUPPORT)
+    endif()
 
     if(PS2)
         # Compiling on the Docker container
