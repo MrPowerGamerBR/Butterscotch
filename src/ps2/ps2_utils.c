@@ -23,6 +23,7 @@ void PS2Utils_extractDeviceKey(const char* path) {
     deviceKey = (PS2DeviceKey) {
         .key = result,
         .usesISO9660 = strncmp(result, "cdrom", strlen("cdrom")) == 0,
+        .usesHost = strncmp(result, "host", strlen("host")) == 0,
     };
 
     deviceKeyLoaded = true;
@@ -63,6 +64,13 @@ char* PS2Utils_createDevicePath(const char* path) {
         size_t len = strlen(deviceKey.key) + 3 + strlen(path) + 2 + 1;
         char* devicePath = safeMalloc(len);
         snprintf(devicePath, len, "%s:\\%s;1", deviceKey.key, path);
+        return devicePath;
+    } else if (deviceKey.usesHost) {
+        // Paths are naturally handled relative to the parent directory
+        // of the original ELF.
+        size_t len = strlen(path) + 1;
+        char* devicePath = safeMalloc(len);
+        snprintf(devicePath, len, "%s", path);
         return devicePath;
     } else {
         size_t len = strlen(deviceKey.key) + 1 + strlen(path) + 1;

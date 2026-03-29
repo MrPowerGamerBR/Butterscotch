@@ -16,6 +16,7 @@ static inline uint8_t alphaToGS(float alpha) {
 typedef struct {
     char* key;
     bool usesISO9660;
+    bool usesHost;
 } PS2DeviceKey;
 
 extern PS2DeviceKey deviceKey;
