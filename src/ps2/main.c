@@ -26,26 +26,12 @@
 #include "ps2_utils.h"
 #include "utils.h"
 #include "irx.h"
+#include "ps2/ps2_pad.h"
 
 // The maximum memory of a normal PS2 console
 // Developer consoles may have more memory, but because ps2sdk does not have a way to know
 // how much memory the console really has, we will use this value instead
 static int MAX_MEMORY_BYTES = 33554432;
-
-// 256-byte aligned buffer for libpad
-static char padBuf[256] __attribute__((aligned(64)));
-
-// Controller button to GML key mapping
-typedef struct {
-    uint16_t padButton;
-    int32_t gmlKey;
-} PadMapping;
-
-static PadMapping* padMappings = nullptr;
-static int padMappingCount = 0;
-
-// Previous frame's button state for detecting press/release edges
-static uint16_t prevButtons = 0xFFFF; // All buttons released (buttons are active-low)
 
 // ===[ Loading Screen ]===
 
@@ -320,8 +306,7 @@ int main(int argc, char* argv[]) {
     gsKit_fontm_upload(gsGlobal, gsFontM);
     gsFontM->Spacing = 0.95f;
 
-    // ===[ Initialize Controller ]===
-    drawStatusScreen(gsGlobal, gsFontM, nullptr, "Initializing controller...", nullptr);
+    drawStatusScreen(gsGlobal, gsFontM, nullptr, "Initializing memory card...", nullptr);
 
     int ret = mcInit(MC_TYPE_MC);
     if (0 > ret) {
@@ -329,17 +314,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    padInit(0);
-    padPortOpen(0, 0, padBuf);
-
-    // Wait for pad to be ready
-    drawStatusScreen(gsGlobal, gsFontM, nullptr, "Waiting for controller...", nullptr);
-
-    int padState;
-    do {
-        padState = padGetState(0, 0);
-    } while (PAD_STATE_STABLE != padState && PAD_STATE_FINDCTP1 != padState);
-
+    drawStatusScreen(gsGlobal, gsFontM, nullptr, "Initializing controller...", nullptr);
+    PS2Pad_Init();
     printf("Controller initialized\n");
 
     // ===[ Loading Screen State ]===
@@ -443,6 +419,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    JsonValue* controllerMappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
+    PS2Pad_ApplyMappings(controllerMappingsObj);
+
     // Parse deferDrawToAfterAllSteps from CONFIG.JSN
     // When true, Runner_draw runs once after all catch-up Runner_step calls (old behavior) instead of running immediately after each Runner_step (new behavior)
     bool deferDrawToAfterAllSteps = false;
@@ -451,20 +430,6 @@ int main(int argc, char* argv[]) {
         deferDrawToAfterAllSteps = JsonReader_getBool(deferDrawVal);
         if (deferDrawToAfterAllSteps) {
             printf("CONFIG.JSN: deferDrawToAfterAllSteps = true (draw once after all steps)\n");
-        }
-    }
-
-    // Parse controllerMappings from CONFIG.JSN
-    JsonValue* controllerMappingsObj = JsonReader_getObject(configRoot, "controllerMappings");
-    if (controllerMappingsObj != nullptr && JsonReader_isObject(controllerMappingsObj)) {
-        padMappingCount = JsonReader_objectLength(controllerMappingsObj);
-        padMappings = safeMalloc(sizeof(PadMapping) * padMappingCount);
-        repeat(padMappingCount, i) {
-            const char* padButtonStr = JsonReader_getObjectKey(controllerMappingsObj, i);
-            JsonValue* gmlKeyVal = JsonReader_getObjectValue(controllerMappingsObj, i);
-            padMappings[i].padButton = (uint16_t) atoi(padButtonStr);
-            padMappings[i].gmlKey = (int32_t) JsonReader_getInt(gmlKeyVal);
-            printf("CONFIG.JSN: controllerMapping pad=%d -> gmlKey=%d\n", padMappings[i].padButton, padMappings[i].gmlKey);
         }
     }
 
@@ -523,30 +488,8 @@ int main(int argc, char* argv[]) {
         // vsyncs are not lost
         //
         // beginFrame is called after the game consumes input.
-
-        struct padButtonStatus padStatus;
-        unsigned char padResult = padRead(0, 0, &padStatus);
-        uint16_t buttons = 0xFFFF; // all released by default
-        if (padResult != 0) {
-            buttons = padStatus.btns;
-
-            repeat(padMappingCount, i) {
-                uint16_t mask = padMappings[i].padButton;
-                int32_t gmlKey = padMappings[i].gmlKey;
-
-                // PS2 buttons are active-low: 0 = pressed, 1 = released
-                bool wasPressed = (prevButtons & mask) == 0;
-                bool isPressed = (buttons & mask) == 0;
-
-                if (isPressed && !wasPressed) {
-                    RunnerKeyboard_onKeyDown(runner->keyboard, gmlKey);
-                } else if (!isPressed && wasPressed) {
-                    RunnerKeyboard_onKeyUp(runner->keyboard, gmlKey);
-                }
-            }
-
-            prevButtons = buttons;
-        }
+        uint16_t buttons = 0xFFFF;
+        uint8_t padResult = PS2Pad_Poll(runner->keyboard, &buttons);
 
         // R2 removes speed cap (run at full vsync rate)
         bool speedCapRemoved = (padResult != 0) && ((buttons & PAD_R2) == 0);
