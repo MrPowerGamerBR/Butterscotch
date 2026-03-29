@@ -108,4 +108,4 @@ typedef struct {
     uint32_t* atlasDataSizes;          // On-disk size per atlas (header + compressed data) [atlasCount]
 } GsRenderer;
 
-Renderer* GsRenderer_create(GSGLOBAL* gsGlobal);
+Renderer* GsRenderer_create();

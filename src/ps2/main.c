@@ -311,27 +311,9 @@ int main(int argc, char* argv[]) {
     const char* dataWinPath = PS2Utils_createDevicePath("DATA.WIN");
     printf("Butterscotch PS2 - Loading %s\n", dataWinPath);
 
-    // ===[ Initialize gsKit ]===
-    // This must happen first so we can show the loading screen during other init steps
-    GSGLOBAL* gsGlobal = gsKit_init_global();
-    gsGlobal->Mode = GS_MODE_NTSC;
-    gsGlobal->Interlace = GS_INTERLACED;
-    gsGlobal->Field = GS_FIELD;
-    gsGlobal->Width = 640;
-    gsGlobal->Height = 448;
-    gsGlobal->PSM = GS_PSM_CT16;
-    gsGlobal->PSMZ = GS_PSMZ_16;
-    gsGlobal->DoubleBuffering = GS_SETTING_ON;
-    gsGlobal->ZBuffering = GS_SETTING_OFF;
-
-    gsGlobal->PrimAAEnable = GS_SETTING_OFF;
-
-    dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC, D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
-    dmaKit_chan_init(DMA_CHANNEL_GIF);
-
-    gsKit_init_screen(gsGlobal);
-    // Use ONE SHOT mode
-    gsKit_mode_switch(gsGlobal, GS_ONESHOT);
+    printf("Preparing GS for rendering...\n");
+    Renderer* renderer = GsRenderer_create();
+    GSGLOBAL* gsGlobal = ((GsRenderer*)renderer)->gsGlobal;
 
     // ===[ Initialize FONTM (ROM font) for debug overlay ]===
     GSFONTM* gsFontM = gsKit_init_fontm();
@@ -408,14 +390,9 @@ int main(int argc, char* argv[]) {
         int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
         printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
     }
-    // ===[ Create texture cache and renderer ]===
-    drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Creating renderer...", &loadingState);
-
-    Renderer* renderer = GsRenderer_create(gsGlobal);
 
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Creating VM and runner...", &loadingState);
 
-    // ===[ Load CONFIG.JSN ]===
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Loading CONFIG.JSN...", &loadingState);
 
     char* configJsonPath = PS2Utils_createDevicePath("CONFIG.JSN");

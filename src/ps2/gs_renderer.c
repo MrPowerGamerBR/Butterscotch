@@ -887,6 +887,9 @@ static void gsDestroy(Renderer* renderer) {
     free(gs->eeCache);
     free(gs->eeCacheEntries);
     free(gs->atlasDataSizes);
+
+    gsKit_deinit_global(gs->gsGlobal);
+
     free(gs);
 }
 
@@ -1643,10 +1646,31 @@ static RendererVtable gsVtable = {
 
 // ===[ Public API ]===
 
-Renderer* GsRenderer_create(GSGLOBAL* gsGlobal) {
+Renderer* GsRenderer_create(void) {
     GsRenderer* gs = safeCalloc(1, sizeof(GsRenderer));
     gs->base.vtable = &gsVtable;
-    gs->gsGlobal = gsGlobal;
+
+    // Initialize gsKit here, so the renderer ultimately owns the context.
+    // This needs to be done here instead of `gsInit` because we need to use the
+    // underlying gsKit objects before the real Game Maker renderer is needed.
+    gs->gsGlobal = gsKit_init_global();
+    gs->gsGlobal->Mode = GS_MODE_NTSC;
+    gs->gsGlobal->Interlace = GS_INTERLACED;
+    gs->gsGlobal->Field = GS_FIELD;
+    gs->gsGlobal->Width = 640;
+    gs->gsGlobal->Height = 448;
+    gs->gsGlobal->PSM = GS_PSM_CT16;
+    gs->gsGlobal->PSMZ = GS_PSMZ_16;
+    gs->gsGlobal->DoubleBuffering = GS_SETTING_ON;
+    gs->gsGlobal->ZBuffering = GS_SETTING_OFF;
+    gs->gsGlobal->PrimAAEnable = GS_SETTING_OFF;
+
+    dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC, D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
+    dmaKit_chan_init(DMA_CHANNEL_GIF);
+    gsKit_init_screen(gs->gsGlobal);
+    // Use ONE SHOT mode
+    gsKit_mode_switch(gs->gsGlobal, GS_ONESHOT);
+
     gs->scaleX = 2.0f;
     gs->scaleY = 2.0f;
     gs->zCounter = 1;
