@@ -634,6 +634,7 @@ typedef struct {
     uint16_t argumentsCount;
     uint32_t bytecodeAbsoluteOffset;
     uint32_t offset;
+    void* jitCode;
 } CodeEntry;
 
 typedef struct {

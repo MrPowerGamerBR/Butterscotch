@@ -1,6 +1,6 @@
 #include "data_win.h"
 #include "binary_reader.h"
-
+#include "vm_jit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1303,6 +1303,7 @@ static void parseCODE(BinaryReader* reader, DataWin* dw, uint32_t chunkLength, s
         entry->bytecodeAbsoluteOffset = (uint32_t)((int64_t)relAddrFieldPos + bytecodeRelAddr);
 
         entry->offset = BinaryReader_readUint32(reader);
+        entry->jitCode = NULL;
     }
     free(codePtrs);
 
@@ -1835,6 +1836,11 @@ void DataWin_free(DataWin* dw) {
     hmfree(dw->tpagOffsetMap);
 
     // CODE
+#ifdef USE_JIT
+    repeat(dw->code.count, i) {
+        VM_jitFree(&dw->code.entries[i]);
+    }
+#endif
     free(dw->code.entries);
 
     // VARI

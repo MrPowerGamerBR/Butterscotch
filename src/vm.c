@@ -1,9 +1,11 @@
 #include "vm.h"
+#include "vm_jit.h"
 #include "vm_builtins.h"
 #include "instance.h"
 #include "runner.h"
 #include "binary_utils.h"
 #include "utils.h"
+#include "vm_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +21,7 @@ static bool shouldTraceStack(VMContext* ctx) {
     return shgeti(ctx->stackToBeTraced, "*") != -1 || shgeti(ctx->stackToBeTraced, ctx->currentCodeName) != -1;
 }
 
-static void stackPush(VMContext* ctx, RValue val) {
+void stackPush(VMContext* ctx, RValue val) {
     require(VM_STACK_SIZE > ctx->stack.top);
     if (shouldTraceStack(ctx)) {
         char* valStr = RValue_toStringTyped(val);
@@ -29,7 +31,7 @@ static void stackPush(VMContext* ctx, RValue val) {
     ctx->stack.slots[ctx->stack.top++] = val;
 }
 
-static RValue stackPop(VMContext* ctx) {
+RValue stackPop(VMContext* ctx) {
     require(ctx->stack.top > 0);
     RValue val = ctx->stack.slots[--ctx->stack.top];
     if (shouldTraceStack(ctx)) {
@@ -40,18 +42,18 @@ static RValue stackPop(VMContext* ctx) {
     return val;
 }
 
-static RValue* stackPeek(VMContext* ctx) {
+RValue* stackPeek(VMContext* ctx) {
     require(ctx->stack.top > 0);
     return &ctx->stack.slots[ctx->stack.top - 1];
 }
 
 // ===[ Instruction Decoding ]===
 
-static uint8_t instrOpcode(uint32_t instr) {
+uint8_t instrOpcode(uint32_t instr) {
     return (instr >> 24) & 0xFF;
 }
 
-static uint8_t instrType1(uint32_t instr) {
+uint8_t instrType1(uint32_t instr) {
     return (instr >> 16) & 0xF;
 }
 
@@ -67,16 +69,16 @@ static uint8_t instrCmpKind(uint32_t instr) {
     return (instr >> 8) & 0xFF;
 }
 
-static bool instrHasExtraData(uint32_t instr) {
+bool instrHasExtraData(uint32_t instr) {
     return (instr & 0x40000000) != 0;
 }
 
 // Jump offset for branch instructions: sign-extend 23 bits, multiply by 4
-static int32_t instrJumpOffset(uint32_t instr) {
+int32_t instrJumpOffset(uint32_t instr) {
     return ((int32_t) (instr << 9)) >> 7;
 }
 
-static uint32_t extraDataSize(uint8_t type1) {
+uint32_t extraDataSize(uint8_t type1) {
     switch (type1) {
         case GML_TYPE_DOUBLE: return 8;
         case GML_TYPE_INT64:  return 8;
@@ -760,11 +762,10 @@ static RValue convertValue(RValue val, uint8_t targetType) {
 // ===[ Forward Declarations ]===
 
 static RValue executeLoop(VMContext* ctx);
-static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData);
 
 // ===[ Opcode Handlers ]===
 
-static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     uint8_t type1 = instrType1(instr);
 
     switch (type1) {
@@ -841,15 +842,15 @@ static void handlePushScoped(VMContext* ctx, uint32_t instr, const uint8_t* extr
     stackPush(ctx,val);
 }
 
-static void handlePushLoc(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handlePushLoc(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     handlePushScoped(ctx, instr, extraData, ctx->localArrayMap, ctx->localVarCount, ctx->localVars, "local", nullptr, nullptr);
 }
 
-static void handlePushGlb(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handlePushGlb(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     handlePushScoped(ctx, instr, extraData, ctx->globalArrayMap, ctx->globalVarCount, ctx->globalVars, "global", nullptr, ctx->varReadsToBeTraced);
 }
 
-static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     (void) instr;
     uint32_t varRef = resolveVarOperand(extraData);
     Variable* varDef = resolveVarDef(ctx, varRef);
@@ -860,12 +861,12 @@ static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraD
     stackPush(ctx,val);
 }
 
-static void handlePushI(VMContext* ctx, uint32_t instr) {
+void handlePushI(VMContext* ctx, uint32_t instr) {
     int16_t value = (int16_t) (instr & 0xFFFF);
     stackPush(ctx,RValue_makeInt32((int32_t) value));
 }
 
-static void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     int32_t instanceType = (int32_t) instrInstanceType(instr);
     uint8_t type1 = instrType1(instr);   // destination type
     uint8_t type2 = instrType2(instr);   // source type (what's on stack)
@@ -1023,12 +1024,12 @@ static void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) 
     }
 }
 
-static void handlePopz(VMContext* ctx) {
+void handlePopz(VMContext* ctx) {
     RValue val = stackPop(ctx);
     RValue_free(&val);
 }
 
-static void handleAdd(VMContext* ctx) {
+void handleAdd(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
 
@@ -1072,7 +1073,7 @@ static void handleAdd(VMContext* ctx) {
     }
 }
 
-static void handleSub(VMContext* ctx) {
+void handleSub(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
     if (a.type == RVALUE_INT32 && b.type == RVALUE_INT32) {
@@ -1089,7 +1090,7 @@ static void handleSub(VMContext* ctx) {
     }
 }
 
-static void handleMul(VMContext* ctx) {
+void handleMul(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
 
@@ -1126,7 +1127,7 @@ static void handleMul(VMContext* ctx) {
     }
 }
 
-static void handleDiv(VMContext* ctx) {
+void handleDiv(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
     GMLReal divisor = RValue_toReal(b);
@@ -1140,7 +1141,7 @@ static void handleDiv(VMContext* ctx) {
     stackPush(ctx,RValue_makeReal(result));
 }
 
-static void handleRem(VMContext* ctx) {
+void handleRem(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
     int32_t ib = RValue_toInt32(b);
@@ -1154,7 +1155,7 @@ static void handleRem(VMContext* ctx) {
     stackPush(ctx,RValue_makeInt32(result));
 }
 
-static void handleMod(VMContext* ctx) {
+void handleMod(VMContext* ctx) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
     GMLReal divisor = RValue_toReal(b);
@@ -1176,26 +1177,26 @@ static void handleMod(VMContext* ctx) {
     RValue_free(&b); \
     stackPush(ctx,RValue_makeInt32(result))
 
-static void handleAnd(VMContext* ctx) {
+void handleAnd(VMContext* ctx) {
     SIMPLE_BYTECODE_BITWISE_OPERATION(&);
 }
 
-static void handleOr(VMContext* ctx) {
+void handleOr(VMContext* ctx) {
     SIMPLE_BYTECODE_BITWISE_OPERATION(|);
 }
 
-static void handleXor(VMContext* ctx) {
+void handleXor(VMContext* ctx) {
     SIMPLE_BYTECODE_BITWISE_OPERATION(^);
 }
 
-static void handleNeg(VMContext* ctx) {
+void handleNeg(VMContext* ctx) {
     RValue a = stackPop(ctx);
     GMLReal result = -RValue_toReal(a);
     RValue_free(&a);
     stackPush(ctx,RValue_makeReal(result));
 }
 
-static void handleNot(VMContext* ctx, uint32_t instr) {
+void handleNot(VMContext* ctx, uint32_t instr) {
     RValue a = stackPop(ctx);
     uint8_t type1 = instrType1(instr);
     if (GML_TYPE_BOOL == type1) {
@@ -1211,15 +1212,15 @@ static void handleNot(VMContext* ctx, uint32_t instr) {
     }
 }
 
-static void handleShl(VMContext* ctx) {
+void handleShl(VMContext* ctx) {
     SIMPLE_BYTECODE_BITWISE_OPERATION(<<);
 }
 
-static void handleShr(VMContext* ctx) {
+void handleShr(VMContext* ctx) {
     SIMPLE_BYTECODE_BITWISE_OPERATION(>>);
 }
 
-static void handleConv(VMContext* ctx, uint32_t instr) {
+void handleConv(VMContext* ctx, uint32_t instr) {
     uint8_t srcType = instrType1(instr);
     uint8_t dstType = instrType2(instr);
 
@@ -1313,7 +1314,7 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
     stackPush(ctx,result);
 }
 
-static void handleCmp(VMContext* ctx, uint32_t instr) {
+void handleCmp(VMContext* ctx, uint32_t instr) {
     uint8_t cmpKind = instrCmpKind(instr);
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
@@ -1352,7 +1353,7 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
     stackPush(ctx,RValue_makeBool(result));
 }
 
-static void handleDup(VMContext* ctx, uint32_t instr) {
+void handleDup(VMContext* ctx, uint32_t instr) {
     // The Extra field (lower 8 bits) encodes how many additional items beyond 1 to duplicate.
     // dup.i 0 = duplicate 1 item, dup.i 1 = duplicate 2 items (used for array access: instanceType + arrayIndex), etc.
     uint8_t extra = (uint8_t)(instr & 0xFF);
@@ -1374,12 +1375,12 @@ static void handleDup(VMContext* ctx, uint32_t instr) {
     }
 }
 
-static void handleBranch(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+void handleBranch(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     int32_t offset = instrJumpOffset(instr);
     ctx->ip = instrAddr + offset;
 }
 
-static void handleBranchTrue(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+void handleBranchTrue(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     RValue val = stackPop(ctx);
     bool condition = RValue_toInt32(val) != 0;
     RValue_free(&val);
@@ -1389,7 +1390,7 @@ static void handleBranchTrue(VMContext* ctx, uint32_t instr, uint32_t instrAddr)
     }
 }
 
-static void handleBranchFalse(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+void handleBranchFalse(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     RValue val = stackPop(ctx);
     bool condition = RValue_toInt32(val) != 0;
     RValue_free(&val);
@@ -1401,7 +1402,7 @@ static void handleBranchFalse(VMContext* ctx, uint32_t instr, uint32_t instrAddr
 
 // ===[ Function Call Handler ]===
 
-static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
+void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
     int32_t argCount = instr & 0xFFFF;
     uint32_t funcIndex = resolveFuncOperand(extraData);
     require(ctx->dataWin->func.functionCount > funcIndex);
@@ -1537,7 +1538,7 @@ static void restoreEnvContext(VMContext* ctx, EnvFrame* frame) {
     ctx->otherInstance = frame->savedOtherInstance;
 }
 
-static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     int32_t jumpOffset = instrJumpOffset(instr);
 
     // Pop target from stack
@@ -1645,7 +1646,7 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     ctx->ip = instrAddr + jumpOffset;
 }
 
-static void handlePopEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
+void handlePopEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     EnvFrame* frame = ctx->envStack;
     require(frame != nullptr);
 
@@ -1972,7 +1973,18 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     // Reset stack for top-level execution
     ctx->stack.top = 0;
 
-    RValue result = executeLoop(ctx);
+    RValue result;
+#ifdef USE_JIT
+    VM_jitCompile(ctx, codeIndex);
+    if (code->jitCode != NULL) {
+        JitFunc jitFunc = (JitFunc)code->jitCode;
+        jitFunc(ctx, &result);
+    } else {
+        result = executeLoop(ctx);
+    }
+#else
+    result = executeLoop(ctx);
+#endif
 
     // Free locals
     repeat(ctx->localVarCount, i) {
@@ -2051,7 +2063,18 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     }
 
     // Execute the callee
-    RValue result = executeLoop(ctx);
+    RValue result;
+#ifdef USE_JIT
+    VM_jitCompile(ctx, codeIndex);
+    if (code->jitCode != NULL) {
+        JitFunc jitFunc = (JitFunc)code->jitCode;
+        jitFunc(ctx, &result);
+    } else {
+        result = executeLoop(ctx);
+    }
+#else
+    result = executeLoop(ctx);
+#endif
 
     // Make result string owning BEFORE freeing callee locals/arrays to prevent
     // dangling pointer if the returned string points into a callee local var or array map.
