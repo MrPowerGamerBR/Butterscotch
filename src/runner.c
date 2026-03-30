@@ -1,6 +1,7 @@
 #include "runner.h"
 #include "data_win.h"
 #include "instance.h"
+#include "native_scripts.h"
 #include "renderer.h"
 #include "vm.h"
 #include "utils.h"
@@ -93,9 +94,16 @@ static void executeCode(Runner* runner, Instance* instance, int32_t codeId) {
     // Set instance context
     setVMInstanceContext(vm, instance);
 
-    // Execute
-    RValue result = VM_executeCode(vm, codeId);
-    RValue_free(&result);
+    // Check for native code override
+    const char* codeName = runner->dataWin->code.entries[codeId].name;
+    NativeCodeFunc nativeFunc = NativeScripts_find(codeName);
+    if (nativeFunc != nullptr) {
+        nativeFunc(vm, runner, instance);
+    } else {
+        // Execute bytecode
+        RValue result = VM_executeCode(vm, codeId);
+        RValue_free(&result);
+    }
 
     // Restore instance context
     restoreVMInstanceContext(vm, savedInstance);
@@ -785,6 +793,9 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, FileSystem* fileSystem) {
 
     // Link runner to VM context
     vm->runner = (struct Runner*) runner;
+
+    // Initialize native script overrides
+    NativeScripts_init(vm, runner);
 
     return runner;
 }
