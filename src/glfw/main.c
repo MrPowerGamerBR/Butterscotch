@@ -1,9 +1,9 @@
 #include "data_win.h"
 #include "vm.h"
+#include "options.h"
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,54 +65,57 @@ typedef struct {
     const char* playbackInputsPath;
 } CommandLineArgs;
 
-static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) {
+static void parseCommandLineArgs(CommandLineArgs* args, int argc, const char* argv[]) {
     memset(args, 0, sizeof(CommandLineArgs));
 
-    static struct option longOptions[] = {
-        {"screenshot",          required_argument, nullptr, 's'},
-        {"screenshot-at-frame", required_argument, nullptr, 'f'},
-        {"headless",            no_argument,       nullptr, 'h'},
-        {"print-rooms", no_argument,               nullptr, 'r'},
-        {"print-declared-functions", no_argument,  nullptr, 'p'},
-        {"trace-variable-reads", required_argument,  nullptr, 'R'},
-        {"trace-variable-writes", required_argument, nullptr, 'W'},
-        {"trace-function-calls", required_argument,         nullptr, 'c'},
-        {"trace-alarms", required_argument,         nullptr, 'a'},
-        {"trace-instance-lifecycles", required_argument,         nullptr, 'l'},
-        {"trace-events", required_argument,         nullptr, 'e'},
-        {"trace-event-inherited", no_argument, nullptr, 'E'},
-        {"trace-tiles", required_argument, nullptr, 'T'},
-        {"trace-opcodes", required_argument,       nullptr, 'o'},
-        {"trace-stack", required_argument,         nullptr, 'S'},
-        {"trace-frames", no_argument, nullptr, 'k'},
-        {"exit-at-frame", required_argument, nullptr, 'x'},
-        {"dump-frame", required_argument, nullptr, 'd'},
-        {"dump-frame-json", required_argument, nullptr, 'j'},
-        {"dump-frame-json-file", required_argument, nullptr, 'J'},
-        {"speed", required_argument, nullptr, 'M'},
-        {"seed", required_argument, nullptr, 'Z'},
-        {"debug", no_argument, nullptr, 'D'},
-        {"disassemble", required_argument, nullptr, 'A'},
-        {"record-inputs", required_argument, nullptr, 'I'},
-        {"playback-inputs", required_argument, nullptr, 'P'},
-        {nullptr,               0,                 nullptr,  0 }
+    static struct Option options[] = {
+        {'s', OPTION_TYPE_VALUE, "screenshot"},
+        {'f', OPTION_TYPE_VALUE, "screenshot-at-frame"},
+        {'h', OPTION_TYPE_FLAG,  "headless"},
+        {'r', OPTION_TYPE_FLAG,  "print-rooms"},
+        {'p', OPTION_TYPE_FLAG,  "print-declared-functions"},
+        {'R', OPTION_TYPE_VALUE, "trace-variable-reads"},
+        {'W', OPTION_TYPE_VALUE, "trace-variable-writes"},
+        {'c', OPTION_TYPE_VALUE, "trace-function-calls"},
+        {'a', OPTION_TYPE_VALUE, "trace-alarms"},
+        {'l', OPTION_TYPE_VALUE, "trace-instance-lifecycles"},
+        {'e', OPTION_TYPE_VALUE, "trace-events"},
+        {'E', OPTION_TYPE_FLAG,  "trace-event-inherited"},
+        {'T', OPTION_TYPE_VALUE, "trace-tiles"},
+        {'o', OPTION_TYPE_VALUE, "trace-opcodes"},
+        {'S', OPTION_TYPE_VALUE, "trace-stack"},
+        {'k', OPTION_TYPE_FLAG,  "trace-frames"},
+        {'x', OPTION_TYPE_VALUE, "exit-at-frame"},
+        {'d', OPTION_TYPE_VALUE, "dump-frame"},
+        {'j', OPTION_TYPE_VALUE, "dump-frame-json"},
+        {'J', OPTION_TYPE_VALUE, "dump-frame-json-file"},
+        {'M', OPTION_TYPE_VALUE, "speed"},
+        {'Z', OPTION_TYPE_VALUE, "seed"},
+        {'D', OPTION_TYPE_FLAG,  "debug"},
+        {'A', OPTION_TYPE_VALUE, "disassemble"},
+        {'I', OPTION_TYPE_VALUE, "record-inputs"},
+        {'P', OPTION_TYPE_VALUE, "playback-inputs"},
+        OPTION_SENTINEL
     };
 
     args->screenshotFrames = nullptr;
     args->exitAtFrame = -1;
     args->speedMultiplier = 1.0;
 
-    int opt;
-    while ((opt = getopt_long(argc, argv, "", longOptions, nullptr)) != -1) {
-        switch (opt) {
+    Options optionsParser;
+    Options_init(&optionsParser, options, argv);
+
+    OptionsStatus opt;
+    while (!(opt = Options_getValue(&optionsParser)).done) {
+        switch (opt.shortName) {
             case 's':
-                args->screenshotPattern = optarg;
+                args->screenshotPattern = opt.value;
                 break;
             case 'f': {
                 char* endPtr;
-                long frame = strtol(optarg, &endPtr, 10);
+                long frame = strtol(opt.value, &endPtr, 10);
                 if (*endPtr != '\0' || 0 > frame) {
-                    fprintf(stderr, "Error: Invalid frame number '%s'\n", optarg);
+                    fprintf(stderr, "Error: Invalid frame number '%s'\n", opt.value);
                     exit(1);
                 }
 
@@ -129,37 +132,37 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
                 args->printDeclaredFunctions = true;
                 break;
             case 'R':
-                shput(args->varReadsToBeTraced, optarg, true);
+                shput(args->varReadsToBeTraced, opt.value, true);
                 break;
             case 'W':
-                shput(args->varWritesToBeTraced, optarg, true);
+                shput(args->varWritesToBeTraced, opt.value, true);
                 break;
             case 'c':
-                shput(args->functionCallsToBeTraced, optarg, true);
+                shput(args->functionCallsToBeTraced, opt.value, true);
                 break;
             case 'a':
-                shput(args->alarmsToBeTraced, optarg, true);
+                shput(args->alarmsToBeTraced, opt.value, true);
                 break;
             case 'l':
-                shput(args->instanceLifecyclesToBeTraced, optarg, true);
+                shput(args->instanceLifecyclesToBeTraced, opt.value, true);
                 break;
             case 'e':
-                shput(args->eventsToBeTraced, optarg, true);
+                shput(args->eventsToBeTraced, opt.value, true);
                 break;
             case 'o':
-                shput(args->opcodesToBeTraced, optarg, true);
+                shput(args->opcodesToBeTraced, opt.value, true);
                 break;
             case 'S':
-                shput(args->stackToBeTraced, optarg, true);
+                shput(args->stackToBeTraced, opt.value, true);
                 break;
             case 'k':
                 args->traceFrames = true;
                 break;
             case 'x': {
                 char* endPtr;
-                long frame = strtol(optarg, &endPtr, 10);
+                long frame = strtol(opt.value, &endPtr, 10);
                 if (*endPtr != '\0' || 0 > frame) {
-                    fprintf(stderr, "Error: Invalid frame number '%s' for --exit-at-frame\n", optarg);
+                    fprintf(stderr, "Error: Invalid frame number '%s' for --exit-at-frame\n", opt.value);
                     exit(1);
                 }
                 args->exitAtFrame = (int) frame;
@@ -167,9 +170,9 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
             }
             case 'd': {
                 char* endPtr;
-                long frame = strtol(optarg, &endPtr, 10);
+                long frame = strtol(opt.value, &endPtr, 10);
                 if (*endPtr != '\0' || 0 > frame) {
-                    fprintf(stderr, "Error: Invalid frame number '%s' for --dump-frame\n", optarg);
+                    fprintf(stderr, "Error: Invalid frame number '%s' for --dump-frame\n", opt.value);
                     exit(1);
                 }
                 hmput(args->dumpFrames, (int) frame, true);
@@ -177,22 +180,22 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
             }
             case 'j': {
                 char* endPtr;
-                long frame = strtol(optarg, &endPtr, 10);
+                long frame = strtol(opt.value, &endPtr, 10);
                 if (*endPtr != '\0' || 0 > frame) {
-                    fprintf(stderr, "Error: Invalid frame number '%s' for --dump-frame-json\n", optarg);
+                    fprintf(stderr, "Error: Invalid frame number '%s' for --dump-frame-json\n", opt.value);
                     exit(1);
                 }
                 hmput(args->dumpJsonFrames, (int) frame, true);
                 break;
             }
             case 'J':
-                args->dumpJsonFilePattern = optarg;
+                args->dumpJsonFilePattern = opt.value;
                 break;
             case 'M': {
                 char* endPtr;
-                double speed = strtod(optarg, &endPtr);
+                double speed = strtod(opt.value, &endPtr);
                 if (*endPtr != '\0' || speed <= 0.0) {
-                    fprintf(stderr, "Error: Invalid speed multiplier '%s' for --speed (must be > 0)\n", optarg);
+                    fprintf(stderr, "Error: Invalid speed multiplier '%s' for --speed (must be > 0)\n", opt.value);
                     exit(1);
                 }
                 args->speedMultiplier = speed;
@@ -202,19 +205,19 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
                 args->debug = true;
                 break;
             case 'A':
-                shput(args->disassemble, optarg, true);
+                shput(args->disassemble, opt.value, true);
                 break;
             case 'T':
-                shput(args->tilesToBeTraced, optarg, true);
+                shput(args->tilesToBeTraced, opt.value, true);
                 break;
             case 'E':
                 args->traceEventInherited = true;
                 break;
             case 'Z': {
                 char* endPtr;
-                long seedVal = strtol(optarg, &endPtr, 10);
+                long seedVal = strtol(opt.value, &endPtr, 10);
                 if (*endPtr != '\0') {
-                    fprintf(stderr, "Error: Invalid seed value '%s' for --seed\n", optarg);
+                    fprintf(stderr, "Error: Invalid seed value '%s' for --seed\n", opt.value);
                     exit(1);
                 }
                 args->seed = (int) seedVal;
@@ -222,10 +225,10 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
                 break;
             }
             case 'I':
-                args->recordInputsPath = optarg;
+                args->recordInputsPath = opt.value;
                 break;
             case 'P':
-                args->playbackInputsPath = optarg;
+                args->playbackInputsPath = opt.value;
                 break;
             default:
                 fprintf(stderr, "Usage: %s [--headless] [--screenshot=PATTERN] [--screenshot-at-frame=N ...] <path to data.win or game.unx>\n", argv[0]);
@@ -233,12 +236,12 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
         }
     }
 
-    if (optind >= argc) {
+    if (optionsParser.index >= argc || opt.error) {
         fprintf(stderr, "Usage: %s [--headless] [--screenshot=PATTERN] [--screenshot-at-frame=N ...] <path to data.win or game.unx>\n", argv[0]);
         exit(1);
     }
 
-    args->dataWinPath = argv[optind];
+    args->dataWinPath = argv[optionsParser.index];
 
     if (hmlen(args->screenshotFrames) > 0 && args->screenshotPattern == nullptr) {
         fprintf(stderr, "Error: --screenshot-at-frame requires --screenshot to be set\n");
