@@ -4143,7 +4143,169 @@ static RValue builtinObjectGetSprite(VMContext* ctx, RValue* args, int32_t argCo
     return RValue_makeReal((double) ctx->dataWin->objt.objects[id].spriteId);
 }
 
-STUB_RETURN_VALUE(font_add_sprite_ext, -1.0)
+// Shared implementation for font_add_sprite and font_add_sprite_ext
+static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* charCodes, uint32_t charCount, bool proportional, int32_t sep) {
+    DataWin* dw = ctx->dataWin;
+
+    if (0 > spriteIndex || (uint32_t) spriteIndex >= dw->sprt.count) {
+        fprintf(stderr, "[font_add_sprite] Invalid sprite index %d\n", spriteIndex);
+        return RValue_makeReal(-1.0);
+    }
+
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+
+    if (charCount == 0 || sprite->textureCount == 0) {
+        return RValue_makeReal(-1.0);
+    }
+
+    // Limit glyph count to sprite frame count
+    uint32_t glyphCount = charCount;
+    if (glyphCount > sprite->textureCount) glyphCount = sprite->textureCount;
+
+    // Compute emSize (max bounding height across all frames) and biggestShift
+    uint32_t maxHeight = 0;
+    int32_t biggestShift = 0;
+    repeat(glyphCount, i) {
+        int32_t tpagIdx = DataWin_resolveTPAG(dw, sprite->textureOffsets[i]);
+        if (0 > tpagIdx) continue;
+        TexturePageItem* tpag = &dw->tpag.items[tpagIdx];
+        if (tpag->boundingHeight > maxHeight) maxHeight = tpag->boundingHeight;
+        int32_t width = proportional ? (int32_t) tpag->sourceWidth : (int32_t) tpag->boundingWidth;
+        if (width > biggestShift) biggestShift = width;
+    }
+
+    // Check if space (0x20) is in the string map
+    bool hasSpace = false;
+    repeat(glyphCount, i) {
+        if (charCodes[i] == 0x20) { hasSpace = true; break; }
+    }
+
+    // Allocate glyphs (+ 1 for synthetic space if needed)
+    uint32_t totalGlyphs = hasSpace ? glyphCount : glyphCount + 1;
+    FontGlyph* glyphs = safeMalloc(totalGlyphs * sizeof(FontGlyph));
+
+    repeat(glyphCount, i) {
+        int32_t tpagIdx = DataWin_resolveTPAG(dw, sprite->textureOffsets[i]);
+        FontGlyph* glyph = &glyphs[i];
+        glyph->character = charCodes[i];
+        glyph->kerningCount = 0;
+        glyph->kerning = nullptr;
+
+        if (0 > tpagIdx) {
+            glyph->sourceX = 0;
+            glyph->sourceY = 0;
+            glyph->sourceWidth = 0;
+            glyph->sourceHeight = 0;
+            glyph->shift = (int16_t) sep;
+            glyph->offset = 0;
+            continue;
+        }
+
+        TexturePageItem* tpag = &dw->tpag.items[tpagIdx];
+        glyph->sourceX = 0; // not used for sprite fonts (TPAG resolved per glyph)
+        glyph->sourceY = 0;
+        glyph->sourceWidth = tpag->sourceWidth;
+        glyph->sourceHeight = tpag->sourceHeight;
+
+        int32_t advanceWidth = proportional ? (int32_t) tpag->sourceWidth : (int32_t) tpag->boundingWidth;
+        glyph->shift = (int16_t) (advanceWidth + sep);
+
+        // Horizontal offset: for proportional fonts, no offset; for non-proportional, use target offset minus origin
+        glyph->offset = proportional ? 0 : (int16_t) ((int32_t) tpag->targetX - sprite->originX);
+    }
+
+    // Add synthetic space glyph if space is not in the string map
+    if (!hasSpace) {
+        FontGlyph* spaceGlyph = &glyphs[glyphCount];
+        spaceGlyph->character = 0x20;
+        spaceGlyph->sourceX = 0;
+        spaceGlyph->sourceY = 0;
+        spaceGlyph->sourceWidth = 0;
+        spaceGlyph->sourceHeight = 0;
+        spaceGlyph->shift = (int16_t) (biggestShift + sep);
+        spaceGlyph->offset = 0;
+        spaceGlyph->kerningCount = 0;
+        spaceGlyph->kerning = nullptr;
+    }
+
+    // Grow the font array and create the new font
+    uint32_t newFontIndex = dw->font.count;
+    dw->font.count++;
+    dw->font.fonts = safeRealloc(dw->font.fonts, dw->font.count * sizeof(Font));
+
+    Font* font = &dw->font.fonts[newFontIndex];
+    font->name = "sprite_font";
+    font->displayName = "sprite_font";
+    font->emSize = (maxHeight > 0) ? maxHeight : sprite->height;
+    font->bold = false;
+    font->italic = false;
+    font->rangeStart = 0;
+    font->charset = 0;
+    font->antiAliasing = 0;
+    font->rangeEnd = 0;
+    font->textureOffset = 0; // not used for sprite fonts
+    font->scaleX = 1.0f;
+    font->scaleY = 1.0f;
+    font->glyphCount = totalGlyphs;
+    font->glyphs = glyphs;
+    font->isSpriteFont = true;
+    font->spriteIndex = spriteIndex;
+
+    return RValue_makeReal((GMLReal) newFontIndex);
+}
+
+// font_add_sprite_ext(sprite, string_map, prop, sep)
+static RValue builtinFontAddSpriteExt(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (4 > argCount) {
+        fprintf(stderr, "[font_add_sprite_ext] Expected 4 arguments, got %d\n", argCount);
+        return RValue_makeReal(-1.0);
+    }
+
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    char* stringMap = RValue_toString(args[1]);
+    bool proportional = RValue_toBool(args[2]);
+    int32_t sep = RValue_toInt32(args[3]);
+
+    // Decode the string map to get character codes (UTF-8 -> codepoints)
+    int32_t mapLen = (int32_t) strlen(stringMap);
+    int32_t mapPos = 0;
+    uint32_t charCount = 0;
+    uint16_t charCodes[1024];
+    while (mapLen > mapPos && 1024 > charCount) {
+        charCodes[charCount++] = TextUtils_decodeUtf8(stringMap, mapLen, &mapPos);
+    }
+    free(stringMap);
+
+    return fontAddSpriteImpl(ctx, spriteIndex, charCodes, charCount, proportional, sep);
+}
+
+// font_add_sprite(sprite, first, prop, sep)
+static RValue builtinFontAddSprite(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (4 > argCount) {
+        fprintf(stderr, "[font_add_sprite] Expected 4 arguments, got %d\n", argCount);
+        return RValue_makeReal(-1.0);
+    }
+
+    DataWin* dw = ctx->dataWin;
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    int32_t first = RValue_toInt32(args[1]);
+    bool proportional = RValue_toBool(args[2]);
+    int32_t sep = RValue_toInt32(args[3]);
+
+    // Build sequential character codes: first, first+1, first+2, ...
+    uint32_t frameCount = 0;
+    if (spriteIndex >= 0 && (uint32_t) spriteIndex < dw->sprt.count) {
+        frameCount = dw->sprt.sprites[spriteIndex].textureCount;
+    }
+    if (frameCount > 1024) frameCount = 1024;
+
+    uint16_t charCodes[1024];
+    repeat(frameCount, i) {
+        charCodes[i] = (uint16_t) (first + (int32_t) i);
+    }
+
+    return fontAddSpriteImpl(ctx, spriteIndex, charCodes, frameCount, proportional, sep);
+}
 
 static RValue builtinAssetGetIndex(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) {
@@ -4535,7 +4697,8 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("action_sound",builtin_action_sound);
     registerBuiltin("string_hash_to_newline", builtinStringHashToNewline);
     registerBuiltin("json_decode", builtinJsonDecode);
-    registerBuiltin("font_add_sprite_ext", builtin_font_add_sprite_ext);
+    registerBuiltin("font_add_sprite", builtinFontAddSprite);
+    registerBuiltin("font_add_sprite_ext", builtinFontAddSpriteExt);
     registerBuiltin("object_get_sprite", builtinObjectGetSprite);
     registerBuiltin("asset_get_index", builtinAssetGetIndex);
 }

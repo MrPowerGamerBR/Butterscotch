@@ -767,6 +767,8 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
         font->textureOffset = BinaryReader_readUint32(reader);
         font->scaleX = BinaryReader_readFloat32(reader);
         font->scaleY = BinaryReader_readFloat32(reader);
+        font->isSpriteFont = false;
+        font->spriteIndex = -1;
 
         // Glyphs PointerList
         uint32_t glyphCount;
