@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(butterscotch C)
+project(butterscotch C CXX)
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -16,14 +16,27 @@ add_compile_definitions(
 )
 
 if(PLATFORM STREQUAL "")
-    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw (or another supported platform).")
+    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw, -DPLATFORM=sdl, -DPLATFORM=miyoo, or -DPLATFORM=ps2")
 endif()
 
 file(GLOB SOURCES src/*.c)
 # Platform specific files builds
-file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
+if(PLATFORM STREQUAL "miyoo")
+    # Miyoo uses SDL platform files
+    file(GLOB PLATFORM_SOURCES src/sdl/*.c)
+else()
+    file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
+endif()
 
 add_executable(butterscotch ${SOURCES} ${PLATFORM_SOURCES})
+
+# For Miyoo platform, compile C files as C++ (project uses C++ features like typed enums)
+if(PLATFORM STREQUAL "miyoo")
+    set_source_files_properties(${SOURCES} ${PLATFORM_SOURCES} PROPERTIES LANGUAGE CXX)
+    # Allow implicit void* conversions for C++ compilation of C code
+    target_compile_options(butterscotch PRIVATE -fpermissive)
+endif()
+
 target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # stb_ds
@@ -70,6 +83,121 @@ if(PLATFORM STREQUAL "glfw")
         target_compile_options(butterscotch PRIVATE -fsanitize=address -fno-omit-frame-pointer)
         target_link_options(butterscotch PRIVATE -fsanitize=address)
     endif()
+elseif(PLATFORM STREQUAL "sdl")
+    # SDL 1.2 with software rendering
+
+    # stb_image for PNG decoding
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    if(MINGW)
+        find_package(SDL REQUIRED)
+        find_package(SDL_ttf REQUIRED)
+        find_package(SDL_image REQUIRED)
+        find_package(SDL_mixer REQUIRED)
+        target_include_directories(butterscotch PRIVATE ${SDL_INCLUDE_DIR})
+        target_link_libraries(butterscotch ${SDL_LIBRARY} ${SDL_TTF_LIBRARY} ${SDL_IMAGE_LIBRARY} ${SDL_MIXER_LIBRARY} m)
+        target_link_options(butterscotch PRIVATE -static)
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(SDL REQUIRED sdl SDL_ttf SDL_image SDL_mixer)
+        target_include_directories(butterscotch PRIVATE ${SDL_INCLUDE_DIRS})
+        target_link_libraries(butterscotch ${SDL_LIBRARIES} m pthread)
+    endif()
+elseif(PLATFORM STREQUAL "miyoo")
+    # Miyoo CFW (SDL 1.2 with software rendering, cross-compiled)
+
+    # stb_image for PNG decoding
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # Miyoo-specific definitions (already in toolchain, but ensure for native builds)
+    add_compile_definitions(HAVE_STDINT_H VERSION_BITTBOY MIYOO_KEYBINDINGS MIYOO_NO_AUDIO)
+
+    # add_compile_definitions(DISABLE_VM_TRACING)
+
+    # Optimization flags for Miyoo (CMake list format)
+    # Use -O2 instead of -Ofast for better stability, disable LTO which can cause hangs
+    set(MIYOO_OPT_FLAGS "-Ofast;-ffunction-sections;-fdata-sections;-fno-common;-fno-PIC;-flto" CACHE STRING "Miyoo optimization flags")
+    target_compile_options(butterscotch PRIVATE ${MIYOO_OPT_FLAGS})
+
+    # Use pkg-config with sysroot for SDL and SDL_mixer libraries
+    set(ENV{PKG_CONFIG_LIBDIR} "${CMAKE_SYSROOT}/usr/lib/pkgconfig:${CMAKE_SYSROOT}/usr/share/pkgconfig")
+    set(ENV{PKG_CONFIG_SYSROOT_DIR} "${CMAKE_SYSROOT}")
+
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL REQUIRED sdl SDL_ttf SDL_image SDL_mixer freetype2)
+    target_include_directories(butterscotch PRIVATE ${SDL_INCLUDE_DIRS})
+    target_link_libraries(butterscotch ${SDL_LIBRARIES} m pthread asound ts mad mpg123 vorbisfile vorbis ogg mikmod png z bz2 freetype)
+
+    # Linker flags for size optimization (strip only for Release, no LTO)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        target_link_options(butterscotch PRIVATE -Wl,--gc-sections)
+    else()
+        target_link_options(butterscotch PRIVATE -Wl,--gc-sections -s)
+    endif()
+    
+    # ===[ IPK Package Creation for Miyoo ]===
+    # Create IPK package structure for easy installation on Miyoo devices
+    set(IPK_ROOT "${CMAKE_BINARY_DIR}/ipk_root")
+    set(IPK_DATA_DIR "${IPK_ROOT}/data")
+    set(IPK_GAMES_DIR "${IPK_DATA_DIR}/mnt/games/butterscotch")
+    set(IPK_GMENU2X_DIR "${IPK_DATA_DIR}/gmenu2x/sections/games")
+    
+    # Create directory structure
+    file(MAKE_DIRECTORY "${IPK_GAMES_DIR}")
+    file(MAKE_DIRECTORY "${IPK_GMENU2X_DIR}")
+    
+    # Copy binary after build
+    add_custom_command(TARGET butterscotch POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:butterscotch> ${IPK_GAMES_DIR}/butterscotch
+        COMMENT "Copying butterscotch binary to IPK package"
+    )
+    
+    # Create gmenu2x section file
+    file(WRITE "${IPK_GMENU2X_DIR}/butterscotch.lnk"
+"title=Butterscotch
+description=Undertale compatible GameMaker Studio runner
+exec=/mnt/games/butterscotch/butterscotch
+selectordir=/mnt/
+selectorbrowser=true
+selectorfilter=.unx,.win
+")
+    
+    # Create control file for IPK
+    file(MAKE_DIRECTORY "${IPK_ROOT}/CONTROL")
+    file(WRITE "${IPK_ROOT}/CONTROL/control"
+"Package: butterscotch
+Version: 1.0.0
+Source: https://github.com/kptmx/Butterscotch-miyoo
+Section: games
+Maintainer: MrPowerGamerBR & kptmx
+Architecture: arm
+Installed-Size: 2048
+Description: GameMaker Studio 1.4 runner for Miyoo devices
+ Butterscotch is an open-source implementation of GameMaker:Studio's runner.
+ It allows you to (kinda) play Undertale on MiyooCFW devices.
+")
+
+    # Create debian-binary file
+    file(WRITE "${IPK_ROOT}/debian-binary" "2.0\n")
+    
+    # Create IPK package using shell tar command
+    add_custom_target(ipk
+        # Create data.tar.gz from data directory
+        COMMAND tar -czf ${CMAKE_BINARY_DIR}/data.tar.gz -C ${IPK_DATA_DIR} .
+        
+        # Create control.tar.gz from CONTROL directory  
+        COMMAND tar -czf ${CMAKE_BINARY_DIR}/control.tar.gz -C ${IPK_ROOT}/CONTROL .
+        
+        # Copy archives to IPK_ROOT for final packaging
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/data.tar.gz ${IPK_ROOT}/data.tar.gz
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/control.tar.gz ${IPK_ROOT}/control.tar.gz
+        
+        # Create final IPK by combining all parts
+        COMMAND tar -cf ${CMAKE_BINARY_DIR}/butterscotch_${CMAKE_PROJECT_VERSION}_all.ipk debian-binary control.tar.gz data.tar.gz
+        WORKING_DIRECTORY ${IPK_ROOT}
+        DEPENDS butterscotch
+        COMMENT "Creating IPK package for Miyoo"
+    )
 elseif(PLATFORM STREQUAL "ps2")
     # The PS2 EE has a single-precision FPU only, so double is software-emulated
     add_compile_definitions(USE_FLOAT_REALS)

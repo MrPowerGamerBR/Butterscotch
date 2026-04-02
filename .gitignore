@@ -1,2 +1,33 @@
+# Build directories
 build/
-.gitignore
+build-sdl/
+build-miyoo/
+
+# IPK packages (generated artifacts)
+*.ipk
+data.tar.gz
+control.tar.gz
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# IDE files
+.vscode/
+.idea/
+.qwen/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test/Debug files
+*.log
+gmon.out
+
