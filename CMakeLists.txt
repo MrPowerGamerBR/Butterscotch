@@ -56,6 +56,7 @@ if(PLATFORM STREQUAL "glfw")
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GLFW3 REQUIRED glfw3)
         target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
+        target_link_directories(butterscotch PRIVATE ${GLFW3_LIBRARY_DIRS})
         target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl)
     endif()
 
