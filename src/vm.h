@@ -26,6 +26,8 @@
 #define INSTANCE_GLOBAL    (-5)
 #define INSTANCE_LOCAL     (-7)
 #define INSTANCE_STACKTOP  (-9)
+#define INSTANCE_ARG       (-15)
+#define INSTANCE_STATIC    (-16)
 
 // ===[ Variable Types (upper 5 bits of varRef, extracted with (varRef >> 24) & 0xF8) ]===
 #define VARTYPE_ARRAY     0x00
@@ -80,6 +82,7 @@
 #define OP_PUSHLOC  0xC1
 #define OP_PUSHGLB  0xC2
 #define OP_PUSHBLTN 0xC3
+#define OP_CALLV    0x99
 #define OP_CALL     0xD9
 #define OP_BREAK    0xFF
 

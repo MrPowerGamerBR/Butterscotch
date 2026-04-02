@@ -11,6 +11,7 @@
 #include "stb_image.h"
 #include "stb_ds.h"
 #include "utils.h"
+#include "qoi_decode.h"
 
 // ===[ Constants ]===
 #define MAX_QUADS 4096
@@ -163,11 +164,21 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
 
     for (uint32_t i = 0; gl->textureCount > i; i++) {
         Texture* txtr = &dataWin->txtr.textures[i];
-        uint8_t* pngData = txtr->blobData;
-        uint32_t pngSize = txtr->blobSize;
+        uint8_t* blobData = txtr->blobData;
+        uint32_t blobSize = txtr->blobSize;
 
         int w, h, channels;
-        uint8_t* pixels = stbi_load_from_memory(pngData, (int) pngSize, &w, &h, &channels, 4);
+        uint8_t* pixels = nullptr;
+        bool isQoi = false;
+
+        // Try QOI/BZ2+QOI first, then fall back to PNG
+        pixels = textureDecodeBlob(blobData, blobSize, &w, &h);
+        if (pixels != nullptr) {
+            isQoi = true;
+        } else {
+            pixels = stbi_load_from_memory(blobData, (int) blobSize, &w, &h, &channels, 4);
+        }
+
         if (pixels == nullptr) {
             fprintf(stderr, "GL: Failed to decode TXTR page %u\n", i);
             gl->textureWidths[i] = 0;
@@ -185,8 +196,12 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-        stbi_image_free(pixels);
-        fprintf(stderr, "GL: Loaded TXTR page %u (%dx%d)\n", i, w, h);
+        if (isQoi) {
+            free(pixels);
+        } else {
+            stbi_image_free(pixels);
+        }
+        fprintf(stderr, "GL: Loaded TXTR page %u (%dx%d, %s)\n", i, w, h, isQoi ? "QOI" : "PNG");
     }
 
     // Create 1x1 white pixel texture for primitive drawing (rectangles, lines, etc.)

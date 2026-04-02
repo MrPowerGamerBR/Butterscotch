@@ -1719,6 +1719,47 @@ static RValue builtinPlaceFree(VMContext* ctx, RValue* args, int32_t argCount) {
         return RValue_makeUndefined(); \
     }
 
+// GMS 2.3+ method() - creates a bound or unbound method reference
+// method(instance, func) - instance is -1 for unbound
+// For now, returns the function code index as a real value (simplified)
+static RValue builtin_method(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    // args[0] = instance (-1 for unbound)
+    // args[1] = code index (function reference)
+    RValue funcRef = args[1];
+    return RValue_makeReal(RValue_toReal(funcRef));
+}
+
+// GMS 2.3+ @@This@@ - returns the current instance ID
+static RValue builtin_atThis(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Instance* inst = (Instance*) ctx->currentInstance;
+    if (inst != nullptr) {
+        return RValue_makeReal((GMLReal) inst->instanceId);
+    }
+    return RValue_makeReal(-1);
+}
+
+// GMS 2.3+ variable_instance_get/set
+static RValue builtin_variable_instance_get(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logStubbedFunction(ctx, "variable_instance_get");
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_variable_instance_set(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logStubbedFunction(ctx, "variable_instance_set");
+    return RValue_makeUndefined();
+}
+
+// GMS 2.3+ struct operations - stub
+static RValue builtin_variable_struct_get(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logStubbedFunction(ctx, "variable_struct_get");
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_variable_struct_set(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logStubbedFunction(ctx, "variable_struct_set");
+    return RValue_makeUndefined();
+}
+
 // Steam stubs
 STUB_RETURN_ZERO(steam_initialised)
 STUB_RETURN_ZERO(steam_stats_ready)
@@ -1950,6 +1991,20 @@ static RValue builtin_audioDestroyStream(VMContext* ctx, RValue* args, MAYBE_UNU
     int32_t streamIndex = RValue_toInt32(args[0]);
     bool success = audio->vtable->destroyStream(audio, streamIndex);
     return RValue_makeReal(success ? 1.0 : -1.0);
+}
+
+// GMS 2.3+ built-in functions
+STUB_RETURN_ZERO(parameter_count)
+STUB_RETURN_UNDEFINED(surface_resize)
+
+// @@NewGMLArray@@ - creates an empty array
+static RValue builtin_newGMLArray(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    return RValue_makeReal(0); // stub: return 0 (no real array support yet)
+}
+
+// @@NewGMLObject@@ - creates a new struct
+static RValue builtin_newGMLObject(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    return RValue_makeUndefined(); // stub: structs not yet supported
 }
 
 // Application surface stubs
@@ -2887,15 +2942,418 @@ static RValue builtinActionSetVspeed(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     return RValue_makeUndefined();
 }
 
-// Buffer stubs
-STUB_RETURN_ZERO(buffer_create)
-STUB_RETURN_UNDEFINED(buffer_delete)
-STUB_RETURN_UNDEFINED(buffer_write)
-STUB_RETURN_ZERO(buffer_read)
-STUB_RETURN_UNDEFINED(buffer_seek)
-STUB_RETURN_ZERO(buffer_tell)
-STUB_RETURN_ZERO(buffer_get_size)
+// ===[ Buffer System ]===
+// GML buffer type constants
+#define BUFFER_FORMAT_FIXED 0
+#define BUFFER_FORMAT_GROW  1
+#define BUFFER_FORMAT_WRAP  2
+#define BUFFER_FORMAT_FAST  3
+
+// GML buffer data type constants
+#define BUFFER_U8     1
+#define BUFFER_S8     2
+#define BUFFER_U16    3
+#define BUFFER_S16    4
+#define BUFFER_U32    5
+#define BUFFER_S32    6
+#define BUFFER_F16    7
+#define BUFFER_F32    8
+#define BUFFER_F64    9
+#define BUFFER_BOOL   10
+#define BUFFER_STRING 11
+#define BUFFER_U64    12
+#define BUFFER_TEXT   13
+
+// GML buffer seek constants
+#define BUFFER_SEEK_START    0
+#define BUFFER_SEEK_RELATIVE 1
+#define BUFFER_SEEK_END      2
+
+typedef struct {
+    uint8_t* data;
+    uint32_t size;      // allocated size
+    uint32_t usedSize;  // how much has been written (high-water mark)
+    uint32_t pos;       // current read/write position
+    int32_t type;       // FIXED, GROW, WRAP, FAST
+    int32_t alignment;
+    bool active;
+} GMLBuffer;
+
+#define MAX_BUFFERS 64
+static GMLBuffer buffers[MAX_BUFFERS];
+static bool buffersInitialized = false;
+
+static void initBuffers(void) {
+    if (!buffersInitialized) {
+        memset(buffers, 0, sizeof(buffers));
+        buffersInitialized = true;
+    }
+}
+
+static int32_t allocBuffer(void) {
+    initBuffers();
+    for (int32_t i = 0; MAX_BUFFERS > i; i++) {
+        if (!buffers[i].active) return i;
+    }
+    return -1;
+}
+
+static void bufferEnsureCapacity(GMLBuffer* buf, uint32_t needed) {
+    if (buf->pos + needed <= buf->size) return;
+    if (buf->type != BUFFER_FORMAT_GROW) return;
+    uint32_t newSize = buf->size;
+    if (newSize < 4) newSize = 4;
+    while (buf->pos + needed > newSize) {
+        newSize <<= 1;
+    }
+    buf->data = safeRealloc(buf->data, newSize);
+    memset(buf->data + buf->size, 0, newSize - buf->size);
+    buf->size = newSize;
+}
+
+static RValue builtin_bufferCreate(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    (void) ctx;
+    int32_t size = RValue_toInt32(args[0]);
+    int32_t type = RValue_toInt32(args[1]);
+    int32_t alignment = RValue_toInt32(args[2]);
+    if (size < 0) size = 0;
+    if (alignment < 1) alignment = 1;
+
+    int32_t id = allocBuffer();
+    if (0 > id) return RValue_makeReal(-1);
+
+    GMLBuffer* buf = &buffers[id];
+    buf->size = (uint32_t) size;
+    buf->data = (size > 0) ? safeCalloc(1, (size_t) size) : nullptr;
+    buf->pos = 0;
+    buf->usedSize = 0;
+    buf->type = type;
+    buf->alignment = alignment;
+    buf->active = true;
+
+    return RValue_makeReal((GMLReal) id);
+}
+
+static RValue builtin_bufferDelete(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeUndefined();
+    free(buffers[id].data);
+    memset(&buffers[id], 0, sizeof(GMLBuffer));
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_bufferWrite(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t dataType = RValue_toInt32(args[1]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeUndefined();
+    GMLBuffer* buf = &buffers[id];
+
+    switch (dataType) {
+        case BUFFER_U8:
+        case BUFFER_BOOL: {
+            bufferEnsureCapacity(buf, 1);
+            if (buf->pos < buf->size) {
+                buf->data[buf->pos++] = (uint8_t) RValue_toInt32(args[2]);
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            break;
+        }
+        case BUFFER_S16:
+        case BUFFER_U16: {
+            bufferEnsureCapacity(buf, 2);
+            if (buf->pos + 2 <= buf->size) {
+                uint16_t v = (uint16_t) RValue_toInt32(args[2]);
+                memcpy(buf->data + buf->pos, &v, 2);
+                buf->pos += 2;
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            break;
+        }
+        case BUFFER_S32:
+        case BUFFER_U32: {
+            bufferEnsureCapacity(buf, 4);
+            if (buf->pos + 4 <= buf->size) {
+                uint32_t v = (uint32_t) RValue_toInt32(args[2]);
+                memcpy(buf->data + buf->pos, &v, 4);
+                buf->pos += 4;
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            break;
+        }
+        case BUFFER_F32: {
+            bufferEnsureCapacity(buf, 4);
+            if (buf->pos + 4 <= buf->size) {
+                float v = (float) RValue_toReal(args[2]);
+                memcpy(buf->data + buf->pos, &v, 4);
+                buf->pos += 4;
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            break;
+        }
+        case BUFFER_F64: {
+            bufferEnsureCapacity(buf, 8);
+            if (buf->pos + 8 <= buf->size) {
+                double v = (double) RValue_toReal(args[2]);
+                memcpy(buf->data + buf->pos, &v, 8);
+                buf->pos += 8;
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            break;
+        }
+        case BUFFER_STRING:
+        case BUFFER_TEXT: {
+            char* str = RValue_toString(args[2]);
+            uint32_t len = (uint32_t) strlen(str);
+            uint32_t needed = len + (dataType == BUFFER_STRING ? 1 : 0); // null terminator for string
+            bufferEnsureCapacity(buf, needed);
+            if (buf->pos + needed <= buf->size) {
+                memcpy(buf->data + buf->pos, str, len);
+                buf->pos += len;
+                if (dataType == BUFFER_STRING) {
+                    buf->data[buf->pos++] = 0; // null terminator
+                }
+                if (buf->pos > buf->usedSize) buf->usedSize = buf->pos;
+            }
+            free(str);
+            break;
+        }
+        default:
+            fprintf(stderr, "VM: buffer_write: unsupported data type %d\n", dataType);
+            break;
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_bufferRead(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t dataType = RValue_toInt32(args[1]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeReal(0);
+    GMLBuffer* buf = &buffers[id];
+
+    switch (dataType) {
+        case BUFFER_U8: {
+            if (buf->pos >= buf->usedSize) return RValue_makeReal(0);
+            return RValue_makeReal(buf->data[buf->pos++]);
+        }
+        case BUFFER_S8: {
+            if (buf->pos >= buf->usedSize) return RValue_makeReal(0);
+            return RValue_makeReal((int8_t) buf->data[buf->pos++]);
+        }
+        case BUFFER_BOOL: {
+            if (buf->pos >= buf->usedSize) return RValue_makeBool(false);
+            return RValue_makeBool(buf->data[buf->pos++] != 0);
+        }
+        case BUFFER_U16: {
+            if (buf->pos + 2 > buf->usedSize) return RValue_makeReal(0);
+            uint16_t v; memcpy(&v, buf->data + buf->pos, 2);
+            buf->pos += 2;
+            return RValue_makeReal(v);
+        }
+        case BUFFER_S16: {
+            if (buf->pos + 2 > buf->usedSize) return RValue_makeReal(0);
+            int16_t v; memcpy(&v, buf->data + buf->pos, 2);
+            buf->pos += 2;
+            return RValue_makeReal(v);
+        }
+        case BUFFER_U32: {
+            if (buf->pos + 4 > buf->usedSize) return RValue_makeReal(0);
+            uint32_t v; memcpy(&v, buf->data + buf->pos, 4);
+            buf->pos += 4;
+            return RValue_makeReal((GMLReal) v);
+        }
+        case BUFFER_S32: {
+            if (buf->pos + 4 > buf->usedSize) return RValue_makeReal(0);
+            int32_t v; memcpy(&v, buf->data + buf->pos, 4);
+            buf->pos += 4;
+            return RValue_makeReal((GMLReal) v);
+        }
+        case BUFFER_F32: {
+            if (buf->pos + 4 > buf->usedSize) return RValue_makeReal(0);
+            float v; memcpy(&v, buf->data + buf->pos, 4);
+            buf->pos += 4;
+            return RValue_makeReal((GMLReal) v);
+        }
+        case BUFFER_F64: {
+            if (buf->pos + 8 > buf->usedSize) return RValue_makeReal(0);
+            double v; memcpy(&v, buf->data + buf->pos, 8);
+            buf->pos += 8;
+            return RValue_makeReal((GMLReal) v);
+        }
+        case BUFFER_STRING:
+        case BUFFER_TEXT: {
+            if (buf->pos >= buf->usedSize) return RValue_makeOwnedString(safeStrdup(""));
+            // Read null-terminated UTF-8 string
+            uint32_t start = buf->pos;
+            if (dataType == BUFFER_STRING) {
+                while (buf->pos < buf->usedSize && buf->data[buf->pos] != 0) {
+                    buf->pos++;
+                }
+                uint32_t len = buf->pos - start;
+                if (buf->pos < buf->usedSize) buf->pos++; // skip null terminator
+                char* str = safeMalloc(len + 1);
+                memcpy(str, buf->data + start, len);
+                str[len] = '\0';
+                return RValue_makeOwnedString(str);
+            } else {
+                // TEXT: read until end of buffer (no null terminator)
+                uint32_t len = buf->usedSize - start;
+                char* str = safeMalloc(len + 1);
+                memcpy(str, buf->data + start, len);
+                str[len] = '\0';
+                buf->pos = buf->usedSize;
+                return RValue_makeOwnedString(str);
+            }
+        }
+        default:
+            fprintf(stderr, "VM: buffer_read: unsupported data type %d\n", dataType);
+            return RValue_makeReal(0);
+    }
+}
+
+static RValue builtin_bufferSeek(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    int32_t base = RValue_toInt32(args[1]);
+    int32_t offset = RValue_toInt32(args[2]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeUndefined();
+    GMLBuffer* buf = &buffers[id];
+
+    switch (base) {
+        case BUFFER_SEEK_START:    buf->pos = (uint32_t) offset; break;
+        case BUFFER_SEEK_RELATIVE: buf->pos = (uint32_t) ((int32_t) buf->pos + offset); break;
+        case BUFFER_SEEK_END:      buf->pos = (uint32_t) ((int32_t) buf->usedSize + offset); break;
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_bufferTell(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeReal(0);
+    return RValue_makeReal((GMLReal) buffers[id].pos);
+}
+
+static RValue builtin_bufferGetSize(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    initBuffers();
+    int32_t id = RValue_toInt32(args[0]);
+    if (0 > id || id >= MAX_BUFFERS || !buffers[id].active) return RValue_makeReal(0);
+    return RValue_makeReal((GMLReal) buffers[id].usedSize);
+}
+
+static RValue builtin_bufferLoad(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    FileSystem* fs = runner->fileSystem;
+    char* filename = RValue_toString(args[0]);
+    char* fullPath = fs->vtable->resolvePath(fs, filename);
+
+    FILE* f = fopen(fullPath, "rb");
+    free(fullPath);
+    free(filename);
+    if (f == nullptr) return RValue_makeReal(-1);
+
+    fseek(f, 0, SEEK_END);
+    long fileSize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    int32_t id = allocBuffer();
+    if (0 > id) { fclose(f); return RValue_makeReal(-1); }
+
+    GMLBuffer* buf = &buffers[id];
+    buf->size = (uint32_t) fileSize;
+    buf->data = safeMalloc((size_t) fileSize);
+    fread(buf->data, 1, (size_t) fileSize, f);
+    fclose(f);
+    buf->pos = 0;
+    buf->usedSize = (uint32_t) fileSize;
+    buf->type = BUFFER_FORMAT_GROW;
+    buf->alignment = 1;
+    buf->active = true;
+
+    return RValue_makeReal((GMLReal) id);
+}
+
+// buffer_load_async: for now, load synchronously and return a fake async ID
+static RValue builtin_bufferLoadAsync(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t bufferId = RValue_toInt32(args[0]);
+    char* filename = RValue_toString(args[1]);
+    // int32_t offset = RValue_toInt32(args[2]); // unused for now
+    // int32_t size = RValue_toInt32(args[3]);    // unused for now
+
+    Runner* runner = (Runner*) ctx->runner;
+    FileSystem* fs = runner->fileSystem;
+    char* fullPath = fs->vtable->resolvePath(fs, filename);
+    free(filename);
+
+    initBuffers();
+    if (0 > bufferId || bufferId >= MAX_BUFFERS || !buffers[bufferId].active) {
+        free(fullPath);
+        return RValue_makeReal(-1);
+    }
+
+    FILE* f = fopen(fullPath, "rb");
+    free(fullPath);
+    if (f == nullptr) return RValue_makeReal(-1);
+
+    fseek(f, 0, SEEK_END);
+    long fileSize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    GMLBuffer* buf = &buffers[bufferId];
+    // Resize buffer to fit file data
+    if ((uint32_t) fileSize > buf->size) {
+        free(buf->data);
+        buf->data = safeMalloc((size_t) fileSize);
+        buf->size = (uint32_t) fileSize;
+    }
+    fread(buf->data, 1, (size_t) fileSize, f);
+    fclose(f);
+    buf->pos = 0;
+    buf->usedSize = (uint32_t) fileSize;
+
+    return RValue_makeReal(0); // fake async ID
+}
+
+// buffer_save_async: save synchronously, return fake async ID
+static RValue builtin_bufferSaveAsync(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t bufferId = RValue_toInt32(args[0]);
+    char* filename = RValue_toString(args[1]);
+    int32_t offset = RValue_toInt32(args[2]);
+    int32_t size = RValue_toInt32(args[3]);
+
+    Runner* runner = (Runner*) ctx->runner;
+    FileSystem* fs = runner->fileSystem;
+    char* fullPath = fs->vtable->resolvePath(fs, filename);
+    free(filename);
+
+    initBuffers();
+    if (0 > bufferId || bufferId >= MAX_BUFFERS || !buffers[bufferId].active) {
+        free(fullPath);
+        return RValue_makeReal(-1);
+    }
+
+    GMLBuffer* buf = &buffers[bufferId];
+    if (offset < 0) offset = 0;
+    if (size < 0 || (uint32_t)(offset + size) > buf->usedSize) size = (int32_t)(buf->usedSize - offset);
+
+    FILE* f = fopen(fullPath, "wb");
+    free(fullPath);
+    if (f == nullptr) return RValue_makeReal(-1);
+
+    fwrite(buf->data + offset, 1, (size_t) size, f);
+    fclose(f);
+
+    return RValue_makeReal(0); // fake async ID
+}
+
 STUB_RETURN_ZERO(buffer_base64_encode)
+
+// buffer_async_group stubs
+STUB_RETURN_UNDEFINED(buffer_async_group_begin)
+STUB_RETURN_UNDEFINED(buffer_async_group_option)
+STUB_RETURN_ZERO(buffer_async_group_end)
 
 // PSN stubs
 STUB_RETURN_UNDEFINED(psn_init)
@@ -4334,6 +4792,7 @@ void VMBuiltins_registerAll(bool isGMS2) {
 
     // String functions
     registerBuiltin("string_length", builtinStringLength);
+    registerBuiltin("string_byte_length", builtinStringLength); // UTF-8 byte length (same as strlen for our purposes)
     registerBuiltin("string", builtinString);
     registerBuiltin("string_upper", builtinStringUpper);
     registerBuiltin("string_lower", builtinStringLower);
@@ -4411,6 +4870,19 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("variable_global_exists", builtinVariableGlobalExists);
     registerBuiltin("variable_global_get", builtinVariableGlobalGet);
     registerBuiltin("variable_global_set", builtinVariableGlobalSet);
+    registerBuiltin("variable_instance_get", builtin_variable_instance_get);
+    registerBuiltin("variable_instance_set", builtin_variable_instance_set);
+    registerBuiltin("variable_struct_get", builtin_variable_struct_get);
+    registerBuiltin("variable_struct_set", builtin_variable_struct_set);
+
+    // GMS 2.3+ functions
+    registerBuiltin("method", builtin_method);
+    registerBuiltin("@@NullObject@@", builtin_newGMLObject); // stub: returns undefined
+    registerBuiltin("@@This@@", builtin_atThis);
+    registerBuiltin("@@NewGMLArray@@", builtin_newGMLArray);
+    registerBuiltin("@@NewGMLObject@@", builtin_newGMLObject);
+    registerBuiltin("parameter_count", builtin_parameter_count);
+    registerBuiltin("surface_resize", builtin_surface_resize);
 
     // Script
     registerBuiltin("script_execute", builtinScriptExecute);
@@ -4439,6 +4911,7 @@ void VMBuiltins_registerAll(bool isGMS2) {
 
     // Array
     registerBuiltin("array_length_1d", builtinArrayLength1d);
+    registerBuiltin("array_length", builtinArrayLength1d); // GMS 2.3+ alias
 
     // Steam stubs
     registerBuiltin("steam_initialised", builtin_steam_initialised);
@@ -4453,6 +4926,7 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("audio_play_sound", builtin_audioPlaySound);
     registerBuiltin("audio_stop_sound", builtin_audioStopSound);
     registerBuiltin("audio_stop_all", builtin_audioStopAll);
+    registerBuiltin("audio_exists", builtin_audioIsPlaying); // stub: same as is_playing (returns false for invalid)
     registerBuiltin("audio_is_playing", builtin_audioIsPlaying);
     registerBuiltin("audio_is_paused", builtin_audioIsPaused);
     registerBuiltin("audio_sound_gain", builtin_audioSoundGain);
@@ -4573,14 +5047,20 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("event_perform", builtinEventPerform);
 
     // Buffer
-    registerBuiltin("buffer_create", builtin_buffer_create);
-    registerBuiltin("buffer_delete", builtin_buffer_delete);
-    registerBuiltin("buffer_write", builtin_buffer_write);
-    registerBuiltin("buffer_read", builtin_buffer_read);
-    registerBuiltin("buffer_seek", builtin_buffer_seek);
-    registerBuiltin("buffer_tell", builtin_buffer_tell);
-    registerBuiltin("buffer_get_size", builtin_buffer_get_size);
+    registerBuiltin("buffer_create", builtin_bufferCreate);
+    registerBuiltin("buffer_delete", builtin_bufferDelete);
+    registerBuiltin("buffer_write", builtin_bufferWrite);
+    registerBuiltin("buffer_read", builtin_bufferRead);
+    registerBuiltin("buffer_seek", builtin_bufferSeek);
+    registerBuiltin("buffer_tell", builtin_bufferTell);
+    registerBuiltin("buffer_get_size", builtin_bufferGetSize);
+    registerBuiltin("buffer_load", builtin_bufferLoad);
+    registerBuiltin("buffer_load_async", builtin_bufferLoadAsync);
+    registerBuiltin("buffer_save_async", builtin_bufferSaveAsync);
     registerBuiltin("buffer_base64_encode", builtin_buffer_base64_encode);
+    registerBuiltin("buffer_async_group_begin", builtin_buffer_async_group_begin);
+    registerBuiltin("buffer_async_group_option", builtin_buffer_async_group_option);
+    registerBuiltin("buffer_async_group_end", builtin_buffer_async_group_end);
 
     // PSN
     registerBuiltin("psn_init", builtin_psn_init);

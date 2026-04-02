@@ -360,6 +360,11 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         instanceType = access.instanceType;
     }
 
+    // GMS 2.3+: INSTANCE_STACKTOP (-9) in instruction means pop instance from stack
+    if (instanceType == INSTANCE_STACKTOP && !access.hasInstanceType) {
+        instanceType = RValue_toInt32(stackPop(ctx));
+    }
+
     // Resolve target instance for object/instance references (instanceType >= 0)
     Instance* targetInstance = (Instance*) ctx->currentInstance;
     if (instanceType >= 0) {
@@ -469,6 +474,20 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
 
     RValue result;
     switch (instanceType) {
+        case INSTANCE_ARG: {
+            // GMS 2.3+: direct argument access via "argumentN" variable name
+            int argIdx = -1;
+            if (varDef->name != nullptr && strncmp(varDef->name, "argument", 8) == 0 && varDef->name[8] >= '0' && varDef->name[8] <= '9') {
+                argIdx = atoi(varDef->name + 8);
+            }
+            if (argIdx >= 0 && argIdx < ctx->scriptArgCount && ctx->scriptArgs != nullptr) {
+                result = ctx->scriptArgs[argIdx];
+            } else {
+                result = RValue_makeUndefined();
+            }
+            result.ownsString = false;
+            return result;
+        }
         case INSTANCE_LOCAL:
             require(ctx->localVarCount > (uint32_t) varDef->varID);
             if (ctx->localVars[varDef->varID].type == RVALUE_ARRAY_REF) {
@@ -494,6 +513,15 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         case INSTANCE_SELF:
         default: {
             // Use target instance's sparse selfVars hashmap
+            if (targetInstance == nullptr) {
+                // GMS 2.3+: in global scope, "self" reads come from globalVars
+                if (ctx->globalVarCount > (uint32_t) varDef->varID) {
+                    result = ctx->globalVars[varDef->varID];
+                } else {
+                    result = RValue_makeUndefined();
+                }
+                break;
+            }
             RValue selfVal = Instance_getSelfVar(targetInstance, varDef->varID);
             if (selfVal.type == RVALUE_ARRAY_REF) {
                 result = selfVal;
@@ -562,6 +590,11 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
     int32_t originalInstanceType = instanceType;
     if (access.hasInstanceType) {
         instanceType = access.instanceType;
+    }
+
+    // GMS 2.3+: INSTANCE_STACKTOP (-9) in instruction means pop instance from stack
+    if (instanceType == INSTANCE_STACKTOP && !access.hasInstanceType) {
+        instanceType = RValue_toInt32(stackPop(ctx));
     }
 
     // GML: writing through an object reference (obj_foo.var = val) sets the variable on ALL instances of that object
@@ -709,6 +742,20 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
 #endif
 
     switch (instanceType) {
+        case INSTANCE_ARG: {
+            // GMS 2.3+: direct argument write via "argumentN" variable name
+            int argIdx = -1;
+            if (varDef->name != nullptr && strncmp(varDef->name, "argument", 8) == 0 && varDef->name[8] >= '0' && varDef->name[8] <= '9') {
+                argIdx = atoi(varDef->name + 8);
+            }
+            if (argIdx >= 0 && argIdx < ctx->scriptArgCount && ctx->scriptArgs != nullptr) {
+                RValue_free(&ctx->scriptArgs[argIdx]);
+                ctx->scriptArgs[argIdx] = val;
+            } else {
+                RValue_free(&val);
+            }
+            return;
+        }
         case INSTANCE_LOCAL: {
             require(ctx->localVarCount > (uint32_t) varDef->varID);
             RValue* dest = &ctx->localVars[varDef->varID];
@@ -742,6 +789,16 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
         default: {
             // Self or object/instance reference - use sparse hashmap
             Instance* inst = targetInstance;
+            if (inst == nullptr) {
+                // GMS 2.3+: in global scope, "self" writes go to globalVars
+                if (ctx->globalVarCount > (uint32_t) varDef->varID) {
+                    RValue_free(&ctx->globalVars[varDef->varID]);
+                    ctx->globalVars[varDef->varID] = val;
+                } else {
+                    RValue_free(&val);
+                }
+                return;
+            }
             Instance_setSelfVar(inst, varDef->varID, val);
 #ifndef DISABLE_VM_TRACING
             if (shouldTraceVariable(ctx->varWritesToBeTraced, ctx->dataWin->objt.objects[inst->objectIndex].name, "self", varDef->name)) {
@@ -1393,24 +1450,35 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
 }
 
 static void handleDup(VMContext* ctx, uint32_t instr) {
-    // The Extra field (lower 8 bits) encodes how many additional items beyond 1 to duplicate.
-    // dup.i 0 = duplicate 1 item, dup.i 1 = duplicate 2 items (used for array access: instanceType + arrayIndex), etc.
     uint8_t extra = (uint8_t)(instr & 0xFF);
-    int32_t count = (int32_t) extra + 1;
+    uint8_t compKind = (uint8_t)((instr >> 8) & 0xFF);
+    bool isSwap = (compKind & 0x80) != 0;
 
-    require(ctx->stack.top >= count);
+    if (isSwap) {
+        // GMS 2.3+ DupSwap: duplicate the item at depth 'extra' from the top and push it on top.
+        // Used for method calls: instance ref is pushed first, then args; DupSwap copies
+        // the instance ref (which is now behind the args) back to the top.
+        int32_t depth = (int32_t) extra;
+        require(ctx->stack.top > depth);
 
-    // Copy 'count' items from the top of the stack (preserving order)
-    int32_t startIdx = ctx->stack.top - count;
-    for (int32_t i = 0; count > i; i++) {
-        RValue copy = ctx->stack.slots[startIdx + i];
-
-        // If the value owns a string, duplicate it to avoid double-free
+        RValue copy = ctx->stack.slots[ctx->stack.top - 1 - depth];
         if (copy.type == RVALUE_STRING && copy.ownsString && copy.string != nullptr) {
             copy.string = safeStrdup(copy.string);
         }
-
         stackPush(ctx, copy);
+    } else {
+        // Standard Dup: duplicate the top 'count' items
+        int32_t count = (int32_t) extra + 1;
+        require(ctx->stack.top >= count);
+
+        int32_t startIdx = ctx->stack.top - count;
+        for (int32_t i = 0; count > i; i++) {
+            RValue copy = ctx->stack.slots[startIdx + i];
+            if (copy.type == RVALUE_STRING && copy.ownsString && copy.string != nullptr) {
+                copy.string = safeStrdup(copy.string);
+            }
+            stackPush(ctx, copy);
+        }
     }
 }
 
@@ -1764,6 +1832,7 @@ static const char* opcodeName(uint8_t opcode) {
         case OP_PUSHLOC: return "PushLoc";
         case OP_PUSHGLB: return "PushGlb";
         case OP_PUSHBLTN:return "PushBltn";
+        case OP_CALLV:   return "CallV";
         case OP_CALL:    return "Call";
         case OP_BREAK:   return "Break";
         default:         return "???";
@@ -1878,6 +1947,69 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_CALL:
                 handleCall(ctx, instr, extraData);
                 break;
+
+            // GMS 2.3+ CallV: call a function reference from the stack
+            // Stack layout before CallV(N): [..., argN-1, ..., arg0, funcRef]
+            // funcRef is on TOP, then args below it
+            case OP_CALLV: {
+                int32_t argCount = instr & 0xFFFF;
+                // Pop the function reference first (it's on top)
+                RValue funcRef = stackPop(ctx);
+                int32_t rawFuncRef = RValue_toInt32(funcRef);
+                int32_t codeIndex = rawFuncRef;
+                uint8_t funcRefType = funcRef.type;
+                RValue_free(&funcRef);
+
+                // GMS 2.3+: the value is a FUNC index (patched by reference chain),
+                // not a direct CODE index. Resolve via funcMap.
+                if (ctx->dataWin->detectedVersion.isGMS2_3 && codeIndex >= 0 && ctx->dataWin->func.functionCount > (uint32_t) codeIndex) {
+                    const char* funcName = ctx->dataWin->func.functions[codeIndex].name;
+                    ptrdiff_t mapIdx = shgeti(ctx->funcMap, (char*) funcName);
+                    if (mapIdx >= 0) {
+                        codeIndex = ctx->funcMap[mapIdx].value;
+                    }
+                }
+
+                // Pop the target instance (pushed by DupSwap, right below funcRef)
+                // This becomes the 'self' context for the method
+                RValue selfRef = stackPop(ctx);
+                int32_t selfId = RValue_toInt32(selfRef);
+                RValue_free(&selfRef);
+
+                // Pop arguments (below the instance on the stack)
+                RValue* args = nullptr;
+                if (argCount > 0) {
+                    args = safeMalloc(argCount * sizeof(RValue));
+                    repeat(argCount, argIdx) {
+                        args[argIdx] = stackPop(ctx);
+                    }
+                }
+                Instance* targetInst = nullptr;
+                if (selfId >= 0) {
+                    targetInst = findInstanceByTarget(ctx, selfId);
+                }
+
+                if (codeIndex >= 0 && ctx->dataWin->code.count > (uint32_t) codeIndex) {
+                    // Temporarily set currentInstance to the target for method binding
+                    void* savedInstance = ctx->currentInstance;
+                    if (targetInst != nullptr) {
+                        ctx->currentInstance = targetInst;
+                    }
+                    RValue result = VM_callCodeIndex(ctx, codeIndex, args, argCount);
+                    ctx->currentInstance = savedInstance;
+                    stackPush(ctx, result);
+                } else {
+                    fprintf(stderr, "VM: [%s] CallV with invalid code index %d (funcRef type=%d)\n", ctx->currentCodeName, codeIndex, funcRefType);
+                    stackPush(ctx, RValue_makeUndefined());
+                }
+                if (args != nullptr) {
+                    repeat(argCount, argIdx) {
+                        RValue_free(&args[argIdx]);
+                    }
+                    free(args);
+                }
+                break;
+            }
 
             // Return
             case OP_RET: {
@@ -2003,19 +2135,21 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     CodeEntry* code = &ctx->dataWin->code.entries[codeIndex];
 
     ctx->bytecodeBase = ctx->dataWin->bytecodeBuffer + (code->bytecodeAbsoluteOffset - ctx->dataWin->bytecodeBufferBase);
-    ctx->ip = 0;
+    ctx->ip = code->offset; // GMS 2.3+ child entries start at a non-zero offset
     ctx->codeEnd = code->length;
     ctx->currentCodeName = code->name;
 
     // Allocate locals
+    // GMS 2.3+: local variables use global varIDs from the VARI chunk, so we need
+    // enough slots to cover all possible varIDs (varCount1), not just code->localsCount
     uint32_t localsCount = code->localsCount;
+    if (ctx->dataWin->detectedVersion.isGMS2_3 && ctx->dataWin->vari.varCount1 > localsCount) {
+        localsCount = ctx->dataWin->vari.varCount1;
+    }
     if (localsCount == 0) localsCount = 1; // at least 1 slot to avoid nullptr
     ctx->localVars = safeCalloc(localsCount, sizeof(RValue));
     ctx->localVarCount = localsCount;
     ctx->localArrayMap = nullptr;
-    repeat(localsCount, i) {
-        ctx->localVars[i].type = RVALUE_UNDEFINED;
-    }
 
     // Reset stack for top-level execution
     ctx->stack.top = 0;
@@ -2070,18 +2204,18 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
 
     // Set up callee
     ctx->bytecodeBase = ctx->dataWin->bytecodeBuffer + (code->bytecodeAbsoluteOffset - ctx->dataWin->bytecodeBufferBase);
-    ctx->ip = 0;
+    ctx->ip = code->offset; // GMS 2.3+ child entries start at a non-zero offset
     ctx->codeEnd = code->length;
     ctx->currentCodeName = code->name;
     ctx->localArrayMap = nullptr;
 
     uint32_t localsCount = code->localsCount;
+    if (ctx->dataWin->detectedVersion.isGMS2_3 && ctx->dataWin->vari.varCount1 > localsCount) {
+        localsCount = ctx->dataWin->vari.varCount1;
+    }
     if (localsCount == 0) localsCount = 1;
     ctx->localVars = safeCalloc(localsCount, sizeof(RValue));
     ctx->localVarCount = localsCount;
-    repeat(localsCount, i) {
-        ctx->localVars[i].type = RVALUE_UNDEFINED;
-    }
 
     // Store arguments in scriptArgs (mirrors GMS 1.4's global argument stack)
     ctx->scriptArgCount = argCount;

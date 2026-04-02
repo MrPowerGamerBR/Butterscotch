@@ -757,7 +757,15 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
         Font* font = &f->fonts[i];
         font->name = readStringPtr(reader, dw);
         font->displayName = readStringPtr(reader, dw);
-        font->emSize = BinaryReader_readUint32(reader);
+        uint32_t rawEmSize = BinaryReader_readUint32(reader);
+        // GMS 2.3+ stores emSize as a negated float (top bit set). Convert back to uint.
+        if (rawEmSize & (1u << 31)) {
+            float fsize;
+            memcpy(&fsize, &rawEmSize, sizeof(float));
+            font->emSize = (uint32_t) (-fsize);
+        } else {
+            font->emSize = rawEmSize;
+        }
         font->bold = BinaryReader_readBool32(reader);
         font->italic = BinaryReader_readBool32(reader);
         font->rangeStart = BinaryReader_readUint16(reader);
@@ -767,6 +775,23 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
         font->textureOffset = BinaryReader_readUint32(reader);
         font->scaleX = BinaryReader_readFloat32(reader);
         font->scaleY = BinaryReader_readFloat32(reader);
+        font->ascenderOffset = 0;
+        if (dw->gen8.bytecodeVersion >= 17) {
+            font->ascenderOffset = BinaryReader_readInt32(reader);
+        }
+        if (dw->detectedVersion.isGMS2022_5) {
+            BinaryReader_skip(reader, 4); // ascender (uint32), GMS 2022.2+
+            // Detect additional version-specific fields (SDFSpread/LineHeight) by peeking:
+            // If the next value is 0 and the one after looks like a glyph count, skip it
+            size_t peekPos = BinaryReader_getPosition(reader);
+            uint32_t nextVal = BinaryReader_readUint32(reader);
+            uint32_t afterVal = BinaryReader_readUint32(reader);
+            BinaryReader_seek(reader, peekPos);
+            if (nextVal == 0 && afterVal > 0) {
+                // nextVal is an extra field (SDFSpread or LineHeight), afterVal is glyphCount
+                BinaryReader_skip(reader, 4);
+            }
+        }
         font->isSpriteFont = false;
         font->spriteIndex = -1;
 
@@ -865,6 +890,9 @@ static void parseOBJT(BinaryReader* reader, DataWin* dw) {
         obj->name = readStringPtr(reader, dw);
         obj->spriteId = BinaryReader_readInt32(reader);
         obj->visible = BinaryReader_readBool32(reader);
+        if (dw->detectedVersion.isGMS2022_5) {
+            BinaryReader_skip(reader, 4); // managed (bool32), GMS 2022.5+
+        }
         obj->solid = BinaryReader_readBool32(reader);
         obj->depth = BinaryReader_readInt32(reader);
         obj->persistent = BinaryReader_readBool32(reader);
@@ -977,8 +1005,8 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
         uint32_t layersPtr = 0;
         if (dw->gen8.major >= 2) {
             layersPtr = BinaryReader_readUint32(reader);
-            if(dw->gen8.minor >= 3) {
-                BinaryReader_skip(reader, 4); // sequencesPtr
+            if (dw->detectedVersion.isGMS2_3) {
+                BinaryReader_skip(reader, 4); // sequencesPtr (GMS 2.3+)
             }
         }
 
@@ -1056,6 +1084,13 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                     go->creationCode = BinaryReader_readInt32(reader);
                     go->scaleX = BinaryReader_readFloat32(reader);
                     go->scaleY = BinaryReader_readFloat32(reader);
+                    if (dw->detectedVersion.isGMS2_3) {
+                        go->imageSpeed = BinaryReader_readFloat32(reader);
+                        go->imageIndex = BinaryReader_readInt32(reader);
+                    } else {
+                        go->imageSpeed = 1.0f;
+                        go->imageIndex = 0;
+                    }
                     go->color = BinaryReader_readUint32(reader);
                     go->rotation = BinaryReader_readFloat32(reader);
                     if (dw->gen8.bytecodeVersion >= 16) {
@@ -1127,6 +1162,14 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                         layer->hSpeed = BinaryReader_readFloat32(reader);
                         layer->vSpeed = BinaryReader_readFloat32(reader);
                         layer->visible = BinaryReader_readBool32(reader);
+                        if (dw->detectedVersion.isGMS2022_5) {
+                            BinaryReader_skip(reader, 4); // effectEnabled (bool32)
+                            BinaryReader_skip(reader, 4); // effectType (string ptr)
+                            BinaryReader_skip(reader, 4); // effectProperties (ptr)
+                        }
+                        layer->assetsData = nullptr;
+                        layer->backgroundData = nullptr;
+                        layer->instancesData = nullptr;
                         switch (layer->type) {
                             case RoomLayerType_Path:
                                 break; // Nothing to do;
@@ -1222,8 +1265,8 @@ static void parseROOM(BinaryReader* reader, DataWin* dw) {
                                 break;
                             }
                             default:
-                                fprintf(stderr, "Unsupported Room Layer Type %u\n", layer->type);
-                                exit(0);
+                                // GMS 2.3+ adds new layer types (Effect=6, Path2=7, etc.)
+                                // Skip unknown layer types gracefully
                                 break;
                         }
                     }
@@ -1360,33 +1403,44 @@ static void parseFUNC(BinaryReader* reader, DataWin* dw) {
         repeat(f->functionCount, i) {
             f->functions[i].name = readStringPtr(reader, dw);
             f->functions[i].occurrences = BinaryReader_readUint32(reader);
-            f->functions[i].firstAddress = BinaryReader_readUint32(reader);
+            uint32_t rawAddr = BinaryReader_readUint32(reader);
+            // GMS 2.3+ stores firstAddress as actualAddr + 4
+            if (dw->detectedVersion.isGMS2_3 && f->functions[i].occurrences > 0) {
+                f->functions[i].firstAddress = rawAddr - 4;
+            } else {
+                f->functions[i].firstAddress = rawAddr;
+            }
         }
     } else {
         f->functions = nullptr;
     }
 
-    // Part 2: Code Locals SimpleList
-    f->codeLocalsCount = BinaryReader_readUint32(reader);
-    if (f->codeLocalsCount > 0) {
-        f->codeLocals = safeMalloc(f->codeLocalsCount * sizeof(CodeLocals));
-        repeat(f->codeLocalsCount, i) {
-            CodeLocals* cl = &f->codeLocals[i];
-            cl->localVarCount = BinaryReader_readUint32(reader);
-            cl->name = readStringPtr(reader, dw);
-
-            if (cl->localVarCount > 0) {
-                cl->locals = safeMalloc(cl->localVarCount * sizeof(LocalVar));
-                repeat(cl->localVarCount, j) {
-                    cl->locals[j].index = BinaryReader_readUint32(reader);
-                    cl->locals[j].name = readStringPtr(reader, dw);
-                }
-            } else {
-                cl->locals = nullptr;
-            }
-        }
-    } else {
+    // Part 2: Code Locals SimpleList (absent in GMS 2.3+)
+    if (dw->detectedVersion.isGMS2_3) {
+        f->codeLocalsCount = 0;
         f->codeLocals = nullptr;
+    } else {
+        f->codeLocalsCount = BinaryReader_readUint32(reader);
+        if (f->codeLocalsCount > 0) {
+            f->codeLocals = safeMalloc(f->codeLocalsCount * sizeof(CodeLocals));
+            repeat(f->codeLocalsCount, i) {
+                CodeLocals* cl = &f->codeLocals[i];
+                cl->localVarCount = BinaryReader_readUint32(reader);
+                cl->name = readStringPtr(reader, dw);
+
+                if (cl->localVarCount > 0) {
+                    cl->locals = safeMalloc(cl->localVarCount * sizeof(LocalVar));
+                    repeat(cl->localVarCount, j) {
+                        cl->locals[j].index = BinaryReader_readUint32(reader);
+                        cl->locals[j].name = readStringPtr(reader, dw);
+                    }
+                } else {
+                    cl->locals = nullptr;
+                }
+            }
+        } else {
+            f->codeLocals = nullptr;
+        }
     }
 }
 
@@ -1417,8 +1471,22 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
 
     if (count == 0) { free(ptrs); t->textures = nullptr; return; }
 
-    // Read metadata entries
+    // Detect TXTR entry size from pointer spacing (GMS2 adds extra fields)
     bool hasGeneratedMips = dw->gen8.major >= 2;
+    bool hasTextureBlockSize = false;
+    bool hasTextureWidthHeightGroup = false;
+    if (count >= 2) {
+        uint32_t entrySize = ptrs[1] - ptrs[0];
+        // 8=base, 12=+genMips, 16=+blockSize, 28=+width/height/indexInGroup
+        hasTextureBlockSize = (entrySize >= 16);
+        hasTextureWidthHeightGroup = (entrySize >= 28);
+    } else if (dw->detectedVersion.isGMS2022_5) {
+        // Single texture in a GMS 2022.5+ file: assume all extra fields
+        hasTextureBlockSize = true;
+        hasTextureWidthHeightGroup = true;
+    }
+
+    // Read metadata entries
     t->textures = safeMalloc(count * sizeof(Texture));
     repeat(count, i) {
         BinaryReader_seek(reader, ptrs[i]);
@@ -1427,6 +1495,12 @@ static void parseTXTR(BinaryReader* reader, DataWin* dw, size_t chunkEnd) {
             t->textures[i].generatedMips = BinaryReader_readUint32(reader);
         } else {
             t->textures[i].generatedMips = 0;
+        }
+        if (hasTextureBlockSize) {
+            BinaryReader_skip(reader, 4); // textureBlockSize
+        }
+        if (hasTextureWidthHeightGroup) {
+            BinaryReader_skip(reader, 12); // textureWidth, textureHeight, indexInGroup
         }
         t->textures[i].blobOffset = BinaryReader_readUint32(reader);
         t->textures[i].blobData = nullptr;
@@ -1520,12 +1594,12 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
     uint32_t formLength = BinaryReader_readUint32(&reader);
     (void) formLength;
 
-    // Pass 1: Count total chunks and find STRG chunk offset.
+    // Pass 1: Count total chunks, find STRG chunk offset, and detect IDE version from chunk presence.
     // All other chunks reference strings from STRG, so it must be loaded first.
     int totalChunks = 0;
     BinaryReader_seek(&reader, 8); // reset to after FORM header
 
-    if (options.parseStrg) {
+    {
         while ((size_t) fileSize > BinaryReader_getPosition(&reader)) {
             if (BinaryReader_getPosition(&reader) + 8 > (size_t) fileSize) break;
 
@@ -1534,9 +1608,16 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
             uint32_t chunkLength = BinaryReader_readUint32(&reader);
             size_t chunkDataStart = BinaryReader_getPosition(&reader);
 
-            if (memcmp(chunkName, "STRG", 4) == 0) {
+            if (options.parseStrg && memcmp(chunkName, "STRG", 4) == 0) {
                 dw->strgBufferBase = chunkDataStart;
                 dw->strgBuffer = BinaryReader_readBytesAt(&reader, chunkDataStart, chunkLength);
+            }
+
+            // Detect IDE version from chunk presence
+            if (memcmp(chunkName, "SEQN", 4) == 0) {
+                dw->detectedVersion.isGMS2_3 = true;
+            } else if (memcmp(chunkName, "FEAT", 4) == 0) {
+                dw->detectedVersion.isGMS2022_5 = true;
             }
 
             BinaryReader_seek(&reader, chunkDataStart + chunkLength);

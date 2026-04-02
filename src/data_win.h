@@ -354,6 +354,7 @@ typedef struct {
     uint32_t textureOffset; // absolute file offset to TexturePageItem
     float scaleX;
     float scaleY;
+    int32_t ascenderOffset; // bytecodeVersion >= 17 only
     uint32_t glyphCount;
     FontGlyph* glyphs;
     // Sprite font fields (only valid when isSpriteFont is true)
@@ -403,7 +404,7 @@ typedef struct {
 } Tmln;
 
 // ===[ OBJT - Game Objects ]===
-#define OBJT_EVENT_TYPE_COUNT 12
+#define OBJT_EVENT_TYPE_COUNT 15
 
 typedef struct {
     uint32_t eventSubtype;
@@ -490,6 +491,8 @@ typedef struct {
     int32_t creationCode;
     float scaleX;
     float scaleY;
+    float imageSpeed;   // GMS 2.2.2.302+
+    int32_t imageIndex;  // GMS 2.2.2.302+
     uint32_t color;
     float rotation;
     int32_t preCreateCode;
@@ -720,7 +723,15 @@ typedef struct {
 } Audo;
 
 // ===[ Top-level DataWin container ]===
+// IDE version detection flags (determined by chunk presence during Pass 1)
+typedef struct {
+    bool isGMS2_3;      // GMS 2.3+ (SEQN chunk present): no CodeLocals in FUNC, 15 event types
+    bool isGMS2022_5;   // GMS 2022.5+ (FEAT chunk present): managed field in OBJT, ascender in FONT
+} DetectedVersion;
+
 typedef struct DataWin {
+    DetectedVersion detectedVersion;
+
     uint8_t* strgBuffer;        // owned copy of STRG chunk raw data
     // Absolute file offset of strgBuffer[0], we need this because data.win stores absolute offsets (from the beginning of the data.win file) instead of relative offsets
     size_t strgBufferBase;
