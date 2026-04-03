@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build script for Miyoo platform with miniaudio support
+# Build script for Miyoo platform
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/build_miyoo"
 
-echo "=== Building Butterscotch for Miyoo (with miniaudio audio) ==="
+echo "=== Building Butterscotch for Miyoo ==="
 
 # Clean build directory
 rm -rf "$BUILD_DIR"
