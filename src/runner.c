@@ -1281,6 +1281,7 @@ void Runner_reset(Runner* runner) {
     VM_reset(runner->vmContext);
 
     runner->pendingRoom = -1;
+    runner->asyncLoadMapId = -1;
     runner->gameStartFired = false;
     runner->currentRoomIndex = -1;
     runner->currentRoomOrderPosition = -1;
@@ -1323,6 +1324,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->frameCount = 0;
     runner->osType = OS_WINDOWS;
     runner->keyboard = RunnerKeyboard_create();
+    runner->gamepads = RunnerGamepad_create();
 
     Runner_reset(runner);
 
@@ -1854,6 +1856,35 @@ static void persistRoomState(Runner* runner, int32_t roomIndex) {
 void Runner_step(Runner* runner) {
     // The snapshot arena is stack-like and every push must be matched with a pop within the same frame. Assert that invariant at the top of each step: a non-zero length here means some site below pushed without popping, and we want a loud failure with the offending length so we can find it instead of silently leaking until the next frame.
     requireMessageFormatted(arrlen(runner->instanceSnapshots) == 0, "instanceSnapshots arena was not fully popped at end of previous frame (length=%td)", arrlen(runner->instanceSnapshots));
+
+    // Check for gamepad connect/disconnect and fire Async System event
+    for (int i = 0; MAX_GAMEPADS > i; i++) {
+        GamepadSlot* slot = &runner->gamepads->slots[i];
+        if (slot->connected != slot->connectedPrev) {
+            DsMapEntry* map = nullptr;
+            arrput(runner->dsMapPool, map);
+            int32_t mapId = arrlen(runner->dsMapPool) - 1;
+            
+            DsMapEntry** mapPtr = &runner->dsMapPool[mapId];
+            shput(*mapPtr, safeStrdup("event_type"), RValue_makeOwnedString(safeStrdup(slot->connected ? "gamepad discovered" : "gamepad lost")));
+            shput(*mapPtr, safeStrdup("pad_index"), RValue_makeReal((GMLReal) i));
+            
+            runner->asyncLoadMapId = mapId;
+            Runner_executeEventForAll(runner, EVENT_OTHER, OTHER_ASYNC_SYSTEM);
+            
+            // Clean up ds_map
+            mapPtr = &runner->dsMapPool[mapId];
+            if (*mapPtr != nullptr) {
+                repeat(shlen(*mapPtr), j) {
+                    free((*mapPtr)[j].key);
+                    RValue_free(&(*mapPtr)[j].value);
+                }
+                shfree(*mapPtr);
+                *mapPtr = nullptr;
+            }
+            runner->asyncLoadMapId = -1;
+        }
+    }
 
     // Save xprevious/yprevious and path_positionprevious for all active instances
     int32_t prevCount = (int32_t) arrlen(runner->instances);
@@ -2410,6 +2441,7 @@ void Runner_free(Runner* runner) {
     runner->instanceSnapshots = nullptr;
 
     RunnerKeyboard_free(runner->keyboard);
+    RunnerGamepad_free(runner->gamepads);
     Instance_free(runner->globalScopeInstance);
     free(runner);
 }

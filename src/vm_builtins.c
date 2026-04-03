@@ -2,6 +2,7 @@
 #include "instance.h"
 #include "json_reader.h"
 #include "runner.h"
+#include "runner_gamepad.h"
 #include "utils.h"
 
 #include <stdio.h>
@@ -138,6 +139,7 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "argument8", BUILTIN_VAR_ARGUMENT8 },
     { "argument9", BUILTIN_VAR_ARGUMENT9 },
     { "argument_count", BUILTIN_VAR_ARGUMENT_COUNT },
+    { "async_load", BUILTIN_VAR_ASYNC_LOAD },
     { "background_alpha", BUILTIN_VAR_BACKGROUND_ALPHA },
     { "background_color", BUILTIN_VAR_BACKGROUND_COLOR },
     { "background_colour", BUILTIN_VAR_BACKGROUND_COLOUR },
@@ -180,6 +182,27 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "false", BUILTIN_VAR_FALSE },
     { "fps", BUILTIN_VAR_FPS },
     { "friction", BUILTIN_VAR_FRICTION },
+    { "gp_axislh", BUILTIN_VAR_GP_AXIS_LH },
+    { "gp_axislv", BUILTIN_VAR_GP_AXIS_LV },
+    { "gp_axisrh", BUILTIN_VAR_GP_AXIS_RH },
+    { "gp_axisrv", BUILTIN_VAR_GP_AXIS_RV },
+    { "gp_face1", BUILTIN_VAR_GP_FACE1 },
+    { "gp_face2", BUILTIN_VAR_GP_FACE2 },
+    { "gp_face3", BUILTIN_VAR_GP_FACE3 },
+    { "gp_face4", BUILTIN_VAR_GP_FACE4 },
+    { "gp_home", BUILTIN_VAR_GP_HOME },
+    { "gp_padd", BUILTIN_VAR_GP_PADD },
+    { "gp_padl", BUILTIN_VAR_GP_PADL },
+    { "gp_padr", BUILTIN_VAR_GP_PADR },
+    { "gp_padu", BUILTIN_VAR_GP_PADU },
+    { "gp_select", BUILTIN_VAR_GP_SELECT },
+    { "gp_shoulderl", BUILTIN_VAR_GP_SHOULDERL },
+    { "gp_shoulderlb", BUILTIN_VAR_GP_SHOULDERLB },
+    { "gp_shoulderr", BUILTIN_VAR_GP_SHOULDERR },
+    { "gp_shoulderrb", BUILTIN_VAR_GP_SHOULDERRB },
+    { "gp_start", BUILTIN_VAR_GP_START },
+    { "gp_stickl", BUILTIN_VAR_GP_STICKL },
+    { "gp_stickr", BUILTIN_VAR_GP_STICKR },
     { "gravity", BUILTIN_VAR_GRAVITY },
     { "gravity_direction", BUILTIN_VAR_GRAVITY_DIRECTION },
     { "hspeed", BUILTIN_VAR_HSPEED },
@@ -385,6 +408,8 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
             return RValue_makeReal(OS_LLVM_LINUX);
         case BUILTIN_VAR_OS_LLVM_WINPHONE:
             return RValue_makeReal(OS_LLVM_WINPHONE);
+        case BUILTIN_VAR_ASYNC_LOAD:
+            return RValue_makeReal((GMLReal) runner->asyncLoadMapId);
 
         // Per-instance properties
         case BUILTIN_VAR_IMAGE_SPEED:
@@ -773,6 +798,50 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
         case BUILTIN_VAR_BUFFER_SEEK_END:
             return RValue_makeReal(GML_BUFFER_SEEK_END);
 
+        // Gamepad constants
+        case BUILTIN_VAR_GP_FACE1:
+            return RValue_makeReal(GP_FACE1);
+        case BUILTIN_VAR_GP_FACE2:
+            return RValue_makeReal(GP_FACE2);
+        case BUILTIN_VAR_GP_FACE3:
+            return RValue_makeReal(GP_FACE3);
+        case BUILTIN_VAR_GP_FACE4:
+            return RValue_makeReal(GP_FACE4);
+        case BUILTIN_VAR_GP_SHOULDERL:
+            return RValue_makeReal(GP_SHOULDERL);
+        case BUILTIN_VAR_GP_SHOULDERR:
+            return RValue_makeReal(GP_SHOULDERR);
+        case BUILTIN_VAR_GP_SHOULDERLB:
+            return RValue_makeReal(GP_SHOULDERLB);
+        case BUILTIN_VAR_GP_SHOULDERRB:
+            return RValue_makeReal(GP_SHOULDERRB);
+        case BUILTIN_VAR_GP_SELECT:
+            return RValue_makeReal(GP_SELECT);
+        case BUILTIN_VAR_GP_START:
+            return RValue_makeReal(GP_START);
+        case BUILTIN_VAR_GP_STICKL:
+            return RValue_makeReal(GP_STICKL);
+        case BUILTIN_VAR_GP_STICKR:
+            return RValue_makeReal(GP_STICKR);
+        case BUILTIN_VAR_GP_PADU:
+            return RValue_makeReal(GP_PADU);
+        case BUILTIN_VAR_GP_PADD:
+            return RValue_makeReal(GP_PADD);
+        case BUILTIN_VAR_GP_PADL:
+            return RValue_makeReal(GP_PADL);
+        case BUILTIN_VAR_GP_PADR:
+            return RValue_makeReal(GP_PADR);
+        case BUILTIN_VAR_GP_HOME:
+            return RValue_makeReal(GP_HOME);
+        case BUILTIN_VAR_GP_AXIS_LH:
+            return RValue_makeReal(GP_AXIS_LH);
+        case BUILTIN_VAR_GP_AXIS_LV:
+            return RValue_makeReal(GP_AXIS_LV);
+        case BUILTIN_VAR_GP_AXIS_RH:
+            return RValue_makeReal(GP_AXIS_RH);
+        case BUILTIN_VAR_GP_AXIS_RV:
+            return RValue_makeReal(GP_AXIS_RV);
+
         case BUILTIN_VAR_FPS:
             return RValue_makeReal(ctx->dataWin->gen8.gms2FPS);
         case BUILTIN_VAR_DEBUG_MODE:
@@ -1102,6 +1171,7 @@ void VMBuiltins_setVariable(VMContext* ctx, int16_t builtinVarId, const char* na
         case BUILTIN_VAR_PATH_INDEX:
         case BUILTIN_VAR_DEBUG_MODE:
         case BUILTIN_VAR_ROOM_FIRST:
+        case BUILTIN_VAR_GP_FACE1 ... BUILTIN_VAR_GP_AXIS_RV:
             fprintf(stderr, "VM: Warning - attempted write to read-only built-in '%s'\n", name);
             return;
 
@@ -3154,15 +3224,142 @@ static RValue builtin_audioDestroyStream(VMContext* ctx, RValue* args, MAYBE_UNU
 STUB_RETURN_UNDEFINED(application_surface_enable)
 STUB_RETURN_UNDEFINED(application_surface_draw_enable)
 
-// Gamepad stubs
-STUB_RETURN_ZERO(gamepad_get_device_count)
-STUB_RETURN_ZERO(gamepad_is_connected)
-STUB_RETURN_ZERO(gamepad_button_check)
-STUB_RETURN_ZERO(gamepad_button_check_pressed)
-STUB_RETURN_ZERO(gamepad_button_check_released)
-STUB_RETURN_ZERO(gamepad_axis_value)
-STUB_RETURN_ZERO(gamepad_get_description)
-STUB_RETURN_ZERO(gamepad_button_value)
+// ===[ Gamepad Functions ]===
+static RValue builtinGamepadGetDeviceCount(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    return RValue_makeReal((GMLReal) RunnerGamepad_getDeviceCount(runner->gamepads));
+}
+
+static RValue builtinGamepadIsConnected(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerGamepad_isConnected(runner->gamepads, device));
+}
+
+static RValue builtinGamepadButtonCheck(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t button = RValue_toInt32(args[1]);
+    bool result = RunnerGamepad_buttonCheck(runner->gamepads, device, button);
+    return RValue_makeBool(result);
+}
+
+static RValue builtinGamepadButtonCheckPressed(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t button = RValue_toInt32(args[1]);
+    return RValue_makeBool(RunnerGamepad_buttonCheckPressed(runner->gamepads, device, button));
+}
+
+static RValue builtinGamepadButtonCheckReleased(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t button = RValue_toInt32(args[1]);
+    return RValue_makeBool(RunnerGamepad_buttonCheckReleased(runner->gamepads, device, button));
+}
+
+static RValue builtinGamepadButtonValue(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t button = RValue_toInt32(args[1]);
+    return RValue_makeReal(RunnerGamepad_buttonValue(runner->gamepads, device, button));
+}
+
+static RValue builtinGamepadIsSupported(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    return RValue_makeBool(true);
+}
+
+static RValue builtinGamepadAxisValue(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t axis = RValue_toInt32(args[1]);
+    return RValue_makeReal(RunnerGamepad_axisValue(runner->gamepads, device, axis));
+}
+
+static RValue builtinGamepadGetDescription(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeOwnedString(safeStrdup(""));
+    int32_t device = RValue_toInt32(args[0]);
+    const char* desc = RunnerGamepad_getDescription(runner->gamepads, device);
+    return RValue_makeOwnedString(safeStrdup(desc));
+}
+
+static RValue builtinGamepadGetGuid(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeOwnedString(safeStrdup("none"));
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeOwnedString(safeStrdup(RunnerGamepad_getGuid(runner->gamepads, device)));
+}
+
+static RValue builtinGamepadGetButtonThreshold(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.5);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeReal(RunnerGamepad_getButtonThreshold(runner->gamepads, device));
+}
+
+static RValue builtinGamepadSetButtonThreshold(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeUndefined();
+    int32_t device = RValue_toInt32(args[0]);
+    float threshold = (float) RValue_toReal(args[1]);
+    RunnerGamepad_setButtonThreshold(runner->gamepads, device, threshold);
+    return RValue_makeUndefined();
+}
+
+static RValue builtinGamepadGetAxisDeadzone(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.15);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeReal(RunnerGamepad_getAxisDeadzone(runner->gamepads, device));
+}
+
+static RValue builtinGamepadSetAxisDeadzone(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeUndefined();
+    int32_t device = RValue_toInt32(args[0]);
+    float deadzone = (float) RValue_toReal(args[1]);
+    RunnerGamepad_setAxisDeadzone(runner->gamepads, device, deadzone);
+    return RValue_makeUndefined();
+}
+
+static RValue builtinGamepadAxisCount(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeReal(RunnerGamepad_getAxisCount(runner->gamepads, device));
+}
+
+static RValue builtinGamepadButtonCount(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeReal(RunnerGamepad_getButtonCount(runner->gamepads, device));
+}
+
+static RValue builtinGamepadHatCount(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    return RValue_makeReal(RunnerGamepad_getHatCount(runner->gamepads, device));
+}
+
+static RValue builtinGamepadHatValue(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t device = RValue_toInt32(args[0]);
+    int32_t hat = RValue_toInt32(args[1]);
+    return RValue_makeReal(RunnerGamepad_getHatValue(runner->gamepads, device, hat));
+}
 
 // ===[ INI Functions ]===
 
@@ -3617,13 +3814,124 @@ static RValue builtinKeyboardClear(VMContext* ctx, RValue* args, int32_t argCoun
     return RValue_makeUndefined();
 }
 
-// Joystick stubs
-STUB_RETURN_ZERO(joystick_exists)
-STUB_RETURN_ZERO(joystick_xpos)
-STUB_RETURN_ZERO(joystick_ypos)
-STUB_RETURN_ZERO(joystick_direction)
-STUB_RETURN_ZERO(joystick_pov)
-STUB_RETURN_ZERO(joystick_check_button)
+// ===[ Joystick Functions ]===
+static RValue builtinJoystickExists(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeBool(RunnerGamepad_isConnected(runner->gamepads, id));
+}
+
+static RValue builtinJoystickXpos(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeReal((GMLReal) RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LH));
+}
+
+static RValue builtinJoystickYpos(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeReal((GMLReal) RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LV));
+}
+
+static RValue builtinJoystickDirection(VMContext* ctx, RValue* args, int32_t argCount) {
+    // Returns the joystick direction
+    if (1 > argCount) return RValue_makeReal(101.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(101.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    float haxis = RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LH);
+    float vaxis = RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LV);
+
+    int32_t dir = 0;
+    if (vaxis < -0.3f) {
+        dir = 6;
+    } else if (vaxis > 0.3f) {
+        dir = 0;
+    } else {
+        dir = 3;
+    }
+
+    if (haxis < -0.3f) {
+        dir += 1;
+    } else if (haxis > 0.3f) {
+        dir += 3;
+    } else {
+        dir += 2;
+    }
+
+    return RValue_makeReal(96 + dir);
+}
+
+static RValue builtinJoystickPov(VMContext* ctx, RValue* args, int32_t argCount) {
+    // Returns the D-pad/POV hat angle in degrees (0=up, 90=right, 180=down, 270=left),
+    if (1 > argCount) return RValue_makeReal(-1.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(-1.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    RunnerGamepadState* gp = runner->gamepads;
+    bool up    = RunnerGamepad_buttonCheck(gp, id, GP_PADU);
+    bool down  = RunnerGamepad_buttonCheck(gp, id, GP_PADD);
+    bool left  = RunnerGamepad_buttonCheck(gp, id, GP_PADL);
+    bool right = RunnerGamepad_buttonCheck(gp, id, GP_PADR);
+    if (!up && !down && !left && !right) return RValue_makeReal(-1.0);
+    if (up    && right) return RValue_makeReal(45.0);
+    if (right && down) return RValue_makeReal(135.0);
+    if (down  && left) return RValue_makeReal(225.0);
+    if (left  && up)   return RValue_makeReal(315.0);
+    if (up)    return RValue_makeReal(0.0);
+    if (right) return RValue_makeReal(90.0);
+    if (down)  return RValue_makeReal(180.0);
+    if (left)  return RValue_makeReal(270.0);
+    return RValue_makeReal(-1.0);
+}
+
+static RValue builtinJoystickCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t button = RawToGPUndertale(RValue_toInt32(args[1])); //UNDERTALE HACK
+    return RValue_makeBool(RunnerGamepad_buttonCheck(runner->gamepads, id, button));
+}
+
+static RValue builtinJoystickHasPov(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeBool(RunnerGamepad_isConnected(runner->gamepads, id));
+}
+
+static RValue builtinJoystickButtons(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    if (!RunnerGamepad_isConnected(runner->gamepads, id)) return RValue_makeReal(0.0);
+    return RValue_makeReal(GP_BUTTON_COUNT);
+}
+
+static RValue builtinJoystickName(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeOwnedString(safeStrdup(""));
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeOwnedString(safeStrdup(""));
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeOwnedString(safeStrdup(RunnerGamepad_getDescription(runner->gamepads, id)));
+}
+
+static RValue builtinJoystickAxes(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
+    int32_t id = RValue_toInt32(args[0]) - 1;
+    return RValue_makeReal(RunnerGamepad_getAxisCount(runner->gamepads, id));
+}
 
 // Window stubs
 STUB_RETURN_ZERO(window_get_fullscreen)
@@ -7524,14 +7832,24 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "application_surface_draw_enable", builtin_application_surface_draw_enable);
 
     // Gamepad
-    VM_registerBuiltin(ctx, "gamepad_get_device_count", builtin_gamepad_get_device_count);
-    VM_registerBuiltin(ctx, "gamepad_is_connected", builtin_gamepad_is_connected);
-    VM_registerBuiltin(ctx, "gamepad_button_check", builtin_gamepad_button_check);
-    VM_registerBuiltin(ctx, "gamepad_button_check_pressed", builtin_gamepad_button_check_pressed);
-    VM_registerBuiltin(ctx, "gamepad_button_check_released", builtin_gamepad_button_check_released);
-    VM_registerBuiltin(ctx, "gamepad_axis_value", builtin_gamepad_axis_value);
-    VM_registerBuiltin(ctx, "gamepad_get_description", builtin_gamepad_get_description);
-    VM_registerBuiltin(ctx, "gamepad_button_value", builtin_gamepad_button_value);
+    VM_registerBuiltin(ctx, "gamepad_get_device_count", builtinGamepadGetDeviceCount);
+    VM_registerBuiltin(ctx, "gamepad_is_connected", builtinGamepadIsConnected);
+    VM_registerBuiltin(ctx, "gamepad_button_check", builtinGamepadButtonCheck);
+    VM_registerBuiltin(ctx, "gamepad_button_check_pressed", builtinGamepadButtonCheckPressed);
+    VM_registerBuiltin(ctx, "gamepad_button_check_released", builtinGamepadButtonCheckReleased);
+    VM_registerBuiltin(ctx, "gamepad_axis_value", builtinGamepadAxisValue);
+    VM_registerBuiltin(ctx, "gamepad_get_description", builtinGamepadGetDescription);
+    VM_registerBuiltin(ctx, "gamepad_button_value", builtinGamepadButtonValue);
+    VM_registerBuiltin(ctx, "gamepad_is_supported", builtinGamepadIsSupported);
+    VM_registerBuiltin(ctx, "gamepad_get_guid", builtinGamepadGetGuid);
+    VM_registerBuiltin(ctx, "gamepad_get_button_threshold", builtinGamepadGetButtonThreshold);
+    VM_registerBuiltin(ctx, "gamepad_set_button_threshold", builtinGamepadSetButtonThreshold);
+    VM_registerBuiltin(ctx, "gamepad_get_axis_deadzone", builtinGamepadGetAxisDeadzone);
+    VM_registerBuiltin(ctx, "gamepad_set_axis_deadzone", builtinGamepadSetAxisDeadzone);
+    VM_registerBuiltin(ctx, "gamepad_axis_count", builtinGamepadAxisCount);
+    VM_registerBuiltin(ctx, "gamepad_button_count", builtinGamepadButtonCount);
+    VM_registerBuiltin(ctx, "gamepad_hat_count", builtinGamepadHatCount);
+    VM_registerBuiltin(ctx, "gamepad_hat_value", builtinGamepadHatValue);
 
     // INI
     VM_registerBuiltin(ctx, "ini_open", builtinIniOpen);
@@ -7566,12 +7884,16 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "keyboard_clear", builtinKeyboardClear);
 
     // Joystick
-    VM_registerBuiltin(ctx, "joystick_exists", builtin_joystick_exists);
-    VM_registerBuiltin(ctx, "joystick_xpos", builtin_joystick_xpos);
-    VM_registerBuiltin(ctx, "joystick_ypos", builtin_joystick_ypos);
-    VM_registerBuiltin(ctx, "joystick_direction", builtin_joystick_direction);
-    VM_registerBuiltin(ctx, "joystick_pov", builtin_joystick_pov);
-    VM_registerBuiltin(ctx, "joystick_check_button", builtin_joystick_check_button);
+    VM_registerBuiltin(ctx, "joystick_exists", builtinJoystickExists);
+    VM_registerBuiltin(ctx, "joystick_name", builtinJoystickName);
+    VM_registerBuiltin(ctx, "joystick_axes", builtinJoystickAxes);
+    VM_registerBuiltin(ctx, "joystick_xpos", builtinJoystickXpos);
+    VM_registerBuiltin(ctx, "joystick_ypos", builtinJoystickYpos);
+    VM_registerBuiltin(ctx, "joystick_direction", builtinJoystickDirection);
+    VM_registerBuiltin(ctx, "joystick_pov", builtinJoystickPov);
+    VM_registerBuiltin(ctx, "joystick_check_button", builtinJoystickCheckButton);
+    VM_registerBuiltin(ctx, "joystick_has_pov", builtinJoystickHasPov);
+    VM_registerBuiltin(ctx, "joystick_buttons", builtinJoystickButtons);
 
     // Window
     VM_registerBuiltin(ctx, "window_get_fullscreen", builtin_window_get_fullscreen);

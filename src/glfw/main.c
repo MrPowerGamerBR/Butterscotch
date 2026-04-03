@@ -18,6 +18,7 @@
 #endif
 
 #include "runner_keyboard.h"
+#include "glfw_gamepad.h"
 #include "runner.h"
 #include "input_recording.h"
 #include "debug_overlay.h"
@@ -642,6 +643,27 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Load SDL gamecontroller mappings
+    {
+        const char* dbPath = "gamecontrollerdb.txt";
+        FILE* f = fopen(dbPath, "r");
+        if (f != NULL) {
+            fseek(f, 0, SEEK_END);
+            long len = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            char* buffer = (char*) malloc(len + 1);
+            if (buffer != NULL) {
+                fread(buffer, 1, len, f);
+                buffer[len] = '\0';
+                GlfwGamepad_loadMappings(buffer);
+                free(buffer);
+            }
+            fclose(f);
+        } else {
+            fprintf(stderr, "Gamepad: SDL gamecontrollerdb.txt not found at %s, using defaults\n", dbPath);
+        }
+    }
+
     if (strcmp(args.renderer, "legacy-gl") == 0) {
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
     } else {
@@ -744,7 +766,9 @@ int main(int argc, char* argv[]) {
     while (!glfwWindowShouldClose(window) && !runner->shouldExit) {
         // Clear last frame's pressed/released state, then poll new input events
         RunnerKeyboard_beginFrame(runner->keyboard);
+        RunnerGamepad_beginFrame(runner->gamepads);
         glfwPollEvents();
+        GlfwGamepad_poll(runner->gamepads);
 
         // Process input recording/playback (must happen after glfwPollEvents, before Runner_step)
         InputRecording_processFrame(globalInputRecording, runner->keyboard, runner->frameCount);

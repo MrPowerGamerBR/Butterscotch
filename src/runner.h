@@ -9,6 +9,7 @@
 #include "renderer.h"
 #include "runner_keyboard.h"
 #include "spatial_grid.h"
+#include "runner_gamepad.h"
 #include "vm.h"
 
 // ===[ Event Type Constants ]===
@@ -47,6 +48,7 @@
 #define OTHER_ANIMATION_END 7
 #define OTHER_END_OF_PATH   8
 #define OTHER_USER0         10
+#define OTHER_ASYNC_SYSTEM  75
 
 #define MAX_VIEWS 8
 
@@ -299,6 +301,7 @@ typedef struct Runner {
     uint32_t nextInstanceId;
     RunnerKeyboardState* keyboard;
     RuntimeView views[MAX_VIEWS];
+    RunnerGamepadState* gamepads;
     RuntimeBackground backgrounds[8];
     uint32_t backgroundColor;      // runtime-mutable (BGR format)
     bool drawBackgroundColor;
@@ -351,6 +354,9 @@ typedef struct Runner {
 
     // Text file handles for file_text_* functions
     OpenTextFile openTextFiles[MAX_OPEN_TEXT_FILES];
+
+    // Async map ID
+    int32_t asyncLoadMapId;
 
     // Used by the "os_type" built-in
     YoYoOperatingSystem osType;
