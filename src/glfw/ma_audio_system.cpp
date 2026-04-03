@@ -25,6 +25,166 @@
 
 // ===[ Helpers ]===
 
+// ===[ CachedSound ma_data_source vtable ]===
+static ma_result cachedSoundReadPCMFrames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+static ma_result cachedSoundSeek(ma_data_source* pDataSource, ma_uint64 frameIndex);
+static ma_result cachedSoundTell(ma_data_source* pDataSource, ma_uint64* pCursor);
+static ma_result cachedSoundLength(ma_data_source* pDataSource, ma_uint64* pLength);
+
+static ma_data_source_vtable g_cachedSoundVtable = {
+    cachedSoundReadPCMFrames,
+    cachedSoundSeek,
+    cachedSoundTell,
+    cachedSoundLength,
+    nullptr,
+    0
+};
+
+// Check if sound name contains "TXT" (frequently played sounds)
+static bool isFrequentSound(const char* name) {
+    if (!name) return false;
+    // Case-insensitive search for "txt" in the name
+    for (const char* p = name; *p; p++) {
+        if ((p[0] == 'T' || p[0] == 't') &&
+            (p[1] == 'X' || p[1] == 'x') &&
+            (p[2] == 'T' || p[2] == 't')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Find cached sound by index, returns nullptr if not found
+static CachedSound* findCachedSound(MaAudioSystem* ma, int32_t soundIndex) {
+    repeat(MAX_CACHED_SOUNDS, i) {
+        if (ma->cachedSounds[i].soundIndex == soundIndex && ma->cachedSounds[i].pcmData) {
+            return &ma->cachedSounds[i];
+        }
+    }
+    return nullptr;
+}
+
+// Find free cache slot
+static CachedSound* findFreeCacheSlot(MaAudioSystem* ma) {
+    repeat(MAX_CACHED_SOUNDS, i) {
+        if (!ma->cachedSounds[i].pcmData) return &ma->cachedSounds[i];
+    }
+    // Cache full — evict oldest (index 0)
+    CachedSound* slot = &ma->cachedSounds[0];
+    ma_free(slot->pcmData, nullptr);
+    slot->pcmData = nullptr;
+    slot->frameCount = 0;
+    return slot;
+}
+
+// Decode sound to PCM and cache it
+static bool cacheSound(MaAudioSystem* ma, Sound* sound) {
+    if (!sound) return false;
+
+    // Resolve file path
+    const char* file = sound->file;
+    if (!file || file[0] == '\0') return false;
+
+    bool hasExtension = (strchr(file, '.') != nullptr);
+    char filename[512];
+    if (hasExtension) {
+        snprintf(filename, sizeof(filename), "%s", file);
+    } else {
+        snprintf(filename, sizeof(filename), "%s.ogg", file);
+    }
+
+    char* resolvedPath = ma->fileSystem->vtable->resolvePath(ma->fileSystem, filename);
+    if (!resolvedPath) return false;
+
+    // Decode to PCM (mono, f32)
+    ma_decoder decoder;
+    ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 1, 44100);
+    ma_result result = ma_decoder_init_file(resolvedPath, &decoderConfig, &decoder);
+    free(resolvedPath);
+    if (result != MA_SUCCESS) return false;
+
+    // Read all PCM frames
+    ma_uint64 framesRead = 0;
+    ma_uint64 totalFrames = 0;
+    float* pcmBuffer = nullptr;
+
+    // First pass: count frames
+    float tempBuf[4096];
+    while (true) {
+        ma_uint64 frames;
+        result = ma_decoder_read_pcm_frames(&decoder, tempBuf, 4096, &frames);
+        if (result != MA_SUCCESS || frames == 0) break;
+        totalFrames += frames;
+    }
+
+    if (totalFrames == 0) {
+        ma_decoder_uninit(&decoder);
+        return false;
+    }
+
+    // Second pass: read into buffer
+    pcmBuffer = (float*)ma_malloc(totalFrames * sizeof(float), nullptr);
+    if (!pcmBuffer) {
+        ma_decoder_uninit(&decoder);
+        return false;
+    }
+
+    // Rewind and read
+    ma_decoder_seek_to_pcm_frame(&decoder, 0);
+    result = ma_decoder_read_pcm_frames(&decoder, pcmBuffer, totalFrames, &framesRead);
+    ma_decoder_uninit(&decoder);
+
+    if (result != MA_SUCCESS) {
+        ma_free(pcmBuffer, nullptr);
+        return false;
+    }
+
+    // Store in cache
+    CachedSound* slot = findFreeCacheSlot(ma);
+    slot->vtable = &g_cachedSoundVtable;
+    slot->soundIndex = sound->audioFile;
+    slot->pcmData = pcmBuffer;
+    slot->frameCount = framesRead;
+    slot->sampleRate = decoder.outputSampleRate;
+    slot->cursorFrame = 0;
+
+    fprintf(stderr, "Audio: Cached sound '%s' (%llu frames, mono f32)\n", sound->name, (unsigned long long)framesRead);
+    return true;
+}
+
+// ===[ CachedSound ma_data_source vtable ]===
+static ma_result cachedSoundReadPCMFrames(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead) {
+    CachedSound* cached = (CachedSound*)pDataSource;
+    float* out = (float*)pFramesOut;
+    ma_uint64 available = cached->frameCount - cached->cursorFrame;
+    ma_uint64 toRead = frameCount < available ? frameCount : available;
+    for (ma_uint64 i = 0; i < toRead; i++) {
+        out[i] = cached->pcmData[cached->cursorFrame + i];
+    }
+    cached->cursorFrame += toRead;
+    if (pFramesRead) *pFramesRead = toRead;
+    return toRead > 0 ? MA_SUCCESS : MA_AT_END;
+}
+
+static ma_result cachedSoundSeek(ma_data_source* pDataSource, ma_uint64 frameIndex) {
+    CachedSound* cached = (CachedSound*)pDataSource;
+    if (frameIndex > cached->frameCount) return MA_INVALID_ARGS;
+    cached->cursorFrame = frameIndex;
+    return MA_SUCCESS;
+}
+
+static ma_result cachedSoundTell(ma_data_source* pDataSource, ma_uint64* pCursor) {
+    CachedSound* cached = (CachedSound*)pDataSource;
+    if (pCursor) *pCursor = cached->cursorFrame;
+    return MA_SUCCESS;
+}
+
+static ma_result cachedSoundLength(ma_data_source* pDataSource, ma_uint64* pLength) {
+    CachedSound* cached = (CachedSound*)pDataSource;
+    if (pLength) *pLength = cached->frameCount;
+    return MA_SUCCESS;
+}
+
 static SoundInstance* findFreeSlot(MaAudioSystem* ma) {
     // First pass: find an inactive slot
     repeat(MAX_SOUND_INSTANCES, i) {
@@ -90,18 +250,18 @@ static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem)
     arrput(ma->base.audioGroups, dataWin);
     ma->fileSystem = fileSystem;
 
-    // Configure miniaudio - use default backend (will auto-select ALSA on Linux)
+    // Configure miniaudio - ALSA only, mono channel (saves 50% CPU and memory)
     ma_engine_config config = ma_engine_config_init();
     config.sampleRate = 44100;
-    config.channels = 2;
-    
+    config.channels = 1; // Mono — half the CPU and memory of stereo
+
     ma_result result = ma_engine_init(&config, &ma->engine);
     if (result != MA_SUCCESS) {
         fprintf(stderr, "Audio: Failed to initialize miniaudio engine (error %d)\n", result);
         return;
     }
 
-    fprintf(stderr, "Audio: miniaudio engine initialized (sample rate: %u, channels: %u)\n",
+    fprintf(stderr, "Audio: miniaudio engine initialized (sample rate: %u, channels: %u, mono)\n",
             config.sampleRate, config.channels);
 
     memset(ma->instances, 0, sizeof(ma->instances));
@@ -126,6 +286,14 @@ static void maDestroy(AudioSystem* audio) {
     repeat(MAX_AUDIO_STREAMS, i) {
         if (ma->streams[i].active) {
             free(ma->streams[i].filePath);
+        }
+    }
+
+    // Free cached PCM data
+    repeat(MAX_CACHED_SOUNDS, i) {
+        if (ma->cachedSounds[i].pcmData) {
+            ma_free(ma->cachedSounds[i].pcmData, nullptr);
+            ma->cachedSounds[i].pcmData = nullptr;
         }
     }
 
@@ -215,6 +383,36 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
                 return -1;
             }
 
+            // Check cache first for frequent sounds (TXT)
+            CachedSound* cached = nullptr;
+            if (isFrequentSound(sound->name)) {
+                cached = findCachedSound(ma, sound->audioFile);
+                if (cached) {
+                    // Reset cursor to beginning
+                    cached->cursorFrame = 0;
+                    // Play from cached PCM (CachedSound layout matches ma_data_source)
+                    result = ma_sound_init_from_data_source(&ma->engine, (ma_data_source*)cached, 0, nullptr, &slot->maSound);
+                    if (result == MA_SUCCESS) {
+                        slot->ownsDecoder = false;
+                        slot->soundIndex = soundIndex;
+                        slot->instanceId = SOUND_INSTANCE_ID_BASE + slotIndex;
+                        slot->priority = priority;
+                        slot->targetGain = sound->volume;
+                        slot->currentGain = sound->volume;
+                        slot->fadeTimeRemaining = 0;
+                        slot->startGain = sound->volume;
+                        ma_sound_set_volume(&slot->maSound, slot->currentGain);
+                        if (sound->pitch != 1.0f) {
+                            ma_sound_set_pitch(&slot->maSound, sound->pitch);
+                        }
+                        ma_sound_set_looping(&slot->maSound, loop);
+                        ma_sound_start(&slot->maSound);
+                        slot->active = true;
+                        return slot->instanceId;
+                    }
+                }
+            }
+
             AudioEntry* entry = &ma->base.audioGroups[sound->audioGroup]->audo.entries[sound->audioFile];
 
             ma_decoder_config decoderConfig = ma_decoder_config_init_default();
@@ -224,6 +422,9 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
                 return -1;
             }
             slot->ownsDecoder = true;
+
+            // NOTE: Embedded sound caching removed — ma_decoder_init_memory causes SIGFPE on ARMv5
+            // and is redundant since miniaudio already decodes them on first play.
 
             result = ma_sound_init_from_data_source(&ma->engine, &slot->decoder, 0, nullptr, &slot->maSound);
             if (result != MA_SUCCESS) {

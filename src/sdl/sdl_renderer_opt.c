@@ -15,15 +15,54 @@
 
 #include "stb_image.h"
 
-// ===[ Константы кэша ]===
+// ===[ Константы кэша — оптимизировано для 32 МБ ОЗУ ]===
 #define TEXTURE_CACHE_CAPACITY  64
-#define TEXTURE_CACHE_THRESHOLD 32
+#define TEXTURE_CACHE_THRESHOLD 48
+
+// Формат текстур: 16-бит RGB565 (binary alpha: пиксель 0 = прозрачный)
+// Глобальная прозрачность: 4 бита на спрайт (16 уровней)
+// Формат экрана: 16-бит RGB565
 
 // Forward declaration for loading screen
 static void drawLoadingText(const char* text, SDL_Surface* screen);
 
 // Global TTF font for loading screen
 static TTF_Font* g_loadingFont = NULL;
+
+// Debug overlay — similar to PS2 debug overlay
+static void drawDebugOverlay(SDL_Surface* screen, const SDLDebugInfo* info) {
+    if (!screen || !g_loadingFont || !info) return;
+
+    // Формируем строки отдельно — TTF_RenderText_Blended не поддерживает \n
+    char lines[8][128];
+    int lineCount = 0;
+
+    snprintf(lines[lineCount++], sizeof(lines[0]),
+             "Frame: %.2fms", info->frameTimeMs);
+    snprintf(lines[lineCount++], sizeof(lines[1]),
+             "Instances: %d", info->instanceCount);
+    snprintf(lines[lineCount++], sizeof(lines[2]),
+             "Free mem: %d KB", info->freeMemoryBytes / 1024);
+    snprintf(lines[lineCount++], sizeof(lines[3]),
+             "Room: %s (speed: %u)",
+             info->roomName ? info->roomName : "unknown", info->roomSpeed);
+
+    // Рендерим каждую строку отдельно
+    SDL_Color white = { 255, 255, 255, 255 };
+    int y = 4;
+    int lineH = TTF_FontLineSkip(g_loadingFont);
+    if (lineH == 0) lineH = 14;
+
+    for (int i = 0; i < lineCount; i++) {
+        SDL_Surface* textSurf = TTF_RenderText_Blended(g_loadingFont, lines[i], white);
+        if (textSurf) {
+            SDL_Rect dst = { 4, y, 0, 0 };
+            SDL_BlitSurface(textSurf, NULL, screen, &dst);
+            SDL_FreeSurface(textSurf);
+        }
+        y += lineH;
+    }
+}
 
 
 // ===[ Быстрый доступ к пиксельному формату ]===
@@ -74,26 +113,61 @@ static inline uint32_t FastFmt_pack(uint8_t r, uint8_t g, uint8_t b, uint8_t a,
          | (f->aMask ? ((uint32_t)a << f->aShift) : 0u);
 }
 
-// ===[ Fast div255 ]===
+// ===[ Fast RGB565 unpack/pack — оптимизировано для ARM ]===
+// Unpack: 3 ops на канал вместо 6
+// Pack: 3 ops вместо 6
+// ВАЖНО: 0x0001 = чёрный непрозрачный (sentinel), распаковываем как (0,0,0)
+static inline uint8_t R565_R(uint16_t p) { uint8_t r = (p >> 8) & 0xF8; return r | (r >> 5); }
+static inline uint8_t R565_G(uint16_t p) { uint8_t g = (p >> 3) & 0xFC; return g | (g >> 6); }
+static inline uint8_t R565_B(uint16_t p) { uint8_t b = (p << 3) & 0xF8; return b | (b >> 5); }
+static inline uint16_t R565_PACK(uint8_t r, uint8_t g, uint8_t b) {
+    return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | (b >> 3);
+}
+
+// Проверка прозрачности: 0 = прозрачный, 0x0001 = чёрный непрозрачный
+static inline bool R565_IS_TRANSPARENT(uint16_t p) { return p == 0; }
+
+// Safe unpack: 0x0001 → чёрный (0,0,0) вместо тёмно-синего
+static inline uint8_t R565_SR(uint16_t p) { return (p == 0x0001) ? 0 : R565_R(p); }
+static inline uint8_t R565_SG(uint16_t p) { return (p == 0x0001) ? 0 : R565_G(p); }
+static inline uint8_t R565_SB(uint16_t p) { return (p == 0x0001) ? 0 : R565_B(p); }
+
+// Fast blend: (a * alpha + b * invAlpha) >> 8 вместо div255fast
+// Погрешность ~0.4%, но в 3 раза быстрее
+static inline uint8_t blend8(uint8_t a, uint8_t b, uint8_t alpha, uint8_t invAlpha) {
+    return (uint8_t)(((uint32_t)a * alpha + (uint32_t)b * invAlpha) >> 8);
+}
+
+// Fast div255 — используется для 32-бит blending (точнее чем >> 8)
 static inline uint32_t div255fast(uint32_t x) {
     return (x + (x >> 8u) + 1u) >> 8u;
 }
 
-// ===[ LUT координат источника ]===
+// ===[ LUT координат источника — fixed-point 16.16 ]===
 #define SPX_LUT_MAX 2048
 #define SPY_LUT_MAX 2048
 static int s_spxLUT[SPX_LUT_MAX];
 static int s_spyLUT[SPY_LUT_MAX];
 
+// Fixed-point 16.16: заменяем float умножение/деление на integer
+// step = (sw << 16) / dstW, затем accum += step каждый шаг
 static inline void buildSpxLUT(int count, int sx0, int startDx, int sw, int dstW) {
+    if (dstW <= 0) return;
+    int32_t step = (sw << 16) / dstW;
+    int32_t accum = startDx * step;
     for (int i = 0; i < count; i++) {
-        s_spxLUT[i] = sx0 + (int)((float)(startDx + i) * (float)sw / (float)dstW);
+        s_spxLUT[i] = sx0 + (accum >> 16);
+        accum += step;
     }
 }
 
 static inline void buildSpyLUT(int count, int sy0, int startDy, int sh, int dstH) {
+    if (dstH <= 0) return;
+    int32_t step = (sh << 16) / dstH;
+    int32_t accum = startDy * step;
     for (int j = 0; j < count; j++) {
-        s_spyLUT[j] = sy0 + (int)((float)(startDy + j) * (float)sh / (float)dstH);
+        s_spyLUT[j] = sy0 + (accum >> 16);
+        accum += step;
     }
 }
 
@@ -267,20 +341,54 @@ static SDL_Surface* TextureCache_getSurface(TextureCacheEntry* entry, SDLRendere
     (void)sdl;
     if (!entry->pixels && !entry->surface) return NULL;
     if (!entry->surface && entry->pixels) {
-        entry->surface = SDL_CreateRGBSurfaceFrom(
-            entry->pixels, entry->width, entry->height, 32, entry->width * 4,
-            0x000000FFu, 0x0000FF00u, 0x00FF0000u, 0xFF000000u);
-        if (entry->surface) {
-            SDL_Surface* converted = SDL_DisplayFormatAlpha(entry->surface);
-            SDL_FreeSurface(entry->surface);
-            entry->surface = converted;
-            free(entry->pixels);
-            entry->pixels  = NULL;
-            if (converted) {
-                FastFmt_init(&entry->fmt, converted->format);
-                entry->fmtReady = true;
-            }
+        // Конвертируем RGBA → RGB565 вручную
+        // Binary alpha: alpha < 128 → пиксель = 0 (прозрачный)
+        int w = entry->width;
+        int h = entry->height;
+        uint8_t* srcPixels = entry->pixels;
+
+        entry->surface = SDL_CreateRGBSurface(
+            SDL_SWSURFACE, w, h, 16,
+            0xF800, 0x07E0, 0x001F, 0);
+        if (!entry->surface) {
+            fprintf(stderr, "SDL-OPT: Failed to create 16-bit surface for TXTR\n");
+            return NULL;
         }
+
+        SDL_LockSurface(entry->surface);
+
+        uint16_t* dstRow = (uint16_t*)entry->surface->pixels;
+        int dstPitch = entry->surface->pitch / 2;
+        for (int y = 0; y < h; y++) {
+            uint8_t* srcRow = srcPixels + y * w * 4;
+            for (int x = 0; x < w; x++) {
+                uint8_t r = srcRow[x * 4 + 0];
+                uint8_t g = srcRow[x * 4 + 1];
+                uint8_t b = srcRow[x * 4 + 2];
+                uint8_t a = srcRow[x * 4 + 3];
+
+                if (a < 128) {
+                    dstRow[x] = 0;
+                } else {
+                    // Чёрный непрозрачный → минимальная яркость (0x0001 вместо 0x0000)
+                    // чтобы не совпадать с "прозрачным" значением 0
+                    if (r == 0 && g == 0 && b == 0) {
+                        dstRow[x] = 0x0001;
+                    } else {
+                        dstRow[x] = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) | (b >> 3);
+                    }
+                }
+            }
+            dstRow += dstPitch;
+        }
+
+        SDL_UnlockSurface(entry->surface);
+
+        free(entry->pixels);
+        entry->pixels = NULL;
+
+        FastFmt_init(&entry->fmt, entry->surface->format);
+        entry->fmtReady = true;
     }
     return entry->surface;
 }
@@ -293,30 +401,32 @@ static void TextureCache_cleanup(TextureCache* cache) {
     }
 }
 
-// ===[ Coordinate Transform ]===
+// ===[ Coordinate Transform — оптимизировано: только умножения ]===
 static void viewToScreen(const SDLRenderer* sdl,
                          float gx, float gy, float* bx, float* by)
 {
     float px, py;
     if (sdl->viewW > 0 && sdl->viewH > 0) {
-        px = (gx - sdl->viewX) * (float)sdl->portW / (float)sdl->viewW;
-        py = (gy - sdl->viewY) * (float)sdl->portH / (float)sdl->viewH;
+        px = (gx - sdl->viewX) * sdl->viewToPortX;
+        py = (gy - sdl->viewY) * sdl->viewToPortY;
     } else {
         px = gx; py = gy;
     }
-    float scaleX = (float)sdl->windowW / (float)sdl->gameW;
-    float scaleY = (float)sdl->windowH / (float)sdl->gameH;
-    *bx = (sdl->portX + px) * scaleX;
-    *by = (sdl->portY + py) * scaleY;
+    *bx = (sdl->portX + px) * sdl->gameToWindowX;
+    *by = (sdl->portY + py) * sdl->gameToWindowY;
 }
 
 static float scaleW(const SDLRenderer* sdl, float w) {
-    float sx = (float)sdl->windowW / (float)sdl->gameW;
-    return (sdl->viewW > 0) ? w * (float)sdl->portW / (float)sdl->viewW * sx : w * sx;
+    if (sdl->viewW > 0) {
+        return w * sdl->viewToPortX * sdl->gameToWindowX;
+    }
+    return w * sdl->gameToWindowX;
 }
 static float scaleH(const SDLRenderer* sdl, float h) {
-    float sy = (float)sdl->windowH / (float)sdl->gameH;
-    return (sdl->viewH > 0) ? h * (float)sdl->portH / (float)sdl->viewH * sy : h * sy;
+    if (sdl->viewH > 0) {
+        return h * sdl->viewToPortY * sdl->gameToWindowY;
+    }
+    return h * sdl->gameToWindowY;
 }
 
 // ===[ Clip helper ]===
@@ -345,7 +455,8 @@ static bool computeClip(SDL_Surface* dst,
     return true;
 }
 
-// ===[ Blit со спрайтовым alpha-blend + globalAlpha ]===
+// ===[ Blit со спрайтовым alpha-blend + globalAlpha + rotation ]===
+// rotation: 0=0°, 1=90° CW, 2=180°, 3=270° CW
 //
 // globalAlpha == 255 → оригинальный fast path без лишних операций
 // globalAlpha == 0   → ранний выход
@@ -353,7 +464,7 @@ static bool computeClip(SDL_Surface* dst,
 static void blitScaledAlphaOptimized(SDL_Surface* src, const SDL_Rect* srcRect,
                                       SDL_Surface* dst, int dstX, int dstY,
                                       int dstW, int dstH,
-                                      uint8_t globalAlpha)
+                                      uint8_t globalAlpha, int rotation)
 {
     if (!src || !dst || dstW <= 0 || dstH <= 0) return;
     if (globalAlpha == 0) return;
@@ -369,8 +480,14 @@ static void blitScaledAlphaOptimized(SDL_Surface* src, const SDL_Rect* srcRect,
                      &startX, &startY, &endX, &endY, &spanW, &spanH)) return;
     (void)endX; (void)endY;
 
-    buildSpxLUT(spanW, sx0, startX - dstX, sw, dstW);
-    buildSpyLUT(spanH, sy0, startY - dstY, sh, dstH);
+    // При 90/270 оси повёрнуты: dstX→srcY, dstY→srcX
+    if (rotation & 1) {
+        buildSpxLUT(spanW, sy0, startX - dstX, sh, dstW);
+        buildSpyLUT(spanH, sx0, startY - dstY, sw, dstH);
+    } else {
+        buildSpxLUT(spanW, sx0, startX - dstX, sw, dstW);
+        buildSpyLUT(spanH, sy0, startY - dstY, sh, dstH);
+    }
 
     SDL_LockSurface(src);
     SDL_LockSurface(dst);
@@ -378,6 +495,109 @@ static void blitScaledAlphaOptimized(SDL_Surface* src, const SDL_Rect* srcRect,
     FastFmt sf, df;
     FastFmt_init(&sf, src->format);
     FastFmt_init(&df, dst->format);
+
+    // ===[ 16-бит RGB565 → RGB565 с alpha blending ]===
+    if (sf.bpp == 2 && df.bpp == 2) {
+        if (globalAlpha == 255) {
+            // Fast path: полная непрозрачность, просто копируем
+            for (int j = 0; j < spanH; j++) {
+                int spy = s_spyLUT[j];
+                if ((unsigned)spy >= (unsigned)src->h) continue;
+
+                const uint16_t* srcRow =
+                    (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                uint16_t* dstRow =
+                    (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+
+                for (int i = 0; i < spanW; i++) {
+                    int spx = s_spxLUT[i];
+                    if ((unsigned)spx >= (unsigned)src->w) continue;
+
+                    // При rotation & 1: spx=srcY, spy=srcX (LUT уже повёрнут)
+                    // 90° CW: srcX инвертирован, 180°: оба инвертированы, 270° CW: srcY инвертирован
+                    int rx, ry;
+                    if (rotation == 1) {
+                        rx = sx0 + sw - 1 - (spy - sx0);
+                        ry = spx;
+                    } else if (rotation == 2) {
+                        rx = sx0 + sw - 1 - (spx - sx0);
+                        ry = sy0 + sh - 1 - (spy - sy0);
+                    } else if (rotation == 3) {
+                        rx = spy;
+                        ry = sy0 + sh - 1 - (spx - sy0);
+                    } else {
+                        rx = spx;
+                        ry = spy;
+                    }
+
+                    // Check bounds within the sprite rect
+                    if (rx < sx0 || rx >= sx0 + sw || ry < sy0 || ry >= sy0 + sh) continue;
+
+                    uint16_t sc = ((const uint16_t*)((const uint8_t*)src->pixels + ry * src->pitch))[rx];
+                    if (sc == 0) continue; // binary alpha
+
+                    dstRow[startX + i] = sc;
+                }
+            }
+        } else {
+            // Alpha blending
+            uint8_t ga = globalAlpha;
+            uint8_t invGa = 255u - ga;
+            for (int j = 0; j < spanH; j++) {
+                int spy = s_spyLUT[j];
+                if ((unsigned)spy >= (unsigned)src->h) continue;
+
+                uint16_t* dstRow =
+                    (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+
+                for (int i = 0; i < spanW; i++) {
+                    int spx = s_spxLUT[i];
+                    if ((unsigned)spx >= (unsigned)src->w) continue;
+
+                    // При rotation & 1: spx=srcY, spy=srcX (LUT уже повёрнут)
+                    // 90° CW: srcX инвертирован, 180°: оба инвертированы, 270° CW: srcY инвертирован
+                    int rx, ry;
+                    if (rotation == 1) {
+                        rx = sx0 + sw - 1 - (spy - sx0);
+                        ry = spx;
+                    } else if (rotation == 2) {
+                        rx = sx0 + sw - 1 - (spx - sx0);
+                        ry = sy0 + sh - 1 - (spy - sy0);
+                    } else if (rotation == 3) {
+                        rx = spy;
+                        ry = sy0 + sh - 1 - (spx - sy0);
+                    } else {
+                        rx = spx;
+                        ry = spy;
+                    }
+
+                    // Check bounds within the sprite rect
+                    if (rx < sx0 || rx >= sx0 + sw || ry < sy0 || ry >= sy0 + sh) continue;
+
+                    uint16_t sc = ((const uint16_t*)((const uint8_t*)src->pixels + ry * src->pitch))[rx];
+                    if (sc == 0) continue;
+
+                    uint8_t sr = R565_SR(sc);
+                    uint8_t sg = R565_SG(sc);
+                    uint8_t sb = R565_SB(sc);
+
+                    uint16_t dc = dstRow[startX + i];
+                    uint8_t dr = R565_R(dc);
+                    uint8_t dg = R565_G(dc);
+                    uint8_t db = R565_B(dc);
+
+                    dstRow[startX + i] = R565_PACK(
+                        blend8(sr, dr, ga, invGa),
+                        blend8(sg, dg, ga, invGa),
+                        blend8(sb, db, ga, invGa));
+                }
+            }
+        }
+
+        SDL_UnlockSurface(dst);
+        SDL_UnlockSurface(src);
+        return;
+    }
 
     if (sf.bpp == 4 && df.bpp == 4) {
 
@@ -460,44 +680,62 @@ static void blitScaledAlphaOptimized(SDL_Surface* src, const SDL_Rect* srcRect,
         }
 
     } else {
-        // ===[ Общий путь для нестандартных форматов ]===
-        const int srcBpp = sf.bpp;
-        const int dstBpp = df.bpp;
+        // ===[ 16-бит RGB565 → RGB565 с alpha blending ]===
+        if (globalAlpha == 255) {
+            // Fast path: просто копируем
+            for (int j = 0; j < spanH; j++) {
+                int spy = s_spyLUT[j];
+                if ((unsigned)spy >= (unsigned)src->h) continue;
 
-        for (int j = 0; j < spanH; j++) {
-            int spy = s_spyLUT[j];
-            if ((unsigned)spy >= (unsigned)src->h) continue;
+                const uint16_t* srcRow =
+                    (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                uint16_t* dstRow =
+                    (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
 
-            const uint8_t* srcLine =
-                (const uint8_t*)src->pixels + spy * src->pitch;
-            uint8_t* dstLine =
-                (uint8_t*)dst->pixels + (startY + j) * dst->pitch;
+                for (int i = 0; i < spanW; i++) {
+                    int spx = s_spxLUT[i];
+                    if ((unsigned)spx >= (unsigned)src->w) continue;
 
-            for (int i = 0; i < spanW; i++) {
-                int spx = s_spxLUT[i];
-                if ((unsigned)spx >= (unsigned)src->w) continue;
+                    uint16_t sc = srcRow[spx];
+                    if (sc == 0) continue;
 
-                uint32_t sc = FastFmt_read(srcLine + spx * srcBpp, srcBpp);
-                uint8_t sa = FastFmt_A(sc, &sf);
-                if (globalAlpha != 255)
-                    sa = (uint8_t)div255fast((uint32_t)sa * globalAlpha);
-                if (sa == 0) continue;
+                    dstRow[startX + i] = sc;
+                }
+            }
+        } else {
+            // Alpha blending
+            uint8_t ga = globalAlpha;
+            uint8_t invGa = 255u - ga;
+            for (int j = 0; j < spanH; j++) {
+                int spy = s_spyLUT[j];
+                if ((unsigned)spy >= (unsigned)src->h) continue;
 
-                uint8_t sr = FastFmt_R(sc, &sf);
-                uint8_t sg = FastFmt_G(sc, &sf);
-                uint8_t sb = FastFmt_B(sc, &sf);
+                const uint16_t* srcRow =
+                    (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                uint16_t* dstRow =
+                    (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
 
-                uint8_t* dp = dstLine + (startX + i) * dstBpp;
+                for (int i = 0; i < spanW; i++) {
+                    int spx = s_spxLUT[i];
+                    if ((unsigned)spx >= (unsigned)src->w) continue;
 
-                if (sa == 255) {
-                    FastFmt_write(dp, FastFmt_pack(sr, sg, sb, 255, &df), dstBpp);
-                } else {
-                    uint32_t dc   = FastFmt_read(dp, dstBpp);
-                    uint32_t invA = 255u - sa;
-                    uint8_t nr = (uint8_t)div255fast((uint32_t)sr * sa + (uint32_t)FastFmt_R(dc, &df) * invA);
-                    uint8_t ng = (uint8_t)div255fast((uint32_t)sg * sa + (uint32_t)FastFmt_G(dc, &df) * invA);
-                    uint8_t nb = (uint8_t)div255fast((uint32_t)sb * sa + (uint32_t)FastFmt_B(dc, &df) * invA);
-                    FastFmt_write(dp, FastFmt_pack(nr, ng, nb, 255, &df), dstBpp);
+                    uint16_t sc = srcRow[spx];
+                    if (sc == 0) continue;
+
+                    uint8_t sr = (uint8_t)((sc >> 8) & 0xF8) | (uint8_t)((sc >> 13) & 0x07);
+                    uint8_t sg = (uint8_t)((sc >> 3) & 0xFC) | (uint8_t)((sc >> 9)  & 0x03);
+                    uint8_t sb = (uint8_t)((sc << 3) & 0xF8) | (uint8_t)((sc >> 2)  & 0x07);
+
+                    uint16_t dc = dstRow[startX + i];
+                    uint8_t dr = (uint8_t)((dc >> 8) & 0xF8) | (uint8_t)((dc >> 13) & 0x07);
+                    uint8_t dg = (uint8_t)((dc >> 3) & 0xFC) | (uint8_t)((dc >> 9)  & 0x03);
+                    uint8_t db = (uint8_t)((dc << 3) & 0xF8) | (uint8_t)((dc >> 2)  & 0x07);
+
+                    uint8_t nr = (uint8_t)div255fast((uint32_t)sr * ga + (uint32_t)dr * invGa);
+                    uint8_t ng = (uint8_t)div255fast((uint32_t)sg * ga + (uint32_t)dg * invGa);
+                    uint8_t nb = (uint8_t)div255fast((uint32_t)sb * ga + (uint32_t)db * invGa);
+
+                    dstRow[startX + i] = ((uint16_t)(nr >> 3) << 11) | ((uint16_t)(ng >> 2) << 5) | (nb >> 3);
                 }
             }
         }
@@ -535,6 +773,33 @@ static void blitScaledThreshold(SDL_Surface* src, const SDL_Rect* srcRect,
     FastFmt_init(&sf, src->format);
     FastFmt_init(&df, dst->format);
 
+    // ===[ 16-бит RGB565 fast path — binary alpha ]===
+    if (sf.bpp == 2 && df.bpp == 2) {
+        for (int j = 0; j < spanH; j++) {
+            int spy = s_spyLUT[j];
+            if ((unsigned)spy >= (unsigned)src->h) continue;
+
+            const uint16_t* srcRow =
+                (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+            uint16_t* dstRow =
+                (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+
+            for (int i = 0; i < spanW; i++) {
+                int spx = s_spxLUT[i];
+                if ((unsigned)spx >= (unsigned)src->w) continue;
+
+                uint16_t sc = srcRow[spx];
+                if (sc == 0) continue; // binary alpha: 0 = прозрачный
+
+                dstRow[startX + i] = sc;
+            }
+        }
+
+        SDL_UnlockSurface(dst);
+        SDL_UnlockSurface(src);
+        return;
+    }
+
     if (sf.bpp == 4 && df.bpp == 4) {
         for (int j = 0; j < spanH; j++) {
             int spy = s_spyLUT[j];
@@ -560,31 +825,24 @@ static void blitScaledThreshold(SDL_Surface* src, const SDL_Rect* srcRect,
             }
         }
     } else {
-        const int srcBpp = sf.bpp;
-        const int dstBpp = df.bpp;
-
+        // ===[ 16-бит RGB565 fast path — binary alpha ]===
         for (int j = 0; j < spanH; j++) {
             int spy = s_spyLUT[j];
             if ((unsigned)spy >= (unsigned)src->h) continue;
 
-            const uint8_t* srcLine =
-                (const uint8_t*)src->pixels + spy * src->pitch;
-            uint8_t* dstLine =
-                (uint8_t*)dst->pixels + (startY + j) * dst->pitch;
+            const uint16_t* srcRow =
+                (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+            uint16_t* dstRow =
+                (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
 
             for (int i = 0; i < spanW; i++) {
                 int spx = s_spxLUT[i];
                 if ((unsigned)spx >= (unsigned)src->w) continue;
 
-                uint32_t sc = FastFmt_read(srcLine + spx * srcBpp, srcBpp);
-                if (FastFmt_A(sc, &sf) < 128) continue;
+                uint16_t sc = srcRow[spx];
+                if (sc == 0) continue; // binary alpha: 0 = прозрачный
 
-                FastFmt_write(dstLine + (startX + i) * dstBpp,
-                              FastFmt_pack(FastFmt_R(sc, &sf),
-                                           FastFmt_G(sc, &sf),
-                                           FastFmt_B(sc, &sf),
-                                           255, &df),
-                              dstBpp);
+                dstRow[startX + i] = sc;
             }
         }
     }
@@ -602,7 +860,7 @@ static void blitScaledAlphaOptimizedTint(SDL_Surface* src, const SDL_Rect* srcRe
                                           SDL_Surface* dst, int dstX, int dstY,
                                           int dstW, int dstH,
                                           uint32_t tintColor,
-                                          uint8_t globalAlpha)
+                                          uint8_t globalAlpha, int rotation)
 {
     if (!src || !dst || dstW <= 0 || dstH <= 0) return;
     if (globalAlpha == 0) return;
@@ -632,6 +890,93 @@ static void blitScaledAlphaOptimizedTint(SDL_Surface* src, const SDL_Rect* srcRe
     FastFmt sf, df;
     FastFmt_init(&sf, src->format);
     FastFmt_init(&df, dst->format);
+
+    // ===[ 16-бит RGB565 → RGB565 с tint + alpha blending ]===
+    if (sf.bpp == 2 && df.bpp == 2) {
+        if (globalAlpha == 255) {
+            if (whiteTint) {
+                for (int j = 0; j < spanH; j++) {
+                    int spy = s_spyLUT[j];
+                    if ((unsigned)spy >= (unsigned)src->h) continue;
+                    const uint16_t* srcRow = (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                    uint16_t* dstRow = (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+                    for (int i = 0; i < spanW; i++) {
+                        int spx = s_spxLUT[i];
+                        if ((unsigned)spx >= (unsigned)src->w) continue;
+                        uint16_t sc = srcRow[spx];
+                        if (sc == 0) continue;
+                        dstRow[startX + i] = sc;
+                    }
+                }
+            } else {
+                for (int j = 0; j < spanH; j++) {
+                    int spy = s_spyLUT[j];
+                    if ((unsigned)spy >= (unsigned)src->h) continue;
+                    const uint16_t* srcRow = (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                    uint16_t* dstRow = (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+                    for (int i = 0; i < spanW; i++) {
+                        int spx = s_spxLUT[i];
+                        if ((unsigned)spx >= (unsigned)src->w) continue;
+                        uint16_t sc = srcRow[spx];
+                        if (sc == 0) continue;
+                        uint8_t sr = R565_SR(sc), sg = R565_SG(sc), sb = R565_SB(sc);
+                        uint8_t tr = (uint8_t)div255fast((uint32_t)sr * tintR);
+                        uint8_t tg = (uint8_t)div255fast((uint32_t)sg * tintG);
+                        uint8_t tb = (uint8_t)div255fast((uint32_t)sb * tintB);
+                        dstRow[startX + i] = R565_PACK(tr, tg, tb);
+                    }
+                }
+            }
+        } else {
+            uint8_t ga = globalAlpha;
+            uint8_t invGa = 255u - ga;
+            if (whiteTint) {
+                for (int j = 0; j < spanH; j++) {
+                    int spy = s_spyLUT[j];
+                    if ((unsigned)spy >= (unsigned)src->h) continue;
+                    const uint16_t* srcRow = (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                    uint16_t* dstRow = (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+                    for (int i = 0; i < spanW; i++) {
+                        int spx = s_spxLUT[i];
+                        if ((unsigned)spx >= (unsigned)src->w) continue;
+                        uint16_t sc = srcRow[spx];
+                        if (sc == 0) continue;
+                        uint16_t dc = dstRow[startX + i];
+                        dstRow[startX + i] = R565_PACK(
+                            blend8(R565_SR(sc), R565_R(dc), ga, invGa),
+                            blend8(R565_SG(sc), R565_G(dc), ga, invGa),
+                            blend8(R565_SB(sc), R565_B(dc), ga, invGa));
+                    }
+                }
+            } else {
+                for (int j = 0; j < spanH; j++) {
+                    int spy = s_spyLUT[j];
+                    if ((unsigned)spy >= (unsigned)src->h) continue;
+                    const uint16_t* srcRow = (const uint16_t*)((const uint8_t*)src->pixels + spy * src->pitch);
+                    uint16_t* dstRow = (uint16_t*)((uint8_t*)dst->pixels + (startY + j) * dst->pitch);
+                    for (int i = 0; i < spanW; i++) {
+                        int spx = s_spxLUT[i];
+                        if ((unsigned)spx >= (unsigned)src->w) continue;
+                        uint16_t sc = srcRow[spx];
+                        if (sc == 0) continue;
+                        uint8_t sr = R565_SR(sc), sg = R565_SG(sc), sb = R565_SB(sc);
+                        uint8_t tr = (uint8_t)div255fast((uint32_t)sr * tintR);
+                        uint8_t tg = (uint8_t)div255fast((uint32_t)sg * tintG);
+                        uint8_t tb = (uint8_t)div255fast((uint32_t)sb * tintB);
+                        uint16_t dc = dstRow[startX + i];
+                        dstRow[startX + i] = R565_PACK(
+                            blend8(tr, R565_R(dc), ga, invGa),
+                            blend8(tg, R565_G(dc), ga, invGa),
+                            blend8(tb, R565_B(dc), ga, invGa));
+                    }
+                }
+            }
+        }
+
+        SDL_UnlockSurface(dst);
+        SDL_UnlockSurface(src);
+        return;
+    }
 
     if (sf.bpp == 4 && df.bpp == 4) {
 
@@ -765,55 +1110,6 @@ static void blitScaledAlphaOptimizedTint(SDL_Surface* src, const SDL_Rect* srcRe
             }
         }
 
-    } else {
-        // ===[ Общий путь для нестандартных форматов ]===
-        const int srcBpp = sf.bpp;
-        const int dstBpp = df.bpp;
-
-        for (int j = 0; j < spanH; j++) {
-            int spy = s_spyLUT[j];
-            if ((unsigned)spy >= (unsigned)src->h) continue;
-
-            const uint8_t* srcLine =
-                (const uint8_t*)src->pixels + spy * src->pitch;
-            uint8_t* dstLine =
-                (uint8_t*)dst->pixels + (startY + j) * dst->pitch;
-
-            for (int i = 0; i < spanW; i++) {
-                int spx = s_spxLUT[i];
-                if ((unsigned)spx >= (unsigned)src->w) continue;
-
-                uint32_t sc = FastFmt_read(srcLine + spx * srcBpp, srcBpp);
-                uint8_t sa = FastFmt_A(sc, &sf);
-                if (globalAlpha != 255)
-                    sa = (uint8_t)div255fast((uint32_t)sa * globalAlpha);
-                if (sa == 0) continue;
-
-                uint8_t sr, sg, sb;
-                if (whiteTint) {
-                    sr = FastFmt_R(sc, &sf);
-                    sg = FastFmt_G(sc, &sf);
-                    sb = FastFmt_B(sc, &sf);
-                } else {
-                    sr = (uint8_t)div255fast((uint32_t)FastFmt_R(sc, &sf) * tintR);
-                    sg = (uint8_t)div255fast((uint32_t)FastFmt_G(sc, &sf) * tintG);
-                    sb = (uint8_t)div255fast((uint32_t)FastFmt_B(sc, &sf) * tintB);
-                }
-
-                uint8_t* dp = dstLine + (startX + i) * dstBpp;
-
-                if (sa == 255) {
-                    FastFmt_write(dp, FastFmt_pack(sr, sg, sb, 255, &df), dstBpp);
-                } else {
-                    uint32_t dc   = FastFmt_read(dp, dstBpp);
-                    uint32_t invA = 255u - sa;
-                    uint8_t nr = (uint8_t)div255fast((uint32_t)sr * sa + (uint32_t)FastFmt_R(dc, &df) * invA);
-                    uint8_t ng = (uint8_t)div255fast((uint32_t)sg * sa + (uint32_t)FastFmt_G(dc, &df) * invA);
-                    uint8_t nb = (uint8_t)div255fast((uint32_t)sb * sa + (uint32_t)FastFmt_B(dc, &df) * invA);
-                    FastFmt_write(dp, FastFmt_pack(nr, ng, nb, 255, &df), dstBpp);
-                }
-            }
-        }
     }
 
     SDL_UnlockSurface(dst);
@@ -826,6 +1122,8 @@ typedef struct {
     TextureCache textureCache;
     FastFmt screenFmt;
     bool    screenFmtReady;
+    bool    debugOverlayEnabled;
+    SDLDebugInfo debugInfo;
 } SDLRendererOpt;
 
 // ===[ Loading screen ]===
@@ -935,6 +1233,12 @@ static void sdlOptBeginFrame(Renderer* renderer,
     sdl->windowH = 240;
     sdl->screen  = SDL_GetVideoSurface();
 
+    // Precompute game→window coefficients (no divisions during rendering!)
+    sdl->invGameW = (gameW > 0) ? 1.0f / (float)gameW : 1.0f;
+    sdl->invGameH = (gameH > 0) ? 1.0f / (float)gameH : 1.0f;
+    sdl->gameToWindowX = (float)sdl->windowW * sdl->invGameW;
+    sdl->gameToWindowY = (float)sdl->windowH * sdl->invGameH;
+
     if (sdl->screen && !opt->screenFmtReady) {
         FastFmt_init(&opt->screenFmt, sdl->screen->format);
         opt->screenFmtReady = true;
@@ -949,8 +1253,25 @@ static void sdlOptBeginFrame(Renderer* renderer,
 static void sdlOptEndFrame(Renderer* renderer) {
     SDLRendererOpt* opt = (SDLRendererOpt*)renderer;
     SDLRenderer* sdl = &opt->base;
+
+    // Update cache count in debug info
+    opt->debugInfo.textureCacheCount = (int)opt->textureCache.count;
+    opt->debugInfo.textureCacheCapacity = TEXTURE_CACHE_CAPACITY;
+
+    // Debug overlay (always shown when debugMode is enabled)
+    if (renderer->dataWin && opt->debugOverlayEnabled) {
+        drawDebugOverlay(sdl->screen, &opt->debugInfo);
+    }
+
     SDL_SetClipRect(sdl->screen, NULL);
     SDL_Flip(sdl->screen);
+}
+
+void SDLRendererOpt_updateDebugInfo(Renderer* renderer, const SDLDebugInfo* info) {
+    if (!renderer || !info) return;
+    SDLRendererOpt* opt = (SDLRendererOpt*)renderer;
+    opt->debugInfo = *info;
+    opt->debugOverlayEnabled = true; // always enabled when called
 }
 
 // ===[ Vtable: beginView ]===
@@ -969,6 +1290,10 @@ static void sdlOptBeginView(Renderer* renderer,
     sdl->viewW = viewW; sdl->viewH = viewH;
     sdl->portX = portX; sdl->portY = portY;
     sdl->portW = portW; sdl->portH = portH;
+
+    // Precompute view→port coefficients (no divisions during rendering!)
+    sdl->viewToPortX = (viewW > 0) ? (float)portW / (float)viewW : 1.0f;
+    sdl->viewToPortY = (viewH > 0) ? (float)portH / (float)viewH : 1.0f;
 
     SDL_Rect clip = { (Sint16)portX, (Sint16)portY,
                       (Uint16)portW, (Uint16)portH };
@@ -1030,10 +1355,10 @@ static void sdlOptDrawSpritePart(Renderer* renderer,
 
     if (needsTint) {
         blitScaledAlphaOptimizedTint(src, &srcRect, sdl->screen,
-                                      (int)bx, (int)by, dstW, dstH, color, ga);
+                                      (int)bx, (int)by, dstW, dstH, color, ga, 0);
     } else {
         blitScaledAlphaOptimized(src, &srcRect, sdl->screen,
-                                  (int)bx, (int)by, dstW, dstH, ga);
+                                  (int)bx, (int)by, dstW, dstH, ga, 0);
     }
 }
 
@@ -1046,7 +1371,6 @@ static void sdlOptDrawSprite(Renderer* renderer,
                               float angleDeg,
                               uint32_t color, float alpha)
 {
-    (void)angleDeg;
     SDLRendererOpt* opt = (SDLRendererOpt*)renderer;
     SDLRenderer* sdl = &opt->base;
     DataWin* dw = renderer->dataWin;
@@ -1055,16 +1379,46 @@ static void sdlOptDrawSprite(Renderer* renderer,
     SDL_Surface* src = getTPAGSurface(opt, dw, tpagIndex, &tpag);
     if (!src) return;
 
-    SDL_Rect srcRect = { tpag->sourceX, tpag->sourceY,
-                         tpag->sourceWidth, tpag->sourceHeight };
+    // Нормализуем угол к 0/90/180/270
+    int rotation = 0;
+    if (angleDeg != 0.0f) {
+        int deg = (int)(angleDeg + 360) % 360;
+        if (deg < 45 || deg >= 315) rotation = 0;
+        else if (deg >= 45 && deg < 135) rotation = 1;  // 90
+        else if (deg >= 135 && deg < 225) rotation = 2; // 180
+        else rotation = 3;                               // 270
+    }
 
-    // Учитываем targetX/Y — смещение видимой части внутри bounding box спрайта
-    // Эквивалентно GL: localX0 = targetX - originX, затем T(x,y) * S(xscale, yscale)
+    int srcW = tpag->sourceWidth;
+    int srcH = tpag->sourceHeight;
+
+    // Для 90/270 ширина и высота меняются местами
+    // xscale применяется к высоте (бывшая X ось → экранная Y)
+    // yscale применяется к ширине (бывшая Y ось → экранная X)
+    int dstW, dstH;
+    if (rotation & 1) {
+        dstW = (int)scaleW(sdl, (float)srcH * xscale);
+        dstH = (int)scaleH(sdl, (float)srcW * yscale);
+    } else {
+        dstW = (int)scaleW(sdl, (float)srcW * xscale);
+        dstH = (int)scaleH(sdl, (float)srcH * yscale);
+    }
+
+    SDL_Rect srcRect = { tpag->sourceX, tpag->sourceY, srcW, srcH };
+
+    // Позиция: при rotation 90/270 origin применяется к повёрнутым осям
     float bx, by;
-    viewToScreen(sdl,
-                 x + ((float)tpag->targetX - originX) * xscale,
-                 y + ((float)tpag->targetY - originY) * yscale,
-                 &bx, &by);
+    if (rotation & 1) {
+        viewToScreen(sdl,
+                     x + ((float)tpag->targetX - originY) * xscale,
+                     y + ((float)tpag->targetY - originX) * yscale,
+                     &bx, &by);
+    } else {
+        viewToScreen(sdl,
+                     x + ((float)tpag->targetX - originX) * xscale,
+                     y + ((float)tpag->targetY - originY) * yscale,
+                     &bx, &by);
+    }
 
     uint8_t ga = (uint8_t)(alpha * 255.0f);
 
@@ -1073,15 +1427,18 @@ static void sdlOptDrawSprite(Renderer* renderer,
     uint8_t tintB = BGR_B(color);
     bool needsTint = (tintR != 255 || tintG != 255 || tintB != 255);
 
-    int dstW = (int)scaleW(sdl, (float)tpag->sourceWidth  * xscale);
-    int dstH = (int)scaleH(sdl, (float)tpag->sourceHeight * yscale);
+    // Для 180° — смещаем точку привязки
+    if (rotation == 2) {
+        bx -= dstW;
+        by -= dstH;
+    }
 
     if (needsTint) {
         blitScaledAlphaOptimizedTint(src, &srcRect, sdl->screen,
-                                      (int)bx, (int)by, dstW, dstH, color, ga);
+                                      (int)bx, (int)by, dstW, dstH, color, ga, rotation);
     } else {
         blitScaledAlphaOptimized(src, &srcRect, sdl->screen,
-                                  (int)bx, (int)by, dstW, dstH, ga);
+                                  (int)bx, (int)by, dstW, dstH, ga, rotation);
     }
 }
 
@@ -1156,6 +1513,67 @@ static void sdlOptDrawTriangle(Renderer* renderer,
     sdlOptDrawLine(renderer, x3, y3, x1, y1, 1, 0xFFFFFF, 1.0f);
 }
 
+// ===[ Text glyph blit — без LUT, прямой fixed-point расчёт ]===
+// Оптимизировано для маленьких глифов где LUT дороже рендеринга
+static void blitTextGlyph(SDL_Surface* src, int srcX, int srcY, int srcW, int srcH,
+                          SDL_Surface* dst, int dstX, int dstY, int dstW, int dstH,
+                          uint32_t tintColor)
+{
+    if (!src || !dst || dstW <= 0 || dstH <= 0 || srcW <= 0 || srcH <= 0) return;
+
+    int cx1 = dst->clip_rect.x;
+    int cy1 = dst->clip_rect.y;
+    int cx2 = cx1 + (int)dst->clip_rect.w; if (cx2 > dst->w) cx2 = dst->w;
+    int cy2 = cy1 + (int)dst->clip_rect.h; if (cy2 > dst->h) cy2 = dst->h;
+
+    int startX = dstX > cx1 ? dstX : cx1;
+    int startY = dstY > cy1 ? dstY : cy1;
+    int endX = (dstX + dstW) < cx2 ? (dstX + dstW) : cx2;
+    int endY = (dstY + dstH) < cy2 ? (dstY + dstH) : cy2;
+    if (startX >= endX || startY >= endY) return;
+
+    const uint8_t tintR = BGR_R(tintColor);
+    const uint8_t tintG = BGR_G(tintColor);
+    const uint8_t tintB = BGR_B(tintColor);
+
+    int32_t stepX = (srcW << 16) / dstW;
+    int32_t stepY = (srcH << 16) / dstH;
+
+    uint16_t* dstPixels = (uint16_t*)dst->pixels;
+    int dstPitch = dst->pitch / 2;
+    const uint8_t* srcPixels = (const uint8_t*)src->pixels;
+    int srcPitch = src->pitch;
+
+    int32_t accumY = (int64_t)(startY - dstY) * stepY;
+    for (int dy = startY; dy < endY; dy++) {
+        int sy = srcY + (accumY >> 16);
+        if ((unsigned)sy >= (unsigned)src->h) { accumY += stepY; continue; }
+
+        const uint16_t* srcRow = (const uint16_t*)(srcPixels + sy * srcPitch);
+        uint16_t* dstRow = dstPixels + dy * dstPitch;
+
+        int32_t accumX = (int64_t)(startX - dstX) * stepX;
+        for (int dx = startX; dx < endX; dx++) {
+            int sx = srcX + (accumX >> 16);
+            if ((unsigned)sx < (unsigned)src->w) {
+                uint16_t sc = srcRow[sx];
+                if (sc != 0) {
+                    uint8_t sr = R565_SR(sc);
+                    uint8_t sg = R565_SG(sc);
+                    uint8_t sb = R565_SB(sc);
+                    uint8_t tr = (uint8_t)(((uint32_t)sr * tintR) >> 8);
+                    uint8_t tg = (uint8_t)(((uint32_t)sg * tintG) >> 8);
+                    uint8_t tb = (uint8_t)(((uint32_t)sb * tintB) >> 8);
+                    dstRow[dx] = R565_PACK(tr, tg, tb);
+                }
+            }
+            accumX += stepX;
+        }
+        accumY += stepY;
+    }
+}
+
+
 // ===[ Vtable: drawText ]===
 static void sdlOptDrawText(Renderer* renderer,
                             const char* text,
@@ -1186,6 +1604,10 @@ static void sdlOptDrawText(Renderer* renderer,
         &opt->textureCache, sdl, dw, (uint32_t)pageId);
     SDL_Surface* src = TextureCache_getSurface(entry, sdl);
     if (!src) return;
+
+    // Lock surfaces once for the entire text block
+    SDL_LockSurface(src);
+    SDL_LockSurface(sdl->screen);
 
     int32_t textLen   = (int32_t)strlen(text);
     int32_t lineCount = TextUtils_countLines(text, textLen);
@@ -1238,12 +1660,13 @@ static void sdlOptDrawText(Renderer* renderer,
             };
 
             // Текст всегда рисуется с полной непрозрачностью (255)
-            blitScaledAlphaOptimizedTint(src, &srcRect, sdl->screen,
+            // NOTE: surfaces already locked above
+            blitTextGlyph(src, srcRect.x, srcRect.y, srcRect.w, srcRect.h,
+                sdl->screen,
                 (int)bx, (int)by,
                 (int)scaleW(sdl, (float)glyph->sourceWidth  * sx),
                 (int)scaleH(sdl, (float)glyph->sourceHeight * sy),
-                tintColor,
-                255);
+                tintColor);
 
             cursorX += glyph->shift;
             if (pos < lineLen) {
@@ -1260,6 +1683,9 @@ static void sdlOptDrawText(Renderer* renderer,
         else
             break;
     }
+
+    SDL_UnlockSurface(sdl->screen);
+    SDL_UnlockSurface(src);
 }
 
 // ===[ Vtable: drawTextColor ]===
@@ -1388,5 +1814,7 @@ Renderer* SDLRendererOpt_create(void)
     opt->base.base.drawFont   = -1;
     opt->base.base.drawHalign = 0;
     opt->base.base.drawValign = 0;
+    opt->debugOverlayEnabled  = false;
+    memset(&opt->debugInfo, 0, sizeof(SDLDebugInfo));
     return (Renderer*)opt;
 }

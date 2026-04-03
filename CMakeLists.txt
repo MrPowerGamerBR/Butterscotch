@@ -6,6 +6,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
 set(PLATFORM "" CACHE STRING "Platform backend")
+option(NO_AUDIO "Disable audio support" OFF)
 
 # Build metadata
 set(BUTTERSCOTCH_COMMIT_HASH "unknown" CACHE STRING "Git commit hash")
@@ -15,8 +16,15 @@ add_compile_definitions(
     BUTTERSCOTCH_COMMIT_DATE="${BUTTERSCOTCH_COMMIT_DATE}"
 )
 
+if(NO_AUDIO)
+    add_compile_definitions(NO_AUDIO)
+    message(STATUS "Audio: DISABLED")
+else()
+    message(STATUS "Audio: ENABLED")
+endif()
+
 if(PLATFORM STREQUAL "")
-    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw, -DPLATFORM=sdl, -DPLATFORM=miyoo, or -DPLATFORM=ps2")
+    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw, -DPLATFORM=sdl, -DPLATFORM=miyoo, -DPLATFORM=ps2, or -DPLATFORM=fbdev")
 endif()
 
 # Core source files (exclude platform-specific subdirectories)
@@ -28,7 +36,7 @@ file(GLOB SOURCES
 # Platform specific files builds
 if(PLATFORM STREQUAL "sdl")
     # SDL platform files + miniaudio for audio
-    file(GLOB PLATFORM_SOURCES src/sdl/*.c src/glfw/ma_audio_system.c)
+    file(GLOB PLATFORM_SOURCES src/sdl/*.c src/glfw/ma_audio_system.cpp)
 elseif(PLATFORM STREQUAL "miyoo")
     # Miyoo uses SDL platform files with NOOP audio (no sound)
     file(GLOB PLATFORM_SOURCES src/sdl/*.c)
@@ -94,8 +102,17 @@ if(PLATFORM STREQUAL "glfw")
 elseif(PLATFORM STREQUAL "sdl")
     # SDL 1.2 with software rendering and miniaudio for audio
 
+    # SDL platform files + miniaudio for audio
+    file(GLOB PLATFORM_SOURCES src/sdl/*.c src/glfw/ma_audio_system.cpp)
+
+    # Allow implicit void* conversions for C++ audio file
+    target_compile_options(butterscotch PRIVATE -fpermissive)
+
     # stb_image for PNG decoding
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # stb_vorbis for OGG decoding
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
 
     # miniaudio for audio playback
     target_include_directories(butterscotch PUBLIC vendor/miniaudio)
@@ -115,14 +132,29 @@ elseif(PLATFORM STREQUAL "sdl")
     endif()
 elseif(PLATFORM STREQUAL "miyoo")
     # Miyoo CFW (SDL 1.2 with software rendering, cross-compiled)
+    # Audio via miniaudio with ALSA backend only
+
+    # SDL platform files
+    file(GLOB PLATFORM_SOURCES src/sdl/*.c)
+
+    # Add miniaudio to the target explicitly (not in src/sdl/)
+    target_sources(butterscotch PRIVATE src/glfw/ma_audio_system.cpp)
 
     # stb_image for PNG decoding
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
 
-    # Miyoo-specific definitions (already in toolchain, but ensure for native builds)
-    add_compile_definitions(HAVE_STDINT_H VERSION_BITTBOY MIYOO_KEYBINDINGS MIYOO_NO_AUDIO)
+    # stb_vorbis for OGG decoding (used by miniaudio)
+    target_include_directories(butterscotch PUBLIC vendor/stb/vorbis)
 
-    # add_compile_definitions(DISABLE_VM_TRACING)
+    # miniaudio for audio playback (ALSA only)
+    target_include_directories(butterscotch PUBLIC vendor/miniaudio)
+
+    # Miyoo-specific definitions
+    add_compile_definitions(HAVE_STDINT_H VERSION_BITTBOY MIYOO_KEYBINDINGS)
+
+    # miniaudio: ALSA only backend (no PulseAudio, JACK, etc.)
+    # Disable runtime linking — link directly against libasound at compile time
+    add_compile_definitions(MA_NO_PULSEAUDIO MA_NO_JACK MA_NO_SNDIO MA_NO_AUDIO4 MA_NO_OSS MA_NO_COREAUDIO MA_NO_WASAPI MA_NO_DSOUND MA_NO_WINMM MA_NO_AAUDIO MA_NO_OPENSL MA_NO_WEBAUDIO MA_NO_NULL MA_NO_RUNTIME_LINKING)
 
     # Optimization flags for Miyoo (CMake list format)
     # Use -O2 instead of -Ofast for better stability, disable LTO which can cause hangs
@@ -182,7 +214,7 @@ elseif(PLATFORM STREQUAL "miyoo")
     # Create control file
     add_custom_command(TARGET ipk POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E echo "Package: butterscotch" > ${IPK_CONTROL_DIR}/control
-        COMMAND ${CMAKE_COMMAND} -E echo "Version: 1.0.0" >> ${IPK_CONTROL_DIR}/control
+        COMMAND ${CMAKE_COMMAND} -E echo "Version: 1.1.0" >> ${IPK_CONTROL_DIR}/control
         COMMAND ${CMAKE_COMMAND} -E echo "Section: games" >> ${IPK_CONTROL_DIR}/control
         COMMAND ${CMAKE_COMMAND} -E echo "Architecture: arm" >> ${IPK_CONTROL_DIR}/control
         COMMAND ${CMAKE_COMMAND} -E echo "Description: GameMaker Studio 1.4 runner for Miyoo" >> ${IPK_CONTROL_DIR}/control
@@ -359,6 +391,32 @@ elseif(PLATFORM STREQUAL "ps2")
                 ${CMAKE_SOURCE_DIR}/ps2dev-headers/newlib-include
                 ${CMAKE_SOURCE_DIR}/ps2dev-headers/gcc-include
         )
+    endif()
+elseif(PLATFORM STREQUAL "fbdev")
+    # Direct framebuffer renderer for embedded Linux (no SDL/X11/Wayland)
+    # Uses /dev/fb0 for rendering and /dev/input/event* for keyboard input
+
+    # Compile as C++ (project uses C++ features like typed enums, nullptr)
+    set_source_files_properties(${SOURCES} ${PLATFORM_SOURCES} PROPERTIES LANGUAGE CXX)
+    target_compile_options(butterscotch PRIVATE -fpermissive)
+
+    # stb_image for PNG decoding (optional, for texture loading)
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # miniaudio for audio (optional)
+    target_include_directories(butterscotch PUBLIC vendor/miniaudio)
+
+    # No external libraries needed - uses Linux kernel headers only
+    # fbdev and input APIs are part of the standard Linux headers
+
+    # Link with standard libraries
+    target_link_libraries(butterscotch m pthread stdc++)
+
+    # Optimization for embedded targets
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_link_options(butterscotch PRIVATE -Wl,--gc-sections -s)
+    else()
+        target_link_options(butterscotch PRIVATE -Wl,--gc-sections)
     endif()
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")

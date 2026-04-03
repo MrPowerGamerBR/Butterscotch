@@ -19,7 +19,7 @@
 #include "sdl_renderer.h"
 #include "sdl_file_system.h"
 
-#ifdef MIYOO_NO_AUDIO
+#if defined(NO_AUDIO) || defined(MIYOO_NO_AUDIO)
 #include "noop_audio_system.h"
 #else
 #include "../glfw/ma_audio_system.h"
@@ -482,7 +482,8 @@ int main(int argc, char* argv[]) {
 
     // In SDL 1.2, we can't control window visibility with flags, only create the surface
     // For headless mode, we just create an off-screen surface
-    SDL_Surface* screen = SDL_SetVideoMode(windowWidth, windowHeight, 24, SDL_SWSURFACE);
+    // 16-bit RGB565 — оптимизация для 32 МБ ОЗУ (2x меньше памяти для экрана и текстур)
+    SDL_Surface* screen = SDL_SetVideoMode(windowWidth, windowHeight, 16, SDL_SWSURFACE);
     if (screen == nullptr) {
         fprintf(stderr, "Failed to create SDL surface: %s\n", SDL_GetError());
         SDL_Quit();
@@ -503,12 +504,12 @@ int main(int argc, char* argv[]) {
     runner->renderer = renderer;
 
     // Initialize audio system
-#ifdef MIYOO_NO_AUDIO
-    // Miyoo uses NOOP audio (no sound)
+#if defined(NO_AUDIO) || defined(MIYOO_NO_AUDIO)
+    // Audio disabled at compile time or Miyoo NOOP audio
     NoopAudioSystem* noopAudio = NoopAudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*) noopAudio;
 #else
-    // SDL (PC) uses miniaudio for audio
+    // SDL/Miyoo uses miniaudio for audio
     MaAudioSystem* maAudio = MaAudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*) maAudio;
 #endif
@@ -562,12 +563,22 @@ int main(int argc, char* argv[]) {
 
         // Debug key bindings
         if (runner->debugMode) {
-            if (RunnerKeyboard_checkPressed(runner->keyboard, 'P')) {
+            // Pause/resume: P (keyboard) or SELECT+START (Miyoo)
+            if (RunnerKeyboard_checkPressed(runner->keyboard, 'P')
+#ifdef MIYOO_KEYBINDINGS
+                || (RunnerKeyboard_checkPressed(runner->keyboard, VK_ESCAPE) && RunnerKeyboard_checkPressed(runner->keyboard, VK_ENTER))
+#endif
+            ) {
                 debugPaused = !debugPaused;
                 fprintf(stderr, "Debug: %s\n", debugPaused ? "Paused" : "Resumed");
             }
 
-            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {
+            // Next/prev room: PAGEUP/PAGEDOWN (keyboard) or L1/R1 (Miyoo: TAB/BACKSPACE → VK_SHIFT)
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)
+#ifdef MIYOO_KEYBINDINGS
+                || RunnerKeyboard_checkPressed(runner->keyboard, VK_SHIFT)
+#endif
+            ) {
                 DataWin* dw = runner->dataWin;
                 if ((int32_t) dw->gen8.roomOrderCount > runner->currentRoomOrderPosition + 1) {
                     int32_t nextIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition + 1];
@@ -577,7 +588,11 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEDOWN)) {
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEDOWN)
+#ifdef MIYOO_KEYBINDINGS
+                || RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)
+#endif
+            ) {
                 DataWin* dw = runner->dataWin;
                 if (runner->currentRoomOrderPosition > 0) {
                     int32_t prevIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition - 1];
@@ -587,12 +602,22 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)) {
+            // Dump state: F12 (keyboard) or SELECT+START (Miyoo)
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)
+#ifdef MIYOO_KEYBINDINGS
+                || (RunnerKeyboard_checkPressed(runner->keyboard, VK_ESCAPE) && RunnerKeyboard_checkPressed(runner->keyboard, VK_ENTER))
+#endif
+            ) {
                 fprintf(stderr, "Debug: Dumping runner state at frame %d\n", runner->frameCount);
                 Runner_dumpState(runner);
             }
 
-            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F11)) {
+            // Dump JSON: F11 (keyboard) or L1+SELECT (Miyoo)
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F11)
+#ifdef MIYOO_KEYBINDINGS
+                || (RunnerKeyboard_checkPressed(runner->keyboard, VK_SHIFT) && RunnerKeyboard_checkPressed(runner->keyboard, VK_ESCAPE))
+#endif
+            ) {
                 fprintf(stderr, "Debug: Dumping runner state at frame %d\n", runner->frameCount);
                 char* json = Runner_dumpStateJson(runner);
 
@@ -625,7 +650,12 @@ int main(int argc, char* argv[]) {
         // Run the game step
         bool shouldStep = true;
         if (runner->debugMode && debugPaused) {
-            shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O');
+            // Frame advance: O (keyboard) or A (Miyoo: LALT → 'Z')
+            shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O')
+#ifdef MIYOO_KEYBINDINGS
+                || RunnerKeyboard_checkPressed(runner->keyboard, 'Z')
+#endif
+            ;
             if (shouldStep) fprintf(stderr, "Debug: Frame advance (frame %d)\n", runner->frameCount);
         }
 
@@ -742,6 +772,39 @@ int main(int argc, char* argv[]) {
         if (shouldStep && args.traceFrames) {
             uint32_t frameElapsedMs = SDL_GetTicks() - frameStartTime;
             fprintf(stderr, "Frame %d (End, %u ms)\n", runner->frameCount, frameElapsedMs);
+        }
+
+        // Update debug overlay info (if debug mode is enabled)
+        if (runner->debugMode) {
+            uint32_t frameElapsedMs = SDL_GetTicks() - frameStartTime;
+
+            // Get free memory via mallinfo2 if available
+            int freeMemBytes = 0;
+#ifdef __GLIBC__
+            struct mallinfo2 mi = mallinfo2();
+            freeMemBytes = mi.fordblks; // free bytes in heap
+#endif
+
+            // Count instances
+            int instanceCount = 0;
+            if (runner->instances) {
+                instanceCount = (int)arrlen(runner->instances);
+            }
+
+            // Current room info
+            const char* roomName = runner->currentRoom ? runner->currentRoom->name : "unknown";
+            uint32_t roomSpeed = runner->currentRoom ? runner->currentRoom->speed : 0;
+
+            SDLDebugInfo debugInfo;
+            memset(&debugInfo, 0, sizeof(debugInfo));
+            debugInfo.frameTimeMs = (float)frameElapsedMs;
+            debugInfo.instanceCount = instanceCount;
+            debugInfo.freeMemoryBytes = freeMemBytes;
+            debugInfo.roomName = roomName;
+            debugInfo.roomSpeed = roomSpeed;
+            debugInfo.frameCount = runner->frameCount;
+
+            SDLRendererOpt_updateDebugInfo(runner->renderer, &debugInfo);
         }
 
         // Limit frame rate

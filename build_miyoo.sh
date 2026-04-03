@@ -16,6 +16,7 @@ cd "$BUILD_DIR"
 # Configure with Miyoo toolchain
 cmake -DPLATFORM=miyoo \
       -DCMAKE_TOOLCHAIN_FILE="$SCRIPT_DIR/cmake/miyoo.cmake" \
+      -DNO_AUDIO=ON \
       -DCMAKE_BUILD_TYPE=Release \
       "$SCRIPT_DIR"
 
