@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(butterscotch C)
 
-set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
@@ -56,6 +56,7 @@ if(PLATFORM STREQUAL "glfw")
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GLFW3 REQUIRED glfw3)
         target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
+        target_link_directories(butterscotch PRIVATE ${GLFW3_LIBRARY_DIRS})
         target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl)
     endif()
 
@@ -75,6 +76,14 @@ elseif(PLATFORM STREQUAL "ps2")
     add_compile_definitions(USE_FLOAT_REALS)
     # By disabling Int64 support, we can fit the entire RValue struct in 8 bytes, improving performance and memory usage
     add_compile_definitions(NO_RVALUE_INT64)
+    # Disable Butterscotch VM/interpreter tracing checks
+    add_compile_definitions(DISABLE_VM_TRACING)
+    # Disable the PS2 audio system
+    option(DISABLE_PS2_AUDIO "Disable the PS2 audio system" OFF)
+    if(DISABLE_PS2_AUDIO)
+        add_compile_definitions(DISABLE_PS2_AUDIO)
+        list(REMOVE_ITEM PLATFORM_SOURCES ${CMAKE_SOURCE_DIR}/src/ps2/ps2_audio_system.c)
+    endif()
     # Treat unsuffixed float constants as single-precision to avoid accidental
     # float->double promotions on platforms with no hardware double
     add_compile_options(-fsingle-precision-constant)
@@ -115,21 +124,66 @@ elseif(PLATFORM STREQUAL "ps2")
             DEPENDS ${IRX_DIR}/padman.irx
             COMMENT "Embedding padman.irx"
         )
-        add_custom_command(
-            OUTPUT ${IRX_GEN_DIR}/freesd_irx.c
-            COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/freesd.irx ${IRX_GEN_DIR}/freesd_irx.c freesd_irx
-            DEPENDS ${IRX_DIR}/freesd.irx
-            COMMENT "Embedding freesd.irx"
-        )
-        add_custom_command(
-            OUTPUT ${IRX_GEN_DIR}/audsrv_irx.c
-            COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/audsrv.irx ${IRX_GEN_DIR}/audsrv_irx.c audsrv_irx
-            DEPENDS ${IRX_DIR}/audsrv.irx
-            COMMENT "Embedding audsrv.irx"
-        )
+        if(NOT DISABLE_PS2_AUDIO)
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/freesd_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/freesd.irx ${IRX_GEN_DIR}/freesd_irx.c freesd_irx
+                DEPENDS ${IRX_DIR}/freesd.irx
+                COMMENT "Embedding freesd.irx"
+            )
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/audsrv_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/audsrv.irx ${IRX_GEN_DIR}/audsrv_irx.c audsrv_irx
+                DEPENDS ${IRX_DIR}/audsrv.irx
+                COMMENT "Embedding audsrv.irx"
+            )
+        endif()
 
-        target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/sio2man_irx.c ${IRX_GEN_DIR}/mcman_irx.c ${IRX_GEN_DIR}/mcserv_irx.c ${IRX_GEN_DIR}/padman_irx.c ${IRX_GEN_DIR}/freesd_irx.c ${IRX_GEN_DIR}/audsrv_irx.c)
+        target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/sio2man_irx.c ${IRX_GEN_DIR}/mcman_irx.c ${IRX_GEN_DIR}/mcserv_irx.c ${IRX_GEN_DIR}/padman_irx.c)
+        if(NOT DISABLE_PS2_AUDIO)
+            target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/freesd_irx.c ${IRX_GEN_DIR}/audsrv_irx.c)
+        endif()
         target_include_directories(butterscotch PRIVATE ${IRX_GEN_DIR})
+
+        # ===[ gprof Profiling Support ]===
+        option(ENABLE_GPROF_PROFILING "Enable gprof profiling for PS2" OFF)
+        if(ENABLE_GPROF_PROFILING)
+            add_compile_definitions(GPROF_PROFILING)
+            target_compile_options(butterscotch PRIVATE -pg)
+            target_link_options(butterscotch PRIVATE -pg)
+
+            # Embed USB mass storage IRX modules for writing gmon.out when not running from host:
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/usbd_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/usbd.irx ${IRX_GEN_DIR}/usbd_irx.c usbd_irx
+                DEPENDS ${IRX_DIR}/usbd.irx
+                COMMENT "Embedding usbd.irx (profiler)"
+            )
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/bdm_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/bdm.irx ${IRX_GEN_DIR}/bdm_irx.c bdm_irx
+                DEPENDS ${IRX_DIR}/bdm.irx
+                COMMENT "Embedding bdm.irx (profiler)"
+            )
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/bdmfs_fatfs_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/bdmfs_fatfs.irx ${IRX_GEN_DIR}/bdmfs_fatfs_irx.c bdmfs_fatfs_irx
+                DEPENDS ${IRX_DIR}/bdmfs_fatfs.irx
+                COMMENT "Embedding bdmfs_fatfs.irx (profiler)"
+            )
+            add_custom_command(
+                OUTPUT ${IRX_GEN_DIR}/usbmass_bd_irx.c
+                COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/usbmass_bd.irx ${IRX_GEN_DIR}/usbmass_bd_irx.c usbmass_bd_irx
+                DEPENDS ${IRX_DIR}/usbmass_bd.irx
+                COMMENT "Embedding usbmass_bd.irx (profiler)"
+            )
+            target_sources(butterscotch PRIVATE
+                ${IRX_GEN_DIR}/usbd_irx.c
+                ${IRX_GEN_DIR}/bdm_irx.c
+                ${IRX_GEN_DIR}/bdmfs_fatfs_irx.c
+                ${IRX_GEN_DIR}/usbmass_bd_irx.c
+            )
+        endif()
     else()
         # This block is for when we are developing Butterscotch with CLion!
         # ps2sdk and gsKit scatter headers across per-module subdirectories;

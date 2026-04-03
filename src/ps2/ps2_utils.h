@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include <gsKit.h>
 #include <stdint.h>
 
@@ -24,3 +25,9 @@ extern bool deviceKeyLoaded;
 void PS2Utils_extractDeviceKey(const char* path);
 void PS2Utils_loadFSDrivers();
 char* PS2Utils_createDevicePath(const char* path);
+
+#ifdef GPROF_PROFILING
+// Loads USB mass storage IOP drivers (usbd, bdm, bdmfs_fatfs, usbmass_bd)
+// so gprof can write gmon.out to mass: when not running from host:
+void PS2Utils_loadMassStorageDrivers();
+#endif

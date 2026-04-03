@@ -55,16 +55,16 @@ static void gsDestroy(Renderer* renderer) {
     free(gs);
 }
 
-static void gsBeginFrame(Renderer* renderer, [[maybe_unused]] int32_t gameW, [[maybe_unused]] int32_t gameH, [[maybe_unused]] int32_t windowW, [[maybe_unused]] int32_t windowH) {
+static void gsBeginFrame(Renderer* renderer, MAYBE_UNUSED int32_t gameW, MAYBE_UNUSED int32_t gameH, MAYBE_UNUSED int32_t windowW, MAYBE_UNUSED int32_t windowH) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
     gs->zCounter = 1;
 }
 
-static void gsEndFrame([[maybe_unused]] Renderer* renderer) {
+static void gsEndFrame(MAYBE_UNUSED Renderer* renderer) {
     // No-op: flip happens in main loop
 }
 
-static void gsBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, [[maybe_unused]] int32_t portX, [[maybe_unused]] int32_t portY, int32_t portW, int32_t portH, [[maybe_unused]] float viewAngle) {
+static void gsBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, MAYBE_UNUSED int32_t portX, MAYBE_UNUSED int32_t portY, int32_t portW, int32_t portH, MAYBE_UNUSED float viewAngle) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
     gs->viewX = viewX;
     gs->viewY = viewY;
@@ -85,11 +85,11 @@ static void gsBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_
     gs->offsetY = (448.0f - renderedH) / 2.0f;
 }
 
-static void gsEndView([[maybe_unused]] Renderer* renderer) {
+static void gsEndView(MAYBE_UNUSED Renderer* renderer) {
     // No-op
 }
 
-static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, [[maybe_unused]] float angleDeg, [[maybe_unused]] uint32_t color, float alpha) {
+static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, MAYBE_UNUSED float angleDeg, MAYBE_UNUSED uint32_t color, float alpha) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
     DataWin* dw = renderer->dataWin;
 
@@ -122,7 +122,7 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
     gs->zCounter++;
 }
 
-static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, [[maybe_unused]] int32_t srcOffX, [[maybe_unused]] int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, [[maybe_unused]] uint32_t color, float alpha) {
+static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, MAYBE_UNUSED int32_t srcOffX, MAYBE_UNUSED int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, MAYBE_UNUSED uint32_t color, float alpha) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
 
     if (0 > tpagIndex || (uint32_t) tpagIndex >= renderer->dataWin->tpag.count) return;
@@ -143,7 +143,7 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, [[maybe_unus
     gs->zCounter++;
 }
 
-static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, [[maybe_unused]] bool outline) {
+static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, MAYBE_UNUSED bool outline) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
 
     // BGR to RGB
@@ -162,7 +162,7 @@ static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, fl
     gs->zCounter++;
 }
 
-static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y2, [[maybe_unused]] float width, uint32_t color, float alpha) {
+static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y2, MAYBE_UNUSED float width, uint32_t color, float alpha) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
 
     uint8_t r = BGR_R(color);
@@ -181,11 +181,11 @@ static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y
 }
 
 // PS2 gsKit doesn't support per-vertex colors on lines, so we just use color1
-static void gsDrawLineColor(Renderer* renderer, float x1, float y1, float x2, float y2, float width, uint32_t color1, [[maybe_unused]] uint32_t color2, float alpha) {
+static void gsDrawLineColor(Renderer* renderer, float x1, float y1, float x2, float y2, float width, uint32_t color1, MAYBE_UNUSED uint32_t color2, float alpha) {
     renderer->vtable->drawLine(renderer, x1, y1, x2, y2, width, color1, alpha);
 }
 
-static void gsDrawText(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, [[maybe_unused]] float angleDeg) {
+static void gsDrawText(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, MAYBE_UNUSED float angleDeg) {
     GsRendererFlat* gs = (GsRendererFlat*) renderer;
     DataWin* dw = renderer->dataWin;
 
@@ -201,12 +201,10 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
     uint8_t a = alphaToGS(renderer->drawAlpha);
     u64 textColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    // Preprocess GML text (# -> \n, \# -> #)
-    char* processed = TextUtils_preprocessGmlText(text);
-    int32_t textLen = (int32_t) strlen(processed);
+    int32_t textLen = (int32_t) strlen(text);
 
     // Compute vertical alignment offset
-    int32_t lineCount = TextUtils_countLines(processed, textLen);
+    int32_t lineCount = TextUtils_countLines(text, textLen);
     float totalHeight = (float) lineCount * (float) font->emSize;
     float valignOffset = 0;
     if (renderer->drawValign == 1) valignOffset = -totalHeight / 2.0f;
@@ -218,12 +216,12 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
     while (textLen >= lineStart) {
         // Find end of current line
         int32_t lineEnd = lineStart;
-        while (textLen > lineEnd && !TextUtils_isNewlineChar(processed[lineEnd])) {
+        while (textLen > lineEnd && !TextUtils_isNewlineChar(text[lineEnd])) {
             lineEnd++;
         }
 
         int32_t lineLen = lineEnd - lineStart;
-        const char* line = processed + lineStart;
+        const char* line = text + lineStart;
 
         // Measure line width for horizontal alignment
         float lineWidth = TextUtils_measureLineWidth(font, line, lineLen);
@@ -271,25 +269,23 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
         // Advance to next line
         cursorY += (float) font->emSize;
         if (textLen > lineEnd) {
-            lineStart = TextUtils_skipNewline(processed, lineEnd, textLen);
+            lineStart = TextUtils_skipNewline(text, lineEnd, textLen);
         } else {
             break;
         }
     }
-
-    free(processed);
 }
 
-static void gsFlush([[maybe_unused]] Renderer* renderer) {
+static void gsFlush(MAYBE_UNUSED Renderer* renderer) {
     // No-op: gsKit queues commands, executed in main loop via gsKit_queue_exec
 }
 
-static int32_t gsCreateSpriteFromSurface([[maybe_unused]] Renderer* renderer, [[maybe_unused]] int32_t x, [[maybe_unused]] int32_t y, [[maybe_unused]] int32_t w, [[maybe_unused]] int32_t h, [[maybe_unused]] bool removeback, [[maybe_unused]] bool smooth, [[maybe_unused]] int32_t xorig, [[maybe_unused]] int32_t yorig) {
+static int32_t gsCreateSpriteFromSurface(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t x, MAYBE_UNUSED int32_t y, MAYBE_UNUSED int32_t w, MAYBE_UNUSED int32_t h, MAYBE_UNUSED bool removeback, MAYBE_UNUSED bool smooth, MAYBE_UNUSED int32_t xorig, MAYBE_UNUSED int32_t yorig) {
     fprintf(stderr, "GsRendererFlat: createSpriteFromSurface not supported on PS2\n");
     return -1;
 }
 
-static void gsDeleteSprite([[maybe_unused]] Renderer* renderer, [[maybe_unused]] int32_t spriteIndex) {
+static void gsDeleteSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t spriteIndex) {
     // No-op
 }
 

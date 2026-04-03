@@ -526,7 +526,7 @@ static void maSetMasterGain(AudioSystem* audio, float gain) {
     ma_engine_set_volume(&ma->engine, gain);
 }
 
-static void maSetChannelCount([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t count) {
+static void maSetChannelCount(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t count) {
     // miniaudio handles channel management internally, this is a no-op
 }
 
@@ -543,7 +543,7 @@ static void maGroupLoad(AudioSystem* audio, int32_t groupIndex) {
     }
 }
 
-static bool maGroupIsLoaded([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t groupIndex) {
+static bool maGroupIsLoaded(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t groupIndex) {
     return (arrlen(audio->audioGroups) > groupIndex);
 }
 

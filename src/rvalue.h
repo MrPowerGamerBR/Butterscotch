@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,11 +44,13 @@ static RValue RValue_makeInt32(int32_t val) {
 
 static RValue RValue_makeInt64(int64_t val) {
 #ifdef NO_RVALUE_INT64
-    if (val > INT32_MAX) {
-        return (RValue){ .int32 = (int32_t) INT32_MAX, .type = RVALUE_INT32 };
-    } else if (INT32_MIN > val) {
-        return (RValue){ .int32 = (int32_t) INT32_MIN, .type = RVALUE_INT32 };
-    } else return (RValue){ .int32 = (int32_t) val, .type = RVALUE_INT32 };
+    // Values that don't fit in int32 get promoted to real instead of clamped, because clamping to INT32_MIN causes arithmetic overflow bugs
+    // (example: Undertale's mercymod = -99999999999999 in the Asriel fight)
+    if (val > INT32_MAX || INT32_MIN > val) {
+        return (RValue){ .real = (GMLReal) val, .type = RVALUE_REAL };
+    } else {
+        return (RValue){ .int32 = (int32_t) val, .type = RVALUE_INT32 };
+    }
 #else
     return (RValue){ .int64 = val, .type = RVALUE_INT64 };
 #endif

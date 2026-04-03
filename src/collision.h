@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include "data_win.h"
 #include "instance.h"
 #include "vm.h"

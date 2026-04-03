@@ -2,67 +2,67 @@
 
 #include <stdlib.h>
 
-static void noopInit([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] DataWin* dataWin, [[maybe_unused]] FileSystem* fileSystem) {}
+static void noopInit(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED DataWin* dataWin, MAYBE_UNUSED FileSystem* fileSystem) {}
 
 static void noopDestroy(AudioSystem* audio) {
     free(audio);
 }
 
-static void noopUpdate([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] float deltaTime) {}
+static void noopUpdate(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED float deltaTime) {}
 
-static int32_t noopPlaySound([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundIndex, [[maybe_unused]] int32_t priority, [[maybe_unused]] bool loop) {
+static int32_t noopPlaySound(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundIndex, MAYBE_UNUSED int32_t priority, MAYBE_UNUSED bool loop) {
     return -1;
 }
 
-static void noopStopSound([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {}
+static void noopStopSound(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {}
 
-static void noopStopAll([[maybe_unused]] AudioSystem* audio) {}
+static void noopStopAll(MAYBE_UNUSED AudioSystem* audio) {}
 
-static bool noopIsPlaying([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {
+static bool noopIsPlaying(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {
     return false;
 }
 
-static void noopPauseSound([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {}
+static void noopPauseSound(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {}
 
-static void noopResumeSound([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {}
+static void noopResumeSound(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {}
 
-static void noopPauseAll([[maybe_unused]] AudioSystem* audio) {}
+static void noopPauseAll(MAYBE_UNUSED AudioSystem* audio) {}
 
-static void noopResumeAll([[maybe_unused]] AudioSystem* audio) {}
+static void noopResumeAll(MAYBE_UNUSED AudioSystem* audio) {}
 
-static void noopSetSoundGain([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance, [[maybe_unused]] float gain, [[maybe_unused]] uint32_t timeMs) {}
+static void noopSetSoundGain(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance, MAYBE_UNUSED float gain, MAYBE_UNUSED uint32_t timeMs) {}
 
-static float noopGetSoundGain([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {
+static float noopGetSoundGain(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {
     return 1.0f;
 }
 
-static void noopSetSoundPitch([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance, [[maybe_unused]] float pitch) {}
+static void noopSetSoundPitch(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance, MAYBE_UNUSED float pitch) {}
 
-static float noopGetSoundPitch([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {
+static float noopGetSoundPitch(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {
     return 1.0f;
 }
 
-static float noopGetTrackPosition([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance) {
+static float noopGetTrackPosition(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {
     return 0.0f;
 }
 
-static void noopSetTrackPosition([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t soundOrInstance, [[maybe_unused]] float positionSeconds) {}
+static void noopSetTrackPosition(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance, MAYBE_UNUSED float positionSeconds) {}
 
-static void noopSetMasterGain([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] float gain) {}
+static void noopSetMasterGain(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED float gain) {}
 
-static void noopSetChannelCount([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t count) {}
+static void noopSetChannelCount(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t count) {}
 
-static void noopGroupLoad([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t groupIndex) {}
+static void noopGroupLoad(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t groupIndex) {}
 
-static bool noopGroupIsLoaded([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t groupIndex) {
+static bool noopGroupIsLoaded(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t groupIndex) {
     return true;
 }
 
-static int32_t noopCreateStream([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] const char* filename) {
+static int32_t noopCreateStream(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED const char* filename) {
     return -1;
 }
 
-static bool noopDestroyStream([[maybe_unused]] AudioSystem* audio, [[maybe_unused]] int32_t streamIndex) {
+static bool noopDestroyStream(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t streamIndex) {
     return false;
 }
 

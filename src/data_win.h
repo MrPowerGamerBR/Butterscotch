@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -355,6 +356,9 @@ typedef struct {
     float scaleY;
     uint32_t glyphCount;
     FontGlyph* glyphs;
+    // Sprite font fields (only valid when isSpriteFont is true)
+    bool isSpriteFont;
+    int32_t spriteIndex; // source sprite index (-1 for regular fonts)
 } Font;
 
 typedef struct {

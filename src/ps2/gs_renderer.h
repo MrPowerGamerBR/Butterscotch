@@ -1,7 +1,9 @@
 #pragma once
 
+#include "common.h"
 #include "renderer.h"
 #include <gsKit.h>
+#include "stb_ds.h"
 
 // ===[ Atlas Entry (from ATLAS.BIN TPAG entries) ]===
 typedef struct {
@@ -37,6 +39,21 @@ typedef struct {
     uint16_t clutIndex; // CLUT index within the corresponding CLUT file
     uint8_t bpp;        // 4 or 8
 } AtlasTileEntry;
+
+// ===[ Tile Lookup Key (for O(1) hashmap lookup) ]===
+typedef struct {
+    int16_t bgDef;
+    uint16_t srcX;
+    uint16_t srcY;
+    uint16_t srcW;
+    uint16_t srcH;
+} TileLookupKey;
+
+// stb_ds hashmap entry: TileLookupKey -> AtlasTileEntry*
+typedef struct {
+    TileLookupKey key;
+    AtlasTileEntry* value;
+} TileEntryMap;
 
 // ===[ VRAM Chunk (buddy system unit) ]===
 // Each chunk is 128KB of VRAM (fits one 4bpp 512x512 atlas).
@@ -79,6 +96,7 @@ typedef struct {
     uint16_t atlasTileCount;
     AtlasTPAGEntry* atlasTPAGEntries;
     AtlasTileEntry* atlasTileEntries;
+    TileEntryMap* tileEntryMap; // stb_ds hashmap: (bgDef, srcX, srcY, srcW, srcH) -> AtlasTileEntry*
 
     // CLUT VRAM addresses (one per CLUT, individually uploaded)
     uint32_t clut4Count;       // Number of 4bpp CLUTs
