@@ -5,6 +5,10 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
+if (MSVC)
+  add_compile_definitions(_USE_MATH_DEFINES)
+endif()
+
 set(PLATFORM "" CACHE STRING "Platform backend")
 
 # Build metadata
@@ -43,7 +47,13 @@ if(PLATFORM STREQUAL "glfw")
     # miniaudio
     target_include_directories(butterscotch PUBLIC vendor/miniaudio)
 
-    if(MINGW)
+    if (MSVC)
+        find_package(glfw3 REQUIRED)
+        set(GLFW3_LIBRARIES glfw3)
+
+        target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
+        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad opengl32 gdi32 winmm)
+    elseif(MINGW)
         find_package(glfw3 REQUIRED)
         set(GLFW3_LIBRARIES glfw3)
 
