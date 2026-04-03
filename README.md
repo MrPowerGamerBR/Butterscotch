@@ -36,6 +36,10 @@ Of course, there are exceptions that break game compatibility altogether:
 * PlayStation 2 (ps2sdk, gsKit)
 * ...and maybe more in the future!
 
+## Community Ports
+
+* [Xbox 360 (Butterscotch-360)](https://github.com/ceilingtilefan/Butterscotch-360) by @ceilingtilefan
+  
 ## Building Butterscotch
 
 ```bash
