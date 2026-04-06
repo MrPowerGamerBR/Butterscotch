@@ -215,18 +215,49 @@ void Runner_executeEvent(Runner* runner, Instance* instance, int32_t eventType, 
     Runner_executeEventFromObject(runner, instance, instance->objectIndex, eventType, eventSubtype);
 }
 
+// Pair used for stable sorting: holds the instance pointer and its original array position.
+typedef struct {
+    Instance* inst;
+    int32_t originalIndex;
+} IndexedInstance;
+
+// Comparator for per-object-type event dispatch (ascending objectIndex).
+static int compareInstanceByObjectIndex(const void* a, const void* b) {
+    const IndexedInstance* ia = (const IndexedInstance*) a;
+    const IndexedInstance* ib = (const IndexedInstance*) b;
+    // Primary: group by objectIndex ascending (lower object index executes first)
+    if (ia->inst->objectIndex < ib->inst->objectIndex) return -1;
+    if (ib->inst->objectIndex < ia->inst->objectIndex) return 1;
+    // Secondary: preserve creation order within the same object type
+    if (ia->originalIndex < ib->originalIndex) return -1;
+    if (ib->originalIndex < ia->originalIndex) return 1;
+    return 0;
+}
+
 void Runner_executeEventForAll(Runner* runner, int32_t eventType, int32_t eventSubtype) {
-    // Iterate BACKWARDS over instances, matching the HTML5 runner's PerformEvent which iterates from pool.length-1 down to 0
-    // Instances added later to the array are executed first
-    // This matters for things like for DELTARUNE's inventory key check
-    // See yyInstance.js for reference
+    // Dispatch events per-object-type, matching the native GMS 1.4 and 2.0 runners
+    // The native runners iterate a prebuilt array of object indices (objects that have handlers for this event),
+    // then for each object type iterate all its instances. We approximate this by sorting all active instances by
+    // objectIndex (ascending), preserving creation order as the tiebreaker within the same object type
     int32_t count = (int32_t) arrlen(runner->instances);
-    for (int32_t index = count - 1; index >= 0; index--) {
-        Instance* inst = runner->instances[index];
+    IndexedInstance* sorted = nullptr;
+    repeat(count, i) {
+        Instance* inst = runner->instances[i];
         if (inst->active) {
-            Runner_executeEvent(runner, inst, eventType, eventSubtype);
+            IndexedInstance ii = { .inst = inst, .originalIndex = i };
+            arrput(sorted, ii);
         }
     }
+    int32_t sortedCount = (int32_t) arrlen(sorted);
+    if (sortedCount > 1) {
+        qsort(sorted, sortedCount, sizeof(IndexedInstance), compareInstanceByObjectIndex);
+    }
+    repeat(sortedCount, i) {
+        if (sorted[i].inst->active) {
+            Runner_executeEvent(runner, sorted[i].inst, eventType, eventSubtype);
+        }
+    }
+    arrfree(sorted);
 }
 
 // ===[ Background Scrolling & Drawing ]===
