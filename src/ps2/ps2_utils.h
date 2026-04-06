@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include <gsKit.h>
 #include <stdint.h>
 

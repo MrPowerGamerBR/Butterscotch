@@ -835,7 +835,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     }
 }
 
-static void handlePushScoped(VMContext* ctx, [[maybe_unused]] uint32_t instr, const uint8_t* extraData, ArrayMapEntry* variableMap, uint32_t count, RValue* variables, [[maybe_unused]] const char* scopeName, [[maybe_unused]] const char* altScopeName, [[maybe_unused]] StringBooleanEntry* traceMap) {
+static void handlePushScoped(VMContext* ctx, MAYBE_UNUSED uint32_t instr, const uint8_t* extraData, ArrayMapEntry* variableMap, uint32_t count, RValue* variables, MAYBE_UNUSED const char* scopeName, MAYBE_UNUSED const char* altScopeName, MAYBE_UNUSED StringBooleanEntry* traceMap) {
     uint32_t varRef = resolveVarOperand(extraData);
     Variable* varDef = resolveVarDef(ctx, varRef);
 

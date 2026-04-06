@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include "renderer.h"
 #include <glad/glad.h>
 

@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build-glfw:
-    name: Build (GLFW/Linux)
+  build-glfw-linux-x86_64:
+    name: Build (GLFW/Linux x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,11 +31,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-linux
+          name: butterscotch-glfw-linux-x86_64
           path: build/butterscotch
 
-  build-glfw-windows:
-    name: Build (GLFW/Windows)
+  build-glfw-windows-x86_64:
+    name: Build (GLFW/Windows x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,90 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-windows
+          name: butterscotch-glfw-windows-x86_64
+          path: build/butterscotch.exe
+
+  build-glfw-linux-x86:
+    name: Build (GLFW/Linux x86)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit-info
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(git log -1 --format=%cd --date=short)" >> $GITHUB_OUTPUT
+
+      - name: Install 32-bit toolchain and dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-multilib g++-multilib pkg-config libbz2-dev:i386 libx11-dev:i386 libxrandr-dev:i386 libxinerama-dev:i386 libxcursor-dev:i386 libxi-dev:i386 libgl-dev:i386
+
+      - name: Build GLFW (32-bit)
+        run: |
+          git clone https://github.com/glfw/glfw.git /tmp/glfw
+          git -C /tmp/glfw checkout fdd14e65b1c29e4e6df875fb5669ec00d6793531
+          cmake -B /tmp/glfw/build -S /tmp/glfw \
+            -DCMAKE_C_FLAGS=-m32 \
+            -DCMAKE_INSTALL_PREFIX=/usr/local/glfw-x86 \
+            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_WAYLAND=OFF
+          make -C /tmp/glfw/build -j$(nproc)
+          sudo make -C /tmp/glfw/build install
+
+      - name: Configure
+        run: |
+          export PKG_CONFIG_PATH=/usr/local/glfw-x86/lib/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
+          cmake -B build -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_EXE_LINKER_FLAGS=-m32 "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: butterscotch-glfw-linux-x86
+          path: build/butterscotch
+
+  build-glfw-windows-x86:
+    name: Build (GLFW/Windows x86)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit-info
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(git log -1 --format=%cd --date=short)" >> $GITHUB_OUTPUT
+
+      - name: Install MinGW and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake mingw-w64
+
+      - name: Build GLFW for MinGW (32-bit)
+        run: |
+          git clone https://github.com/glfw/glfw.git /tmp/glfw
+          git -C /tmp/glfw checkout fdd14e65b1c29e4e6df875fb5669ec00d6793531
+          cmake -B /tmp/glfw/build -S /tmp/glfw \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64-i686.cmake \
+            -DCMAKE_INSTALL_PREFIX=/usr/i686-w64-mingw32 \
+            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+          make -C /tmp/glfw/build -j$(nproc)
+          sudo make -C /tmp/glfw/build install
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: butterscotch-glfw-windows-x86
           path: build/butterscotch.exe
 
   build-ps2:

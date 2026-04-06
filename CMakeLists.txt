@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(butterscotch C CXX)
 
-set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
@@ -90,6 +90,7 @@ if(PLATFORM STREQUAL "glfw")
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GLFW3 REQUIRED glfw3)
         target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
+        target_link_directories(butterscotch PRIVATE ${GLFW3_LIBRARY_DIRS})
         target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl)
     endif()
 

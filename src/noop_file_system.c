@@ -20,7 +20,7 @@ typedef struct {
 
 // ===[ Vtable Implementations ]===
 
-static char* noopResolvePath([[maybe_unused]] FileSystem* fs, [[maybe_unused]] const char* relativePath) {
+static char* noopResolvePath(MAYBE_UNUSED FileSystem* fs, MAYBE_UNUSED const char* relativePath) {
     return safeStrdup("./");
 }
 

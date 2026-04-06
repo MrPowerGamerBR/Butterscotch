@@ -659,6 +659,85 @@ static void glDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
 
 // ===[ Text Drawing ]===
 
+// Resolved font state shared between glDrawText and glDrawTextColor
+typedef struct {
+    Font* font;
+    TexturePageItem* fontTpag; // single TPAG for regular fonts (nullptr for sprite fonts)
+    GLuint texId;
+    int32_t texW, texH;
+    Sprite* spriteFontSprite; // source sprite for sprite fonts (nullptr for regular fonts)
+} GlFontState;
+
+// Resolves font texture state
+// Returns false if the font can't be drawn
+static bool glResolveFontState(GLRenderer* gl, DataWin* dw, Font* font, GlFontState* state) {
+    state->font = font;
+    state->fontTpag = nullptr;
+    state->texId = 0;
+    state->texW = 0;
+    state->texH = 0;
+    state->spriteFontSprite = nullptr;
+
+    if (!font->isSpriteFont) {
+        int32_t fontTpagIndex = DataWin_resolveTPAG(dw, font->textureOffset);
+        if (0 > fontTpagIndex) return false;
+
+        state->fontTpag = &dw->tpag.items[fontTpagIndex];
+        int16_t pageId = state->fontTpag->texturePageId;
+        if (0 > pageId || (uint32_t) pageId >= gl->textureCount) return false;
+
+        state->texId = gl->glTextures[pageId];
+        state->texW = gl->textureWidths[pageId];
+        state->texH = gl->textureHeights[pageId];
+        if (state->texW == 0 || state->texH == 0) return false;
+    } else if (font->spriteIndex >= 0 && dw->sprt.count > (uint32_t) font->spriteIndex) {
+        state->spriteFontSprite = &dw->sprt.sprites[font->spriteIndex];
+    }
+    return true;
+}
+
+// Resolves UV coordinates, texture ID, and local position for a single glyph
+// Returns false if the glyph can't be drawn
+static bool glResolveGlyph(GLRenderer* gl, DataWin* dw, GlFontState* state, FontGlyph* glyph, float cursorX, float cursorY, GLuint* outTexId, float* outU0, float* outV0, float* outU1, float* outV1, float* outLocalX0, float* outLocalY0) {
+    Font* font = state->font;
+    if (font->isSpriteFont && state->spriteFontSprite != nullptr) {
+        Sprite* sprite = state->spriteFontSprite;
+        int32_t glyphIndex = (int32_t) (glyph - font->glyphs);
+        if (0 > glyphIndex ||  glyphIndex >= (int32_t) sprite->textureCount) return false;
+
+        uint32_t tpagOffset = sprite->textureOffsets[glyphIndex];
+        int32_t tpagIdx = DataWin_resolveTPAG(dw, tpagOffset);
+        if (0 > tpagIdx) return false;
+
+        TexturePageItem* glyphTpag = &dw->tpag.items[tpagIdx];
+        int16_t pid = glyphTpag->texturePageId;
+        if (0 > pid || (uint32_t) pid >= gl->textureCount) return false;
+
+        *outTexId = gl->glTextures[pid];
+        int32_t tw = gl->textureWidths[pid];
+        int32_t th = gl->textureHeights[pid];
+        if (tw == 0 || th == 0) return false;
+
+        *outU0 = (float) glyphTpag->sourceX / (float) tw;
+        *outV0 = (float) glyphTpag->sourceY / (float) th;
+        *outU1 = (float) (glyphTpag->sourceX + glyphTpag->sourceWidth) / (float) tw;
+        *outV1 = (float) (glyphTpag->sourceY + glyphTpag->sourceHeight) / (float) th;
+
+        *outLocalX0 = cursorX + (float) glyph->offset;
+        *outLocalY0 = cursorY + (float) ((int32_t) glyphTpag->targetY - sprite->originY);
+    } else {
+        *outTexId = state->texId;
+        *outU0 = (float) (state->fontTpag->sourceX + glyph->sourceX) / (float) state->texW;
+        *outV0 = (float) (state->fontTpag->sourceY + glyph->sourceY) / (float) state->texH;
+        *outU1 = (float) (state->fontTpag->sourceX + glyph->sourceX + glyph->sourceWidth) / (float) state->texW;
+        *outV1 = (float) (state->fontTpag->sourceY + glyph->sourceY + glyph->sourceHeight) / (float) state->texH;
+
+        *outLocalX0 = cursorX + glyph->offset;
+        *outLocalY0 = cursorY;
+    }
+    return true;
+}
+
 static void glDrawText(Renderer* renderer, const char* text, float x, float y, float xscale, float yscale, float angleDeg) {
     GLRenderer* gl = (GLRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -668,18 +747,8 @@ static void glDrawText(Renderer* renderer, const char* text, float x, float y, f
 
     Font* font = &dw->font.fonts[fontIndex];
 
-    // Resolve font texture page
-    int32_t fontTpagIndex = DataWin_resolveTPAG(dw, font->textureOffset);
-    if (0 > fontTpagIndex) return;
-
-    TexturePageItem* fontTpag = &dw->tpag.items[fontTpagIndex];
-    int16_t pageId = fontTpag->texturePageId;
-    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
-
-    GLuint texId = gl->glTextures[pageId];
-    int32_t texW = gl->textureWidths[pageId];
-    int32_t texH = gl->textureHeights[pageId];
-    if (texW == 0 || texH == 0) return;
+    GlFontState fontState;
+    if (!glResolveFontState(gl, dw, font, &fontState)) return;
 
     uint32_t color = renderer->drawColor;
     float alpha = renderer->drawAlpha;
@@ -734,20 +803,20 @@ static void glDrawText(Renderer* renderer, const char* text, float x, float y, f
                 continue;
             }
 
+            float u0, v0, u1, v1;
+            float localX0, localY0;
+            GLuint glyphTexId;
+
+            if (!glResolveGlyph(gl, dw, &fontState, glyph, cursorX, cursorY, &glyphTexId, &u0, &v0, &u1, &v1, &localX0, &localY0)) {
+                cursorX += glyph->shift;
+                continue;
+            }
+
             // Flush if texture changed or batch full
-            if (gl->quadCount > 0 && gl->currentTextureId != texId) flushBatch(gl);
+            if (gl->quadCount > 0 && gl->currentTextureId != glyphTexId) flushBatch(gl);
             if (gl->quadCount >= MAX_QUADS) flushBatch(gl);
-            gl->currentTextureId = texId;
+            gl->currentTextureId = glyphTexId;
 
-            // Compute UVs from glyph position in the font's atlas
-            float u0 = (float) (fontTpag->sourceX + glyph->sourceX) / (float) texW;
-            float v0 = (float) (fontTpag->sourceY + glyph->sourceY) / (float) texH;
-            float u1 = (float) (fontTpag->sourceX + glyph->sourceX + glyph->sourceWidth) / (float) texW;
-            float v1 = (float) (fontTpag->sourceY + glyph->sourceY + glyph->sourceHeight) / (float) texH;
-
-            // Local quad position (before transform)
-            float localX0 = cursorX + glyph->offset;
-            float localY0 = cursorY;
             float localX1 = localX0 + (float) glyph->sourceWidth;
             float localY1 = localY0 + (float) glyph->sourceHeight;
 
@@ -804,18 +873,8 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
 
     Font* font = &dw->font.fonts[fontIndex];
 
-    // Resolve font texture page
-    int32_t fontTpagIndex = DataWin_resolveTPAG(dw, font->textureOffset);
-    if (0 > fontTpagIndex) return;
-
-    TexturePageItem* fontTpag = &dw->tpag.items[fontTpagIndex];
-    int16_t pageId = fontTpag->texturePageId;
-    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
-
-    GLuint texId = gl->glTextures[pageId];
-    int32_t texW = gl->textureWidths[pageId];
-    int32_t texH = gl->textureHeights[pageId];
-    if (texW == 0 || texH == 0) return;
+    GlFontState fontState;
+    if (!glResolveFontState(gl, dw, font, &fontState)) return;
 
     // Preprocess: convert # to \n (and \# to literal #)
     char* processed = TextUtils_preprocessGmlText(text);
@@ -901,20 +960,20 @@ static void glDrawTextColor(Renderer* renderer, const char* text, float x, float
                 continue;
             }
 
+            float u0, v0, u1, v1;
+            float localX0, localY0;
+            GLuint glyphTexId;
+
+            if (!glResolveGlyph(gl, dw, &fontState, glyph, cursorX, cursorY, &glyphTexId, &u0, &v0, &u1, &v1, &localX0, &localY0)) {
+                cursorX += glyph->shift;
+                continue;
+            }
+
             // Flush if texture changed or batch full
-            if (gl->quadCount > 0 && gl->currentTextureId != texId) flushBatch(gl);
+            if (gl->quadCount > 0 && gl->currentTextureId != glyphTexId) flushBatch(gl);
             if (gl->quadCount >= MAX_QUADS) flushBatch(gl);
-            gl->currentTextureId = texId;
+            gl->currentTextureId = glyphTexId;
 
-            // Compute UVs from glyph position in the font's atlas
-            float u0 = (float) (fontTpag->sourceX + glyph->sourceX) / (float) texW;
-            float v0 = (float) (fontTpag->sourceY + glyph->sourceY) / (float) texH;
-            float u1 = (float) (fontTpag->sourceX + glyph->sourceX + glyph->sourceWidth) / (float) texW;
-            float v1 = (float) (fontTpag->sourceY + glyph->sourceY + glyph->sourceHeight) / (float) texH;
-
-            // Local quad position (before transform)
-            float localX0 = cursorX + glyph->offset;
-            float localY0 = cursorY;
             float localX1 = localX0 + (float) glyph->sourceWidth;
             float localY1 = localY0 + (float) glyph->sourceHeight;
 

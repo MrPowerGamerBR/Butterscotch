@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.h"
 #include "renderer.h"
 #include <gsKit.h>
 #include "stb_ds.h"
