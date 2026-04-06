@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #ifndef nullptr
 #define nullptr NULL
 #endif
