@@ -1,0 +1,6 @@
+[submodule "vendor/ogg"]
+	path = vendor/ogg
+	url = https://github.com/xiph/ogg.git
+[submodule "vendor/tremor"]
+	path = vendor/tremor
+	url = https://gitlab.xiph.org/xiph/tremor.git
