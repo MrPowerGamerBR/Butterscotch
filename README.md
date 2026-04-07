@@ -3,9 +3,9 @@
 >
 
 ```bash
-# uclibc toolchain build
+# uclibc static build
 ./make_miyoo_uclibc.sh
 
-# musl toolchain build
+# musl static build
 ./make_miyoo_musl.sh
 ```

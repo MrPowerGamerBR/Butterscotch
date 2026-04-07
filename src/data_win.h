@@ -363,6 +363,8 @@ typedef struct {
     // Sprite font fields (only valid when isSpriteFont is true)
     bool isSpriteFont;
     int32_t spriteIndex; // source sprite index (-1 for regular fonts)
+    FontGlyph** glyphLUT;
+    uint32_t    glyphLUTMask;
 } Font;
 
 typedef struct {

@@ -271,6 +271,100 @@ void Runner_scrollBackgrounds(Runner* runner) {
     }
 }
 
+// ===[ Frustum Culling — skip drawing objects outside the current view ]===
+static bool isOnScreen(Runner* runner, float x, float y, float w, float h,
+                        float scaleX, float scaleY, float angleDeg)
+{
+    RoomView* view = &runner->currentRoom->views[runner->viewCurrent];
+    if (!view->enabled) return true;
+
+    // Compute view bounds in room coordinates
+    float vx = (float)view->viewX;
+    float vy = (float)view->viewY;
+    float vw = (float)view->viewWidth;
+    float vh = (float)view->viewHeight;
+
+    // Object center
+    float cx = x + w * scaleX * 0.5f;
+    float cy = y + h * scaleY * 0.5f;
+    float halfW = w * scaleX * 0.5f;
+    float halfH = h * scaleY * 0.5f;
+
+    // Expand bounds for rotation (conservative AABB after rotation)
+    if (angleDeg != 0.0f) {
+        float angleRad = angleDeg * 3.14159265f / 180.0f;
+        float cosA = cosf(angleRad);
+        float sinA = sinf(angleRad);
+        float cosAbs = cosA < 0 ? -cosA : cosA;
+        float sinAbs = sinA < 0 ? -sinA : sinA;
+        float newHalfW = halfW * cosAbs + halfH * sinAbs;
+        float newHalfH = halfW * sinAbs + halfH * cosAbs;
+        halfW = newHalfW;
+        halfH = newHalfH;
+    }
+
+    // Expanded AABB
+    float minX = cx - halfW;
+    float minY = cy - halfH;
+    float maxX = cx + halfW;
+    float maxY = cy + halfH;
+
+    // Reject if completely outside view
+    return !(maxX < vx || minX > vx + vw || maxY < vy || minY > vy + vh);
+}
+
+static bool instanceOnScreen(Runner* runner, Instance* inst) {
+    if (!inst->visible) return false;
+    if (inst->spriteIndex < 0) return true;
+
+    DataWin* dw = runner->dataWin;
+    if (inst->spriteIndex >= (int32_t)dw->sprt.count) return true;
+
+    Sprite* spr = &dw->sprt.sprites[inst->spriteIndex];
+    int32_t subimg = (int32_t)inst->imageIndex;
+    int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, inst->spriteIndex, subimg);
+    if (tpagIndex < 0) return true;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    if (tpag->boundingWidth <= 0 || tpag->boundingHeight <= 0) return true;
+
+    float angle = inst->imageAngle;
+    float sx = inst->imageXscale;
+    float sy = inst->imageYscale;
+    float ox = (float)spr->originX;
+    float oy = (float)spr->originY;
+    float w = (float)tpag->boundingWidth;
+    float h = (float)tpag->boundingHeight;
+
+    float drawX = inst->x - ox * sx;
+    float drawY = inst->y - oy * sy;
+
+    return isOnScreen(runner, drawX, drawY, w, h, sx, sy, angle);
+}
+
+static bool tileOnScreen(Runner* runner, RoomTile* tile) {
+    return isOnScreen(runner, (float)tile->x, (float)tile->y,
+                      (float)tile->width, (float)tile->height,
+                      tile->scaleX, tile->scaleY, 0.0f);
+}
+
+static bool spriteInstanceOnScreen(Runner* runner, SpriteInstance* si) {
+    DataWin* dw = runner->dataWin;
+    uint32_t sprite = DataWin_resolveSPRT(dw, si->spritePtr);
+    if (sprite >= dw->sprt.count) return true;
+
+    int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, (int32_t)sprite, (int32_t)si->frameIndex);
+    if (tpagIndex < 0) return true;
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    if (tpag->boundingWidth <= 0 || tpag->boundingHeight <= 0) return true;
+
+    float w = (float)tpag->boundingWidth * si->scaleX;
+    float h = (float)tpag->boundingHeight * si->scaleY;
+    float drawX = si->x - w * 0.5f;
+    float drawY = si->y - h * 0.5f;
+
+    return isOnScreen(runner, drawX, drawY, w, h, 1.0f, 1.0f, si->rotation);
+}
+
 void Runner_drawBackgrounds(Runner* runner, bool foreground) {
     if (runner->renderer == nullptr) return;
     DataWin* dataWin = runner->dataWin;
@@ -286,15 +380,22 @@ void Runner_drawBackgrounds(Runner* runner, bool foreground) {
         if (0 > tpagIndex) continue;
 
         if (bg->stretch) {
-            // Stretch to fill room dimensions
+            // Stretch to fill room dimensions — always on screen
             TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
             float xscale = roomW / (float) tpag->boundingWidth;
             float yscale = roomH / (float) tpag->boundingHeight;
             runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, 0.0f, 0.0f, 0.0f, 0.0f, xscale, yscale, 0.0f, 0xFFFFFF, bg->alpha);
         } else if (bg->tileX || bg->tileY) {
+            // Tiled — always potentially on screen, draw as-is
             Renderer_drawBackgroundTiled(runner->renderer, tpagIndex, bg->x, bg->y, bg->tileX, bg->tileY, roomW, roomH, bg->alpha);
         } else {
-            // Single placement
+            // Single placement — check if on screen using TPAG bounds
+            TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
+            if (tpag->boundingWidth <= 0 || tpag->boundingHeight <= 0) {
+                // No valid bounds, skip
+                continue;
+            }
+            if (!isOnScreen(runner, bg->x, bg->y, (float)tpag->boundingWidth, (float)tpag->boundingHeight, 1.0f, 1.0f, 0.0f)) continue;
             runner->renderer->vtable->drawSprite(runner->renderer, tpagIndex, bg->x, bg->y, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0xFFFFFF, bg->alpha);
         }
     }
@@ -472,15 +573,22 @@ void Runner_draw(Runner* runner) {
                 }
 #endif
 
-                Renderer_drawTile(runner->renderer, tile, offsetX, offsetY);
+                // Frustum culling for tiles
+                if (tileOnScreen(runner, tile)) {
+                    Renderer_drawTile(runner->renderer, tile, offsetX, offsetY);
+                }
             }
         } else if (d->type == DRAWABLE_INSTANCE) {
             Instance* inst = d->instance;
             int32_t codeId = findEventCodeIdAndOwner(runner->dataWin, inst->objectIndex, EVENT_DRAW, DRAW_NORMAL, nullptr);
             if (codeId >= 0) {
+                // Has custom draw event — run it regardless
                 Runner_executeEvent(runner, inst, EVENT_DRAW, DRAW_NORMAL);
             } else if (runner->renderer != nullptr) {
-                Renderer_drawSelf(runner->renderer, inst);
+                // Default sprite draw — apply culling
+                if (instanceOnScreen(runner, inst)) {
+                    Renderer_drawSelf(runner->renderer, inst);
+                }
             }
         } else if (d->type == DRAWABLE_LAYER)
         {
@@ -500,30 +608,10 @@ void Runner_draw(Runner* runner) {
                         }
 
 #ifndef DISABLE_VM_TRACING
-                        // Trace tile drawing if requested
-                        if (shlen(runner->vmContext->tilesToBeTraced) > 0) {
-                            DataWin* dataWin = runner->dataWin;
-                            const char* bgName = (tile->backgroundDefinition >= 0 && dataWin->bgnd.count > (uint32_t) tile->backgroundDefinition) ? dataWin->bgnd.backgrounds[tile->backgroundDefinition].name : "<none>";
-                            const char* roomName = room->name;
-
-                            bool shouldTrace = shgeti(runner->vmContext->tilesToBeTraced, "*") != -1 || shgeti(runner->vmContext->tilesToBeTraced, bgName) != -1 || shgeti(runner->vmContext->tilesToBeTraced, roomName) != -1;
-
-                            if (shouldTrace) {
-                                int32_t tpagIndex = Renderer_resolveObjectTPAGIndex(dataWin, tile);
-                                if (tpagIndex >= 0) {
-                                    TexturePageItem* tpag = &dataWin->tpag.items[tpagIndex];
-                                    fprintf(stderr, "Runner: [%s] Drawing tile #%d bg=%s(%d) tpag(srcX=%d srcY=%d srcW=%d srcH=%d tgtX=%d tgtY=%d bndW=%d bndH=%d page=%d) tile(srcX=%d srcY=%d w=%u h=%u) at pos=(%d,%d) depth=%d\n", roomName, d->tileIndex, bgName, tile->backgroundDefinition, tpag->sourceX, tpag->sourceY, tpag->sourceWidth, tpag->sourceHeight, tpag->targetX, tpag->targetY, tpag->boundingWidth, tpag->boundingHeight, tpag->texturePageId, tile->sourceX, tile->sourceY, tile->width, tile->height, tile->x, tile->y, tile->tileDepth);
-
-                                    // Warn if tile source rect exceeds TPAG content bounds
-                                    if ((uint32_t) (tile->sourceX + tile->width) > (uint32_t) tpag->sourceWidth || (uint32_t) (tile->sourceY + tile->height) > (uint32_t) tpag->sourceHeight) {
-                                        fprintf(stderr, "Runner: [%s] WARNING: Tile #%d source rect (%d,%d %ux%u) exceeds TPAG content bounds (%dx%d)\n", roomName, d->tileIndex, tile->sourceX, tile->sourceY, tile->width, tile->height, tpag->sourceWidth, tpag->sourceHeight);
-                                    }
-                                } else {
-                                    fprintf(stderr, "Runner: [%s] Drawing tile #%d bg=%s(%d) tpag=UNRESOLVED tile(srcX=%d srcY=%d w=%u h=%u) at pos=(%d,%d) depth=%d\n", roomName, d->tileIndex, bgName, tile->backgroundDefinition, tile->sourceX, tile->sourceY, tile->width, tile->height, tile->x, tile->y, tile->tileDepth);
-                                }
-                            }
-                        }
 #endif
+
+                        // Frustum culling for tiles
+                        if (!tileOnScreen(runner, tile)) continue;
 
                         Renderer_drawTile(runner->renderer, tile, offsetX, offsetY);
                     }
@@ -533,6 +621,8 @@ void Runner_draw(Runner* runner) {
                 {
                     if(runner->renderer) {
                         SpriteInstance* spriteInstance = &data->sprites[i];
+                        // Frustum culling for layer sprites
+                        if (!spriteInstanceOnScreen(runner, spriteInstance)) continue;
                         uint32_t sprite = DataWin_resolveSPRT(runner->dataWin, spriteInstance->spritePtr);
                         Renderer_drawSpriteExt(
                             runner->renderer, sprite, (int32_t)spriteInstance->frameIndex, 

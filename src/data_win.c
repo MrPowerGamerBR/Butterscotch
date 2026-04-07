@@ -742,6 +742,10 @@ static void parseSHDR(BinaryReader* reader, DataWin* dw) {
     free(ptrs);
 }
 
+static int kerningCmp(const void* a, const void* b) {
+    return (int)((KerningPair*)a)->character - (int)((KerningPair*)b)->character;
+}
+
 static void parseFONT(BinaryReader* reader, DataWin* dw) {
     FontChunk* f = &dw->font;
 
@@ -802,8 +806,29 @@ static void parseFONT(BinaryReader* reader, DataWin* dw) {
             }
         } else {
             font->glyphs = nullptr;
+            font->glyphLUT = NULL;
+            font->glyphLUTMask = 0;
         }
         free(glyphPtrs);
+
+        repeat(glyphCount, j) {
+            FontGlyph* glyph = &font->glyphs[j];
+            if (glyph->kerningCount > 1) {
+                qsort(glyph->kerning, glyph->kerningCount,
+                      sizeof(KerningPair), kerningCmp);
+            }
+        }
+
+        uint32_t lutSize = 64;
+        while (lutSize < glyphCount * 2) lutSize <<= 1;
+        font->glyphLUTMask = lutSize - 1;
+        font->glyphLUT = calloc(lutSize, sizeof(FontGlyph*));
+        repeat(glyphCount, j) {
+            uint32_t slot = font->glyphs[j].character & font->glyphLUTMask;
+            while (font->glyphLUT[slot])
+                slot = (slot + 1) & font->glyphLUTMask;
+            font->glyphLUT[slot] = &font->glyphs[j];
+        }
     }
     free(ptrs);
 
@@ -1776,6 +1801,8 @@ void DataWin_free(DataWin* dw) {
                 }
                 free(font->glyphs);
             }
+            free(font->glyphLUT);
+            font->glyphLUT = NULL;
         }
         free(dw->font.fonts);
     }

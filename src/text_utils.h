@@ -14,19 +14,27 @@
 // Used by both the renderer (for drawing text) and the VM (for string_width/string_height).
 
 static inline FontGlyph* TextUtils_findGlyph(Font* font, uint16_t ch) {
-    repeat(font->glyphCount, i) {
-        if (font->glyphs[i].character == ch) return &font->glyphs[i];
+    if (!font->glyphLUT) return NULL;
+    uint32_t slot = (uint32_t)ch & font->glyphLUTMask;
+    while (font->glyphLUT[slot]) {
+        if (font->glyphLUT[slot]->character == ch)
+            return font->glyphLUT[slot];
+        slot = (slot + 1) & font->glyphLUTMask;
     }
-    return nullptr;
+    return NULL;
 }
 
 static inline float TextUtils_getKerningOffset(FontGlyph* glyph, uint16_t nextCh) {
-    repeat(glyph->kerningCount, k) {
-        if (glyph->kerning[k].character == (int16_t) nextCh) {
-            return glyph->kerning[k].shiftModifier;
-        }
+    int lo = 0, hi = (int)glyph->kerningCount - 1;
+    int16_t key = (int16_t)nextCh;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        int16_t mc = glyph->kerning[mid].character;
+        if (mc == key) return glyph->kerning[mid].shiftModifier;
+        if (mc < key)  lo = mid + 1;
+        else           hi = mid - 1;
     }
-    return 0;
+    return 0.0f;
 }
 
 // Decodes a single UTF-8 codepoint from str at *pos, advances *pos past the consumed bytes.
@@ -66,19 +74,15 @@ static inline uint16_t TextUtils_decodeUtf8(const char* str, int32_t len, int32_
 static inline float TextUtils_measureLineWidth(Font* font, const char* line, int32_t len) {
     float width = 0;
     int32_t pos = 0;
-    while (len > pos) {
-        uint16_t ch = TextUtils_decodeUtf8(line, len, &pos);
+    uint16_t ch = (pos < len) ? TextUtils_decodeUtf8(line, len, &pos) : 0;
+    while (ch) {
+        uint16_t nextCh = (pos < len) ? TextUtils_decodeUtf8(line, len, &pos) : 0;
         FontGlyph* glyph = TextUtils_findGlyph(font, ch);
-        if (glyph == nullptr) continue;
-
-        width += glyph->shift;
-
-        if (len > pos) {
-            int32_t savedPos = pos;
-            uint16_t nextCh = TextUtils_decodeUtf8(line, len, &pos);
-            pos = savedPos;
-            width += TextUtils_getKerningOffset(glyph, nextCh);
+        if (glyph) {
+            width += glyph->shift;
+            if (nextCh) width += TextUtils_getKerningOffset(glyph, nextCh);
         }
+        ch = nextCh;
     }
     return width;
 }

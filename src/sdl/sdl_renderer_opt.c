@@ -70,7 +70,7 @@ static void drawDebugOverlay(SDL_Surface* screen, const SDLDebugInfo* info) {
     snprintf(lines[lineCount++], sizeof(lines[3]),
              "Free mem: %d KB", info->freeMemoryBytes / 1024);
     snprintf(lines[lineCount++], sizeof(lines[4]),
-             "Room: %s (speed: %u)",
+             "Room: %s (fps: %u)",
              info->roomName ? info->roomName : "unknown", info->roomSpeed);
 
     // Рендерим каждую строку отдельно

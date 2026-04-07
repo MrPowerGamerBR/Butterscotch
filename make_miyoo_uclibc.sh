@@ -16,7 +16,7 @@ echolog ()
 }
 
 echolog "Creating and starting container..."
-CONTAINER_ID=`sudo docker run -v "$(pwd)/${PROJECT_DIR}":/src -itd docker.io/miyoocfw/toolchain-shared-uclibc:latest`
+CONTAINER_ID=`sudo docker run -v "$(pwd)/${PROJECT_DIR}":/src -itd docker.io/miyoocfw/toolchain-static-uclibc:latest`
 
 echolog "Compiling in container..."
 sudo docker exec -it -w "/src" "${CONTAINER_ID}" bash -c "${MAKE_CMD}"

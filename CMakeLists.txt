@@ -11,7 +11,7 @@ option(NO_AUDIO "Disable audio support" OFF)
 # Build metadata
 set(BUTTERSCOTCH_COMMIT_HASH "unknown" CACHE STRING "Git commit hash")
 set(BUTTERSCOTCH_COMMIT_DATE "unknown" CACHE STRING "Git commit date")
-set(BUTTERSCOTCH_VERSION "1.2.0" CACHE STRING "Butterscotch version")
+set(BUTTERSCOTCH_VERSION "1.3.0" CACHE STRING "Butterscotch version")
 add_compile_definitions(
     BUTTERSCOTCH_COMMIT_HASH="${BUTTERSCOTCH_COMMIT_HASH}"
     BUTTERSCOTCH_COMMIT_DATE="${BUTTERSCOTCH_COMMIT_DATE}"

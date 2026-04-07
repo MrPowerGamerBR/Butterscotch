@@ -11,7 +11,7 @@ jobs:
     name: Build (Miyoo/uclibc)
     runs-on: ubuntu-latest
     container:
-      image: miyoocfw/toolchain-shared-uclibc:latest
+      image: miyoocfw/toolchain-static-uclibc:latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,7 +45,7 @@ jobs:
     name: Build (Miyoo/musl)
     runs-on: ubuntu-latest
     container:
-      image: miyoocfw/toolchain-shared-musl:latest
+      image: miyoocfw/toolchain-static-musl:latest
     steps:
       - uses: actions/checkout@v4
         with:

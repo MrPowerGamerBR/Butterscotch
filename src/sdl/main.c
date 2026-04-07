@@ -866,15 +866,14 @@ int main(int argc, char* argv[]) {
             shouldQuit = true;
         }
 
+        uint32_t frameElapsedMs = SDL_GetTicks() - frameStartTime;
+
         if (shouldStep && args.traceFrames) {
-            uint32_t frameElapsedMs = SDL_GetTicks() - frameStartTime;
             fprintf(stderr, "Frame %d (End, %u ms)\n", runner->frameCount, frameElapsedMs);
         }
 
         // Update debug overlay info (if debug mode is enabled)
         if (runner->debugMode) {
-            uint32_t frameElapsedMs = SDL_GetTicks() - frameStartTime;
-
             // Get free memory via mallinfo2 if available
             int freeMemBytes = 0;
 #if defined(__GLIBC__) && !defined(__UCLIBC__)
@@ -888,9 +887,9 @@ int main(int argc, char* argv[]) {
                 instanceCount = (int)arrlen(runner->instances);
             }
 
-            // Current room info
+            // Current room info — show actual FPS, not room speed
             const char* roomName = runner->currentRoom ? runner->currentRoom->name : "unknown";
-            uint32_t roomSpeed = runner->currentRoom ? runner->currentRoom->speed : 0;
+            uint32_t actualFps = frameElapsedMs > 0 ? 1000 / frameElapsedMs : 0;
 
             SDLDebugInfo debugInfo;
             memset(&debugInfo, 0, sizeof(debugInfo));
@@ -898,7 +897,7 @@ int main(int argc, char* argv[]) {
             debugInfo.instanceCount = instanceCount;
             debugInfo.freeMemoryBytes = freeMemBytes;
             debugInfo.roomName = roomName;
-            debugInfo.roomSpeed = roomSpeed;
+            debugInfo.roomSpeed = actualFps;
             debugInfo.frameCount = runner->frameCount;
 
             SDLRendererOpt_updateDebugInfo(runner->renderer, &debugInfo);
