@@ -442,38 +442,38 @@ void VMBuiltins_setVariable(VMContext* ctx, const char* name, RValue val, int32_
 
     // Per-instance properties
     if (inst != nullptr) {
-        if (strcmp(name, "image_speed") == 0) { inst->imageSpeed = RValue_toReal(val); return; }
-        if (strcmp(name, "image_index") == 0) { inst->imageIndex = RValue_toReal(val); return; }
-        if (strcmp(name, "image_xscale") == 0) { inst->imageXscale = RValue_toReal(val); return; }
-        if (strcmp(name, "image_yscale") == 0) { inst->imageYscale = RValue_toReal(val); return; }
-        if (strcmp(name, "image_angle") == 0) { inst->imageAngle = RValue_toReal(val); return; }
-        if (strcmp(name, "image_alpha") == 0) { inst->imageAlpha = RValue_toReal(val); return; }
+        if (strcmp(name, "image_speed") == 0) { inst->imageSpeed = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "image_index") == 0) { inst->imageIndex = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "image_xscale") == 0) { inst->imageXscale = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "image_yscale") == 0) { inst->imageYscale = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "image_angle") == 0) { inst->imageAngle = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "image_alpha") == 0) { inst->imageAlpha = (float) RValue_toReal(val); return; }
         if (strcmp(name, "image_blend") == 0) { inst->imageBlend = (uint32_t) RValue_toReal(val); return; }
         if (strcmp(name, "sprite_index") == 0) { inst->spriteIndex = RValue_toInt32(val); return; }
         if (strcmp(name, "visible") == 0) { inst->visible = RValue_toBool(val); return; }
         if (strcmp(name, "depth") == 0) { inst->depth = RValue_toInt32(val); return; }
-        if (strcmp(name, "x") == 0) { inst->x = RValue_toReal(val); return; }
-        if (strcmp(name, "y") == 0) { inst->y = RValue_toReal(val); return; }
+        if (strcmp(name, "x") == 0) { inst->x = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "y") == 0) { inst->y = (float) RValue_toReal(val); return; }
         if (strcmp(name, "persistent") == 0) { inst->persistent = RValue_toBool(val); return; }
         if (strcmp(name, "solid") == 0) { inst->solid = RValue_toBool(val); return; }
-        if (strcmp(name, "xprevious") == 0) { inst->xprevious = RValue_toReal(val); return; }
-        if (strcmp(name, "yprevious") == 0) { inst->yprevious = RValue_toReal(val); return; }
-        if (strcmp(name, "xstart") == 0) { inst->xstart = RValue_toReal(val); return; }
-        if (strcmp(name, "ystart") == 0) { inst->ystart = RValue_toReal(val); return; }
+        if (strcmp(name, "xprevious") == 0) { inst->xprevious = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "yprevious") == 0) { inst->yprevious = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "xstart") == 0) { inst->xstart = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "ystart") == 0) { inst->ystart = (float) RValue_toReal(val); return; }
         if (strcmp(name, "mask_index") == 0) { inst->maskIndex = RValue_toInt32(val); return; }
-        if (strcmp(name, "speed") == 0) { inst->speed = RValue_toReal(val); Instance_computeComponentsFromSpeed(inst); return; }
+        if (strcmp(name, "speed") == 0) { inst->speed = (float) RValue_toReal(val); Instance_computeComponentsFromSpeed(inst); return; }
         if (strcmp(name, "direction") == 0) {
             GMLReal d = GMLReal_fmod(RValue_toReal(val), 360.0);
             if (d < 0.0) d += 360.0;
-            inst->direction = d;
+            inst->direction = (float) d;
             Instance_computeComponentsFromSpeed(inst);
             return;
         }
-        if (strcmp(name, "hspeed") == 0) { inst->hspeed = RValue_toReal(val); Instance_computeSpeedFromComponents(inst); return; }
-        if (strcmp(name, "vspeed") == 0) { inst->vspeed = RValue_toReal(val); Instance_computeSpeedFromComponents(inst); return; }
-        if (strcmp(name, "friction") == 0) { inst->friction = RValue_toReal(val); return; }
-        if (strcmp(name, "gravity") == 0) { inst->gravity = RValue_toReal(val); return; }
-        if (strcmp(name, "gravity_direction") == 0) { inst->gravityDirection = RValue_toReal(val); return; }
+        if (strcmp(name, "hspeed") == 0) { inst->hspeed = (float) RValue_toReal(val); Instance_computeSpeedFromComponents(inst); return; }
+        if (strcmp(name, "vspeed") == 0) { inst->vspeed = (float) RValue_toReal(val); Instance_computeSpeedFromComponents(inst); return; }
+        if (strcmp(name, "friction") == 0) { inst->friction = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "gravity") == 0) { inst->gravity = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "gravity_direction") == 0) { inst->gravityDirection = (float) RValue_toReal(val); return; }
         if (strcmp(name, "alarm") == 0) {
             if (isValidAlarmIndex(arrayIndex)) {
                 int32_t newValue = RValue_toInt32(val);
@@ -490,10 +490,17 @@ void VMBuiltins_setVariable(VMContext* ctx, const char* name, RValue val, int32_
         }
 
         // Path instance variables (writable)
-        if (strcmp(name, "path_position") == 0) { inst->pathPosition = RValue_toReal(val); return; }
-        if (strcmp(name, "path_speed") == 0) { inst->pathSpeed = RValue_toReal(val); return; }
-        if (strcmp(name, "path_scale") == 0) { inst->pathScale = RValue_toReal(val); return; }
-        if (strcmp(name, "path_orientation") == 0) { inst->pathOrientation = RValue_toReal(val); return; }
+        if (strcmp(name, "path_position") == 0) {
+            // Native GMS runner clamps path_position to [0.0, 1.0] on set
+            float pos = (float) RValue_toReal(val);
+            if (pos < 0.0f) pos = 0.0f;
+            else if (pos > 1.0f) pos = 1.0f;
+            inst->pathPosition = pos;
+            return;
+        }
+        if (strcmp(name, "path_speed") == 0) { inst->pathSpeed = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "path_scale") == 0) { inst->pathScale = (float) RValue_toReal(val); return; }
+        if (strcmp(name, "path_orientation") == 0) { inst->pathOrientation = (float) RValue_toReal(val); return; }
         if (strcmp(name, "path_endaction") == 0) { inst->pathEndAction = RValue_toInt32(val); return; }
     }
 
@@ -640,6 +647,18 @@ void VMBuiltins_setVariable(VMContext* ctx, const char* name, RValue val, int32_
     }
     if (strcmp(name, "room_persistent") == 0) {
         runner->currentRoom->persistent = RValue_toBool(val);
+        return;
+    }
+    if (strcmp(name, "room_width") == 0) {
+        runner->currentRoom->width = (uint32_t) RValue_toInt32(val);
+        return;
+    }
+    if (strcmp(name, "room_height") == 0) {
+        runner->currentRoom->height = (uint32_t) RValue_toInt32(val);
+        return;
+    }
+    if (strcmp(name, "room_speed") == 0) {
+        runner->currentRoom->speed = (uint32_t) RValue_toInt32(val);
         return;
     }
 
@@ -1091,8 +1110,8 @@ static RValue builtinMoveTowardsPoint(VMContext* ctx, RValue* args, MAYBE_UNUSED
     GMLReal dy = targetY - inst->y;
     GMLReal dir = GMLReal_atan2(-dy, dx) * (180.0 / M_PI);
     if (dir < 0.0) dir += 360.0;
-    inst->direction = dir;
-    inst->speed = spd;
+    inst->direction = (float) dir;
+    inst->speed = (float) spd;
     Instance_computeComponentsFromSpeed(inst);
     return RValue_makeReal(0.0);
 }
@@ -1101,8 +1120,8 @@ static RValue builtinMoveSnap(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t
     GMLReal hsnap = RValue_toReal(args[0]);
     GMLReal vsnap = RValue_toReal(args[1]);
     Instance* inst = ctx->currentInstance;
-    if (hsnap > 0.0) inst->x = GMLReal_floor((inst->x / hsnap) + 0.5) * hsnap;
-    if (vsnap > 0.0) inst->y = GMLReal_floor((inst->y / vsnap) + 0.5) * vsnap;
+    if (hsnap > 0.0) inst->x = (float) (GMLReal_floor((inst->x / hsnap) + 0.5) * hsnap);
+    if (vsnap > 0.0) inst->y = (float) (GMLReal_floor((inst->y / vsnap) + 0.5) * vsnap);
     return RValue_makeReal(0.0);
 }
 
@@ -2803,18 +2822,18 @@ static RValue builtinActionMove(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
         if (4 == pick) {
             // STOP
             if (ctx->actionRelativeFlag) {
-                inst->speed += spd;
+                inst->speed += (float) spd;
             } else {
                 inst->speed = 0;
             }
         } else {
             GMLReal angle = angles[pick];
             if (ctx->actionRelativeFlag) {
-                inst->direction += angle;
-                inst->speed += spd;
+                inst->direction += (float) angle;
+                inst->speed += (float) spd;
             } else {
-                inst->direction = angle;
-                inst->speed = spd;
+                inst->direction = (float) angle;
+                inst->speed = (float) spd;
             }
         }
         Instance_computeComponentsFromSpeed(inst);
@@ -2830,11 +2849,11 @@ static RValue builtinActionMoveTo(VMContext* ctx, MAYBE_UNUSED RValue* args, MAY
     if (ctx->currentInstance != nullptr) {
         Instance* inst = (Instance*) ctx->currentInstance;
         if (ctx->actionRelativeFlag) {
-            inst->x += ax;
-            inst->y += ay;
+            inst->x += (float) ax;
+            inst->y += (float) ay;
         } else {
-            inst->x = ax;
-            inst->y = ay;
+            inst->x = (float) ax;
+            inst->y = (float) ay;
         }
     }
     return RValue_makeUndefined();
@@ -2846,9 +2865,9 @@ static RValue builtinActionSetFriction(VMContext* ctx, MAYBE_UNUSED RValue* args
     if (ctx->currentInstance != nullptr) {
         Instance* inst = (Instance*) ctx->currentInstance;
         if (ctx->actionRelativeFlag) {
-            inst->friction += val;
+            inst->friction += (float) val;
         } else {
-            inst->friction = val;
+            inst->friction = (float) val;
         }
     }
     return RValue_makeUndefined();
@@ -2861,11 +2880,11 @@ static RValue builtinActionSetGravity(VMContext* ctx, MAYBE_UNUSED RValue* args,
     if (ctx->currentInstance != nullptr) {
         Instance* inst = (Instance*) ctx->currentInstance;
         if (ctx->actionRelativeFlag) {
-            inst->gravityDirection += dir;
-            inst->gravity += grav;
+            inst->gravityDirection += (float) dir;
+            inst->gravity += (float) grav;
         } else {
-            inst->gravityDirection = dir;
-            inst->gravity = grav;
+            inst->gravityDirection = (float) dir;
+            inst->gravity = (float) grav;
         }
     }
     return RValue_makeUndefined();
@@ -2877,9 +2896,9 @@ static RValue builtinActionSetHspeed(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     if (ctx->currentInstance != nullptr) {
         Instance* inst = (Instance*) ctx->currentInstance;
         if (ctx->actionRelativeFlag) {
-            inst->hspeed += val;
+            inst->hspeed += (float) val;
         } else {
-            inst->hspeed = val;
+            inst->hspeed = (float) val;
         }
         Instance_computeSpeedFromComponents(inst);
     }
@@ -2892,9 +2911,9 @@ static RValue builtinActionSetVspeed(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     if (ctx->currentInstance != nullptr) {
         Instance* inst = (Instance*) ctx->currentInstance;
         if (ctx->actionRelativeFlag) {
-            inst->vspeed += val;
+            inst->vspeed += (float) val;
         } else {
-            inst->vspeed = val;
+            inst->vspeed = (float) val;
         }
         Instance_computeSpeedFromComponents(inst);
     }
@@ -3971,6 +3990,45 @@ static RValue builtinActionSetAlarm(VMContext* ctx, MAYBE_UNUSED RValue* args, M
     return RValue_makeUndefined();
 }
 
+static RValue builtinAlarmSet(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t alarmIndex = RValue_toInt32(args[0]);
+    int32_t value = RValue_toInt32(args[1]);
+
+    if (0 > alarmIndex || alarmIndex >= GML_ALARM_COUNT) {
+        return RValue_makeUndefined();
+    }
+
+    if (ctx->currentInstance != nullptr) {
+        Instance* inst = (Instance*) ctx->currentInstance;
+
+#ifndef DISABLE_VM_TRACING
+        Runner* runner = (Runner*) ctx->runner;
+        if (shgeti(ctx->alarmsToBeTraced, "*") != -1 || shgeti(ctx->alarmsToBeTraced, runner->dataWin->objt.objects[inst->objectIndex].name) != -1) {
+            fprintf(stderr, "VM: [%s] Setting Alarm[%d] = %d (instanceId=%d)\n", runner->dataWin->objt.objects[inst->objectIndex].name, alarmIndex, value, inst->instanceId);
+        }
+#endif
+
+        inst->alarm[alarmIndex] = value;
+    }
+
+    return RValue_makeUndefined();
+}
+
+static RValue builtinAlarmGet(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t alarmIndex = RValue_toInt32(args[0]);
+
+    if (0 > alarmIndex || alarmIndex >= GML_ALARM_COUNT) {
+        return RValue_makeReal(-1);
+    }
+
+    if (ctx->currentInstance != nullptr) {
+        Instance* inst = (Instance*) ctx->currentInstance;
+        return RValue_makeReal((GMLReal) inst->alarm[alarmIndex]);
+    }
+
+    return RValue_makeReal(-1);
+}
+
 static RValue builtinActionIfVariable(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     bool check;
     switch (args[0].type) {
@@ -4076,27 +4134,27 @@ static RValue builtinPathStart(VMContext* ctx, RValue* args, int32_t argCount) {
     if (0.0 >= path->length) return RValue_makeUndefined();
 
     inst->pathIndex = pathIdx;
-    inst->pathSpeed = speed;
+    inst->pathSpeed = (float) speed;
 
-    if (inst->pathSpeed >= 0.0) {
-        inst->pathPosition = 0.0;
+    if (inst->pathSpeed >= 0.0f) {
+        inst->pathPosition = 0.0f;
     } else {
-        inst->pathPosition = 1.0;
+        inst->pathPosition = 1.0f;
     }
 
     inst->pathPositionPrevious = inst->pathPosition;
-    inst->pathScale = 1.0;
-    inst->pathOrientation = 0.0;
+    inst->pathScale = 1.0f;
+    inst->pathOrientation = 0.0f;
     inst->pathEndAction = endAction;
 
     if (absolute) {
-        PathPositionResult startPos = GamePath_getPosition(path, inst->pathSpeed >= 0.0 ? 0.0 : 1.0);
-        inst->x = startPos.x;
-        inst->y = startPos.y;
+        PathPositionResult startPos = GamePath_getPosition(path, inst->pathSpeed >= 0.0f ? 0.0 : 1.0);
+        inst->x = (float) startPos.x;
+        inst->y = (float) startPos.y;
 
         PathPositionResult origin = GamePath_getPosition(path, 0.0);
-        inst->pathXStart = origin.x;
-        inst->pathYStart = origin.y;
+        inst->pathXStart = (float) origin.x;
+        inst->pathYStart = (float) origin.y;
     } else {
         inst->pathXStart = inst->x;
         inst->pathYStart = inst->y;
@@ -4709,6 +4767,8 @@ void VMBuiltins_registerAll(bool isGMS2) {
     registerBuiltin("get_timer", builtin_get_timer);
     registerBuiltin("action_if_variable", builtinActionIfVariable);
     registerBuiltin("action_set_alarm", builtinActionSetAlarm);
+    registerBuiltin("alarm_set", builtinAlarmSet);
+    registerBuiltin("alarm_get", builtinAlarmGet);
     registerBuiltin("action_sound",builtin_action_sound);
     registerBuiltin("string_hash_to_newline", builtinStringHashToNewline);
     registerBuiltin("json_decode", builtinJsonDecode);

@@ -11,12 +11,12 @@ Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, G
     Instance* inst = safeCalloc(1, sizeof(Instance));
     inst->instanceId = instanceId;
     inst->objectIndex = objectIndex;
-    inst->x = x;
-    inst->y = y;
-    inst->xprevious = x;
-    inst->yprevious = y;
-    inst->xstart = x;
-    inst->ystart = y;
+    inst->x = (float) x;
+    inst->y = (float) y;
+    inst->xprevious = (float) x;
+    inst->yprevious = (float) y;
+    inst->xstart = (float) x;
+    inst->ystart = (float) y;
     inst->maskIndex = -1;
     inst->persistent = false;
     inst->solid = false;
@@ -25,23 +25,23 @@ Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, G
     inst->destroyed = false;
     inst->outsideRoom = false;
     inst->spriteIndex = -1;
-    inst->imageSpeed = 1.0;
-    inst->imageIndex = 0.0;
-    inst->imageXscale = 1.0;
-    inst->imageYscale = 1.0;
-    inst->imageAngle = 0.0;
-    inst->imageAlpha = 1.0;
+    inst->imageSpeed = 1.0f;
+    inst->imageIndex = 0.0f;
+    inst->imageXscale = 1.0f;
+    inst->imageYscale = 1.0f;
+    inst->imageAngle = 0.0f;
+    inst->imageAlpha = 1.0f;
     inst->imageBlend = 0xFFFFFF;
     inst->depth = 0;
-    inst->speed = 0.0;
-    inst->direction = 0.0;
-    inst->hspeed = 0.0;
-    inst->vspeed = 0.0;
-    inst->friction = 0.0;
-    inst->gravity = 0.0;
-    inst->gravityDirection = 270.0;
+    inst->speed = 0.0f;
+    inst->direction = 0.0f;
+    inst->hspeed = 0.0f;
+    inst->vspeed = 0.0f;
+    inst->friction = 0.0f;
+    inst->gravity = 0.0f;
+    inst->gravityDirection = 270.0f;
     inst->pathIndex = -1;
-    inst->pathScale = 1.0;
+    inst->pathScale = 1.0f;
     inst->selfVars = nullptr;
     inst->selfArrayMap = nullptr;
     inst->selfArrayVarTracker = nullptr;
@@ -78,45 +78,45 @@ void Instance_free(Instance* instance) {
 // Compute speed and direction from hspeed/vspeed (HTML5: Compute_Speed1)
 void Instance_computeSpeedFromComponents(Instance* inst) {
     // Direction
-    if (inst->hspeed == 0.0) {
-        if (inst->vspeed > 0.0) {
-            inst->direction = 270.0;
-        } else if (inst->vspeed < 0.0) {
-            inst->direction = 90.0;
+    if (inst->hspeed == 0.0f) {
+        if (inst->vspeed > 0.0f) {
+            inst->direction = 270.0f;
+        } else if (inst->vspeed < 0.0f) {
+            inst->direction = 90.0f;
         }
         // If both are 0, direction stays unchanged
     } else {
         GMLReal dd = clampFloat(180.0 * GMLReal_atan2(inst->vspeed, inst->hspeed) / M_PI);
         if (dd <= 0.0) {
-            inst->direction = -dd;
+            inst->direction = (float) -dd;
         } else {
-            inst->direction = 360.0 - dd;
+            inst->direction = (float) (360.0 - dd);
         }
     }
 
     // Round direction if very close to integer
     if (GMLReal_fabs(inst->direction - GMLReal_round(inst->direction)) < 0.0001) {
-        inst->direction = GMLReal_round(inst->direction);
+        inst->direction = (float) GMLReal_round(inst->direction);
     }
-    inst->direction = GMLReal_fmod(inst->direction, 360.0);
+    inst->direction = (float) GMLReal_fmod(inst->direction, 360.0);
 
     // Speed
-    inst->speed = GMLReal_sqrt(inst->hspeed * inst->hspeed + inst->vspeed * inst->vspeed);
+    inst->speed = (float) GMLReal_sqrt(inst->hspeed * inst->hspeed + inst->vspeed * inst->vspeed);
     if (GMLReal_fabs(inst->speed - GMLReal_round(inst->speed)) < 0.0001) {
-        inst->speed = GMLReal_round(inst->speed);
+        inst->speed = (float) GMLReal_round(inst->speed);
     }
 }
 
 // Compute hspeed/vspeed from speed and direction (HTML5: Compute_Speed2)
 void Instance_computeComponentsFromSpeed(Instance* inst) {
-    inst->hspeed = inst->speed * clampFloat(GMLReal_cos(inst->direction * (M_PI / 180.0)));
-    inst->vspeed = -inst->speed * clampFloat(GMLReal_sin(inst->direction * (M_PI / 180.0)));
+    inst->hspeed = (float) (inst->speed * clampFloat(GMLReal_cos(inst->direction * (M_PI / 180.0))));
+    inst->vspeed = (float) (-inst->speed * clampFloat(GMLReal_sin(inst->direction * (M_PI / 180.0))));
 
     // Round if very close to integer
     if (GMLReal_fabs(inst->hspeed - GMLReal_round(inst->hspeed)) < 0.0001) {
-        inst->hspeed = GMLReal_round(inst->hspeed);
+        inst->hspeed = (float) GMLReal_round(inst->hspeed);
     }
     if (GMLReal_fabs(inst->vspeed - GMLReal_round(inst->vspeed)) < 0.0001) {
-        inst->vspeed = GMLReal_round(inst->vspeed);
+        inst->vspeed = (float) GMLReal_round(inst->vspeed);
     }
 }

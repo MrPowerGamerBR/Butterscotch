@@ -13,9 +13,11 @@ typedef struct { int32_t key; RValue value; } SelfVarEntry;
 typedef struct Instance {
     uint32_t instanceId;
     int32_t objectIndex;
-    GMLReal x, y;
-    GMLReal xprevious, yprevious;
-    GMLReal xstart, ystart;
+    // Native GMS runner stores all instance built-in variables as float (32-bit),
+    // even though RValues use double. This matches the native precision model.
+    float x, y;
+    float xprevious, yprevious;
+    float xstart, ystart;
     bool persistent, solid, active, destroyed, visible, createEventFired, outsideRoom;
     int32_t maskIndex; // collision mask sprite override (-1 = use spriteIndex)
 
@@ -26,27 +28,27 @@ typedef struct Instance {
 
     // Built-in instance properties
     int32_t spriteIndex;
-    GMLReal imageSpeed, imageIndex;
-    GMLReal imageXscale, imageYscale, imageAngle, imageAlpha;
+    float imageSpeed, imageIndex;
+    float imageXscale, imageYscale, imageAngle, imageAlpha;
     uint32_t imageBlend;
     int32_t depth;
 
     // Motion properties
-    GMLReal speed, direction;
-    GMLReal hspeed, vspeed;
-    GMLReal friction;
-    GMLReal gravity, gravityDirection;
+    float speed, direction;
+    float hspeed, vspeed;
+    float friction;
+    float gravity, gravityDirection;
 
     // Path following state
     int32_t pathIndex;           // -1 = no path active
-    GMLReal pathPosition;         // 0.0-1.0
-    GMLReal pathPositionPrevious;
-    GMLReal pathSpeed;
-    GMLReal pathScale;            // default 1.0
-    GMLReal pathOrientation;      // degrees, default 0.0
+    float pathPosition;           // 0.0-1.0
+    float pathPositionPrevious;
+    float pathSpeed;
+    float pathScale;              // default 1.0
+    float pathOrientation;        // degrees, default 0.0
     int32_t pathEndAction;       // 0=stop, 1=restart, 2=continue, 3=reverse
-    GMLReal pathXStart;           // origin for relative paths
-    GMLReal pathYStart;
+    float pathXStart;             // origin for relative paths
+    float pathYStart;
 
     int32_t alarm[GML_ALARM_COUNT];
 } Instance;

@@ -845,9 +845,9 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
         if (isObjectDisabled(runner, roomObj->objectDefinition)) continue;
 
         Instance* inst = createAndInitInstance(runner, roomObj->instanceID, roomObj->objectDefinition, (GMLReal) roomObj->x, (GMLReal) roomObj->y);
-        inst->imageXscale = (GMLReal) roomObj->scaleX;
-        inst->imageYscale = (GMLReal) roomObj->scaleY;
-        inst->imageAngle = (GMLReal) roomObj->rotation;
+        inst->imageXscale = (float) roomObj->scaleX;
+        inst->imageYscale = (float) roomObj->scaleY;
+        inst->imageAngle = (float) roomObj->rotation;
     }
 
     // Pass 2: Fire events for newly created instances (in room definition order)
@@ -1187,29 +1187,34 @@ static bool adaptPath(Runner* runner, Instance* inst) {
     PathPositionResult cur = GamePath_getPosition(path, inst->pathPosition);
     GMLReal sp = cur.speed / (100.0 * inst->pathScale);
 
-    // Advance position
-    inst->pathPosition = inst->pathPosition + inst->pathSpeed * sp / path->length;
+    // Advance position (compute in higher precision, truncate to float on store - matches native runner)
+    inst->pathPosition = (float) (inst->pathPosition + inst->pathSpeed * sp / path->length);
 
     // Handle end actions if position out of [0,1]
     PathPositionResult pos0 = GamePath_getPosition(path, 0.0);
-    if (inst->pathPosition >= 1.0 || 0.0 >= inst->pathPosition) {
-        atPathEnd = (inst->pathSpeed == 0.0) ? false : true;
+    if (inst->pathPosition >= 1.0f || 0.0f >= inst->pathPosition) {
+        atPathEnd = (inst->pathSpeed == 0.0f) ? false : true;
 
         switch (inst->pathEndAction) {
             // stop moving
             case 0: {
-                if (inst->pathSpeed != 0.0) {
-                    inst->pathPosition = 1.0;
+                if (inst->pathSpeed >= 0.0f) {
+                    if (inst->pathSpeed != 0.0f) {
+                        inst->pathPosition = 1.0f;
+                        inst->pathIndex = -1;
+                    }
+                } else {
+                    inst->pathPosition = 0.0f;
                     inst->pathIndex = -1;
                 }
                 break;
             }
             // continue from start position (restart)
             case 1: {
-                if (0.0 > inst->pathPosition) {
-                    inst->pathPosition += 1.0;
+                if (0.0f > inst->pathPosition) {
+                    inst->pathPosition += 1.0f;
                 } else {
-                    inst->pathPosition -= 1.0;
+                    inst->pathPosition -= 1.0f;
                 }
                 break;
             }
@@ -1221,31 +1226,31 @@ static bool adaptPath(Runner* runner, Instance* inst) {
                 GMLReal xdif = inst->pathScale * (xx * GMLReal_cos(orient) + yy * GMLReal_sin(orient));
                 GMLReal ydif = inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
 
-                if (0.0 > inst->pathPosition) {
-                    inst->pathXStart -= xdif;
-                    inst->pathYStart -= ydif;
-                    inst->pathPosition += 1.0;
+                if (0.0f > inst->pathPosition) {
+                    inst->pathXStart -= (float) xdif;
+                    inst->pathYStart -= (float) ydif;
+                    inst->pathPosition += 1.0f;
                 } else {
-                    inst->pathXStart += xdif;
-                    inst->pathYStart += ydif;
-                    inst->pathPosition -= 1.0;
+                    inst->pathXStart += (float) xdif;
+                    inst->pathYStart += (float) ydif;
+                    inst->pathPosition -= 1.0f;
                 }
                 break;
             }
             // reverse
             case 3: {
-                if (0.0 > inst->pathPosition) {
+                if (0.0f > inst->pathPosition) {
                     inst->pathPosition = -inst->pathPosition;
-                    inst->pathSpeed = GMLReal_fabs(inst->pathSpeed);
+                    inst->pathSpeed = (float) GMLReal_fabs(inst->pathSpeed);
                 } else {
-                    inst->pathPosition = 2.0 - inst->pathPosition;
-                    inst->pathSpeed = -GMLReal_fabs(inst->pathSpeed);
+                    inst->pathPosition = 2.0f - inst->pathPosition;
+                    inst->pathSpeed = (float) -GMLReal_fabs(inst->pathSpeed);
                 }
                 break;
             }
             // default: stop
             default: {
-                inst->pathPosition = 1.0;
+                inst->pathPosition = 1.0f;
                 inst->pathIndex = -1;
                 break;
             }
@@ -1261,18 +1266,18 @@ static bool adaptPath(Runner* runner, Instance* inst) {
     GMLReal newy = inst->pathYStart + inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
 
     // Trick to set the direction: set hspeed/vspeed to delta, which updates direction
-    inst->hspeed = newx - inst->x;
-    inst->vspeed = newy - inst->y;
+    inst->hspeed = (float) (newx - inst->x);
+    inst->vspeed = (float) (newy - inst->y);
     Instance_computeSpeedFromComponents(inst);
 
     // Normal speed should not be used
-    inst->speed = 0.0;
-    inst->hspeed = 0.0;
-    inst->vspeed = 0.0;
+    inst->speed = 0.0f;
+    inst->hspeed = 0.0f;
+    inst->vspeed = 0.0f;
 
     // Set the new position
-    inst->x = newx;
-    inst->y = newy;
+    inst->x = (float) newx;
+    inst->y = (float) newy;
 
     return atPathEnd;
 }
@@ -1300,11 +1305,11 @@ void Runner_step(Runner* runner) {
 
         // Wrap image_index (matches HTML5 runner: manual subtract/add instead of using fmod)
         Sprite* sprite = &runner->dataWin->sprt.sprites[inst->spriteIndex];
-        GMLReal frameCount = (GMLReal) sprite->textureCount;
+        float frameCount = (float) sprite->textureCount;
         if (inst->imageIndex >= frameCount) {
             inst->imageIndex -= frameCount;
             Runner_executeEvent(runner, inst, EVENT_OTHER, OTHER_ANIMATION_END);
-        } else if (0.0 > inst->imageIndex) {
+        } else if (0.0f > inst->imageIndex) {
             inst->imageIndex += frameCount;
             Runner_executeEvent(runner, inst, EVENT_OTHER, OTHER_ANIMATION_END);
         }
@@ -1376,21 +1381,21 @@ void Runner_step(Runner* runner) {
         if (!inst->active) continue;
 
         // Friction: reduce speed toward zero (HTML5: AdaptSpeed)
-        if (inst->friction != 0.0) {
-            GMLReal ns = (inst->speed > 0.0) ? inst->speed - inst->friction : inst->speed + inst->friction;
-            if ((inst->speed > 0.0 && ns < 0.0) || (inst->speed < 0.0 && ns > 0.0)) {
-                inst->speed = 0.0;
-            } else if (inst->speed != 0.0) {
+        if (inst->friction != 0.0f) {
+            float ns = (inst->speed > 0.0f) ? inst->speed - inst->friction : inst->speed + inst->friction;
+            if ((inst->speed > 0.0f && ns < 0.0f) || (inst->speed < 0.0f && ns > 0.0f)) {
+                inst->speed = 0.0f;
+            } else if (inst->speed != 0.0f) {
                 inst->speed = ns;
             }
             Instance_computeComponentsFromSpeed(inst);
         }
 
         // Gravity: add velocity in gravity_direction (HTML5: AddTo_Speed)
-        if (inst->gravity != 0.0) {
+        if (inst->gravity != 0.0f) {
             GMLReal gravDirRad = inst->gravityDirection * (M_PI / 180.0);
-            inst->hspeed += inst->gravity * clampFloat(GMLReal_cos(gravDirRad));
-            inst->vspeed -= inst->gravity * clampFloat(GMLReal_sin(gravDirRad));
+            inst->hspeed += (float) (inst->gravity * clampFloat(GMLReal_cos(gravDirRad)));
+            inst->vspeed -= (float) (inst->gravity * clampFloat(GMLReal_sin(gravDirRad)));
             Instance_computeSpeedFromComponents(inst);
         }
 
@@ -1400,7 +1405,7 @@ void Runner_step(Runner* runner) {
         }
 
         // Apply movement
-        if (inst->hspeed != 0.0 || inst->vspeed != 0.0) {
+        if (inst->hspeed != 0.0f || inst->vspeed != 0.0f) {
             inst->x += inst->hspeed;
             inst->y += inst->vspeed;
         }
