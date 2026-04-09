@@ -1837,7 +1837,7 @@ void Runner_free(Runner* runner) {
             SavedRoomState* state = &runner->savedRoomStates[i];
             int32_t savedCount = (int32_t) arrlen(state->instances);
             repeat(savedCount, j) {
-                hmdel(runner->instancesToId, state->instances[i]->instanceId);
+                hmdel(runner->instancesToId, state->instances[j]->instanceId);
                 Instance_free(state->instances[j]);
             }
             arrfree(state->instances);
