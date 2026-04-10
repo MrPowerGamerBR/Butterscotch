@@ -83,6 +83,14 @@
 #define OP_CALL     0xD9
 #define OP_BREAK    0xFF
 
+// ===[ FuncCallCache - Cached resolution for CALL instructions ]===
+// Avoids per-call string hash lookups in both the builtin map and funcMap.
+// Resolved once during VM_create, then used directly by handleCall.
+typedef struct {
+    void* builtin; // cached BuiltinFunc pointer, or nullptr
+    int32_t scriptCodeIndex; // cached script code index, or -1 if not a script
+} FuncCallCache;
+
 // ===[ CallFrame - Saved state for script-to-script calls ]===
 typedef struct CallFrame {
     uint32_t savedIP;
@@ -174,6 +182,9 @@ typedef struct VMContext {
     int32_t creatorVarID;
     // Cross-reference map for disassembler: targetCodeIndex -> stb_ds array of callerCodeIndex
     struct { int32_t key; int32_t* value; }* crossRefMap;
+    // Cached function call resolution (indexed by funcIndex from FUNC chunk)
+    FuncCallCache* funcCallCache;
+    uint32_t funcCallCacheCount;
 } VMContext;
 
 // ===[ Public API ]===

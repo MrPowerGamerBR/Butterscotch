@@ -90,13 +90,19 @@ static inline InstanceBBox Collision_computeBBox(DataWin* dataWin, Instance* ins
     return (InstanceBBox){left, right, top, bottom, true};
 }
 
-// Tests if point (px, py) hits the instance's precise collision mask
-static inline bool Collision_pointInMask(Sprite* spr, Instance* inst, GMLReal px, GMLReal py) {
-    if (spr->masks == nullptr || spr->maskCount == 0) return true; // no mask = all solid
+static inline bool Collision_hasFrameMasks(Sprite* sprite) {
+    return sprite != nullptr && sprite->sepMasks == 1 && sprite->masks != nullptr && sprite->maskCount > 0;
+}
 
-    // Pick mask for current frame
-    uint32_t frameIdx = ((uint32_t) inst->imageIndex) % spr->maskCount;
-    uint8_t* mask = spr->masks[frameIdx];
+// Tests if world point (px, py) is inside the given instance's collision shape.
+// The point is inverse-transformed into sprite-local coords (translation, rotation, inverse scale, origin) and bounds-checked against the full sprite texture [0, spr.width) x [0, spr.height).
+// Precise sprites (sepMasks == 1) additionally require the mask bit at the resulting local pixel to be set.
+static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLReal px, GMLReal py) {
+    if (spr == nullptr) return false;
+
+    // Reject degenerate scales to avoid divide-by-zero.
+    if (0.0001 > GMLReal_fabs(inst->imageXscale)) return false;
+    if (0.0001 > GMLReal_fabs(inst->imageYscale)) return false;
 
     // Transform world coords to sprite-local coords
     GMLReal dx = px - inst->x;
@@ -123,11 +129,26 @@ static inline bool Collision_pointInMask(Sprite* spr, Instance* inst, GMLReal px
     // Bounds check
     if (0 > ix || 0 > iy || ix >= (int32_t) spr->width || iy >= (int32_t) spr->height) return false;
 
-    uint32_t bytesPerRow = (spr->width + 7) / 8;
-    return (mask[iy * bytesPerRow + (ix >> 3)] & (1 << (7 - (ix & 7)))) != 0;
+    if (Collision_hasFrameMasks(spr)) {
+        // Pick mask for current frame
+        uint32_t frameIdx = ((uint32_t) inst->imageIndex) % spr->maskCount;
+        uint8_t* mask = spr->masks[frameIdx];
+        uint32_t bytesPerRow = (spr->width + 7) / 8;
+        return (mask[iy * bytesPerRow + (ix >> 3)] & (1 << (7 - (ix & 7)))) != 0;
+    }
+
+    return true;
 }
 
-// Tests if two instances' precise masks overlap
+// Returns true if the two instances' collision shapes overlap.
+//
+// Matches the native GMS 1.4 runner's flow in FUN_0043fde0:
+//   1. AABB overlap test on the two precomputed bboxes.
+//   2. If neither sprite is precise (sepMasks == 1), the AABB overlap is enough.
+//   3. Otherwise walk the pixel intersection and test BOTH instances on every
+//      pixel via Collision_pointInInstance. Both sides get inverse-transformed
+//      regardless of whether they're individually precise, so a rotated
+//      non-precise sprite collides as an OBB as long as its partner is precise.
 static inline bool Collision_instancesOverlapPrecise(DataWin* dataWin, Instance* a, Instance* b, InstanceBBox bboxA, InstanceBBox bboxB) {
     // Compute world-space intersection of the two AABBs
     GMLReal iLeft   = GMLReal_fmax(bboxA.left, bboxB.left);
@@ -139,11 +160,11 @@ static inline bool Collision_instancesOverlapPrecise(DataWin* dataWin, Instance*
 
     Sprite* sprA = Collision_getSprite(dataWin, a);
     Sprite* sprB = Collision_getSprite(dataWin, b);
+    if (sprA == nullptr || sprB == nullptr) return false;
 
-    bool preciseA = (sprA != nullptr && sprA->sepMasks == 1 && sprA->masks != nullptr && sprA->maskCount > 0);
-    bool preciseB = (sprB != nullptr && sprB->sepMasks == 1 && sprB->masks != nullptr && sprB->maskCount > 0);
-
-    // If neither needs precise, bbox overlap is sufficient
+    // Neither sprite precise? AABB overlap alone is enough (matches native).
+    bool preciseA = Collision_hasFrameMasks(sprA);
+    bool preciseB = Collision_hasFrameMasks(sprB);
     if (!preciseA && !preciseB) return true;
 
     int32_t startX = (int32_t) GMLReal_floor(iLeft);
@@ -156,17 +177,9 @@ static inline bool Collision_instancesOverlapPrecise(DataWin* dataWin, Instance*
             GMLReal wpx = (GMLReal) px + 0.5;
             GMLReal wpy = (GMLReal) py + 0.5;
 
-            bool hitA = true;
-            if (preciseA) {
-                hitA = Collision_pointInMask(sprA, a, wpx, wpy);
-            }
-
-            bool hitB = true;
-            if (preciseB) {
-                hitB = Collision_pointInMask(sprB, b, wpx, wpy);
-            }
-
-            if (hitA && hitB) return true;
+            if (!Collision_pointInInstance(sprA, a, wpx, wpy)) continue;
+            if (!Collision_pointInInstance(sprB, b, wpx, wpy)) continue;
+            return true;
         }
     }
 

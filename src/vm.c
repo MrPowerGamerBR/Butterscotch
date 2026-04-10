@@ -422,8 +422,17 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
     // Check for array access
     if (access.isArray) {
         switch (instanceType) {
-            case INSTANCE_LOCAL:
-                return arrayMapGet(ctx->localArrayMap, varDef->varID, access.arrayIndex);
+            case INSTANCE_LOCAL: {
+                RValue result = arrayMapGet(ctx->localArrayMap, varDef->varID, access.arrayIndex);
+#ifndef DISABLE_VM_TRACING
+                if (shouldTraceVariable(ctx->varReadsToBeTraced, "local", nullptr, varDef->name)) {
+                    char* rvalueAsString = RValue_toStringTyped(result);
+                    fprintf(stderr, "VM: [%s] READ local.%s[%d] -> %s\n", ctx->currentCodeName, varDef->name, access.arrayIndex, rvalueAsString);
+                    free(rvalueAsString);
+                }
+#endif
+                return result;
+            }
             case INSTANCE_GLOBAL: {
                 int32_t resolvedVarID = resolveArrayAlias(ctx->globalVars, ctx->globalVarCount, varDef->varID);
                 RValue result = arrayMapGet(ctx->globalArrayMap, resolvedVarID, access.arrayIndex);
@@ -478,6 +487,13 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
             } else {
                 result = ctx->localVars[varDef->varID];
             }
+#ifndef DISABLE_VM_TRACING
+            if (shouldTraceVariable(ctx->varReadsToBeTraced, "local", nullptr, varDef->name)) {
+                char* rvalueAsString = RValue_toStringTyped(result);
+                fprintf(stderr, "VM: [%s] READ local.%s -> %s\n", ctx->currentCodeName, varDef->name, rvalueAsString);
+                free(rvalueAsString);
+            }
+#endif
             break;
         case INSTANCE_GLOBAL:
             require(ctx->globalVarCount > (uint32_t) varDef->varID);
@@ -835,65 +851,19 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     }
 }
 
-static void handlePushScoped(VMContext* ctx, MAYBE_UNUSED uint32_t instr, const uint8_t* extraData, ArrayMapEntry* variableMap, uint32_t count, RValue* variables, MAYBE_UNUSED const char* scopeName, MAYBE_UNUSED const char* altScopeName, MAYBE_UNUSED StringBooleanEntry* traceMap) {
-    uint32_t varRef = resolveVarOperand(extraData);
-    Variable* varDef = resolveVarDef(ctx, varRef);
-
-    ArrayAccess access = popArrayAccess(ctx, varRef);
-    RValue val;
-    if (access.isArray) {
-        int32_t resolvedVarID = resolveArrayAlias(variables, count, varDef->varID);
-        val = arrayMapGet(variableMap, resolvedVarID, access.arrayIndex);
-#ifndef DISABLE_VM_TRACING
-        if (shouldTraceVariable(traceMap, scopeName, altScopeName, varDef->name)) {
-            char* rvalueAsString = RValue_toStringTyped(val);
-            fprintf(stderr, "VM: [%s] READ %s.%s[%d] -> %s\n", ctx->currentCodeName, scopeName, varDef->name, access.arrayIndex, rvalueAsString);
-            free(rvalueAsString);
-        }
-#endif
-    } else {
-        require(count > (uint32_t) varDef->varID);
-        if (variables[varDef->varID].type == RVALUE_ARRAY_REF) {
-            val = variables[varDef->varID];
-        } else if (arrayMapHasVariable(variableMap, varDef->varID)) {
-            val = RValue_makeArrayRef(varDef->varID);
-        } else {
-            val = variables[varDef->varID];
-        }
-        val.ownsString = false; // Non-owning copy
-#ifndef DISABLE_VM_TRACING
-        if (shouldTraceVariable(traceMap, scopeName, altScopeName, varDef->name)) {
-            char* rvalueAsString = RValue_toStringTyped(val);
-            fprintf(stderr, "VM: [%s] READ %s.%s -> %s\n", ctx->currentCodeName, scopeName, varDef->name, rvalueAsString);
-            free(rvalueAsString);
-        }
-#endif
-    }
-    stackPush(ctx,val);
+static void handlePushLoc(VMContext* ctx, const uint8_t* extraData) {
+    RValue v = resolveVariableRead(ctx, INSTANCE_LOCAL, resolveVarOperand(extraData));
+    stackPush(ctx, v);
 }
 
-static void handlePushLoc(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
-    handlePushScoped(ctx, instr, extraData, ctx->localArrayMap, ctx->localVarCount, ctx->localVars, "local", nullptr, nullptr);
-}
-
-static void handlePushGlb(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
-#ifndef DISABLE_VM_TRACING
-    StringBooleanEntry* traceMap = ctx->varReadsToBeTraced;
-#else
-    StringBooleanEntry* traceMap = nullptr;
-#endif
-    handlePushScoped(ctx, instr, extraData, ctx->globalArrayMap, ctx->globalVarCount, ctx->globalVars, "global", nullptr, traceMap);
+static void handlePushGlb(VMContext* ctx, const uint8_t* extraData) {
+    RValue v = resolveVariableRead(ctx, INSTANCE_GLOBAL, resolveVarOperand(extraData));
+    stackPush(ctx, v);
 }
 
 static void handlePushBltn(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
-    (void) instr;
-    uint32_t varRef = resolveVarOperand(extraData);
-    Variable* varDef = resolveVarDef(ctx, varRef);
-
-    ArrayAccess access = popArrayAccess(ctx, varRef);
-
-    RValue val = VMBuiltins_getVariable(ctx, varDef->name, access.arrayIndex);
-    stackPush(ctx,val);
+    RValue v = resolveVariableRead(ctx, (int32_t) instrInstanceType(instr), resolveVarOperand(extraData));
+    stackPush(ctx, v);
 }
 
 static void handlePushI(VMContext* ctx, uint32_t instr) {
@@ -1446,8 +1416,6 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     uint32_t funcIndex = resolveFuncOperand(extraData);
     require(ctx->dataWin->func.functionCount > funcIndex);
 
-    const char* funcName = ctx->dataWin->func.functions[funcIndex].name;
-
     // Pop arguments from stack (args pushed right-to-left, so first arg is on top)
     // Use stack-allocated buffer for small arg counts (GMS 1.4 supports up to 16 arguments)
     RValue stackArgs[GML_MAX_ARGUMENTS];
@@ -1460,6 +1428,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     }
 
 #ifndef DISABLE_VM_TRACING
+    const char* funcName = ctx->dataWin->func.functions[funcIndex].name;
     bool functionIsBeingTraced = shgeti(ctx->functionCallsToBeTraced, "*") != -1 || shgeti(ctx->functionCallsToBeTraced, funcName) != -1 || shgeti(ctx->functionCallsToBeTraced, ctx->currentCodeName) != -1;
     char* functionArgumentList = nullptr;
     if (functionIsBeingTraced) {
@@ -1483,9 +1452,12 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     }
 #endif
 
-    // Check built-in functions first
-    BuiltinFunc builtin = VMBuiltins_find(funcName);
-    if (builtin != nullptr) {
+    // Use cached function resolution to avoid per-call string hash lookups
+    FuncCallCache* cache = &ctx->funcCallCache[funcIndex];
+
+    // Fast path: cached builtin function pointer
+    if (cache->builtin != nullptr) {
+        BuiltinFunc builtin = (BuiltinFunc) cache->builtin;
         RValue result = builtin(ctx, args, argCount);
         // Free arguments
         if (args != nullptr) {
@@ -1508,44 +1480,46 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         return;
     }
 
-    // Look up script/user function via funcMap
-    ptrdiff_t mapIdx = shgeti(ctx->funcMap, (char*) funcName);
-    if (0 > mapIdx) {
-        // Log once per (callingCode, funcName) pair
-        const char* callerName = VM_getCallerName(ctx);
-        char* dedupKey = VM_createDedupKey(callerName, funcName);
+    // Fast path: cached script code index
+    if (cache->scriptCodeIndex >= 0) {
+        RValue result = VM_callCodeIndex(ctx, cache->scriptCodeIndex, args, argCount);
 
-        if (0 > shgeti(ctx->loggedUnknownFuncs, dedupKey)) {
-            shput(ctx->loggedUnknownFuncs, dedupKey, true);
-            fprintf(stderr, "VM: [%s] Unknown function \"%s\"!\n", callerName, funcName);
-        } else {
-            free(dedupKey);
+#ifndef DISABLE_VM_TRACING
+        if (functionIsBeingTraced) {
+            char* returnValueAsString = RValue_toStringFancy(result);
+            fprintf(stderr, "VM: [%s] Script function \"%s(%s)\" returned %s\n", ctx->currentCodeName, funcName, functionArgumentList, returnValueAsString);
+            free(returnValueAsString);
+            free(functionArgumentList);
         }
+#endif
 
-        // Free arguments and push undefined
+        // Free arguments (VM_callCodeIndex copies what it needs)
         if (args != nullptr) {
             repeat(argCount, i) {
                 RValue_free(&args[i]);
             }
             if (args != stackArgs) free(args);
         }
-        stackPush(ctx,RValue_makeUndefined());
+
+        stackPush(ctx,result);
         return;
     }
 
-    int32_t codeIndex = ctx->funcMap[mapIdx].value;
-    RValue result = VM_callCodeIndex(ctx, codeIndex, args, argCount);
+    // Slow path: unknown function (not cached as builtin or script)
+    const char* unknownFuncName = ctx->dataWin->func.functions[funcIndex].name;
 
-#ifndef DISABLE_VM_TRACING
-    if (functionIsBeingTraced) {
-        char* returnValueAsString = RValue_toStringFancy(result);
-        fprintf(stderr, "VM: [%s] Script function \"%s(%s)\" returned %s\n", ctx->currentCodeName, funcName, functionArgumentList, returnValueAsString);
-        free(returnValueAsString);
-        free(functionArgumentList);
+    // Log once per (callingCode, funcName) pair
+    const char* callerName = VM_getCallerName(ctx);
+    char* dedupKey = VM_createDedupKey(callerName, unknownFuncName);
+
+    if (0 > shgeti(ctx->loggedUnknownFuncs, dedupKey)) {
+        shput(ctx->loggedUnknownFuncs, dedupKey, true);
+        fprintf(stderr, "VM: [%s] Unknown function \"%s\"!\n", callerName, unknownFuncName);
+    } else {
+        free(dedupKey);
     }
-#endif
 
-    // Free arguments (VM_callCodeIndex copies what it needs)
+    // Free arguments and push undefined
     if (args != nullptr) {
         repeat(argCount, i) {
             RValue_free(&args[i]);
@@ -1553,8 +1527,13 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         if (args != stackArgs) free(args);
     }
 
-    // Push return value
-    stackPush(ctx,result);
+#ifndef DISABLE_VM_TRACING
+    if (functionIsBeingTraced) {
+        free(functionArgumentList);
+    }
+#endif
+
+    stackPush(ctx,RValue_makeUndefined());
 }
 
 // ===[ With-Statement Helpers (PushEnv/PopEnv) ]===
@@ -1809,10 +1788,10 @@ static RValue executeLoop(VMContext* ctx) {
                 handlePush(ctx, instr, extraData);
                 break;
             case OP_PUSHLOC:
-                handlePushLoc(ctx, instr, extraData);
+                handlePushLoc(ctx, extraData);
                 break;
             case OP_PUSHGLB:
-                handlePushGlb(ctx, instr, extraData);
+                handlePushGlb(ctx, extraData);
                 break;
             case OP_PUSHBLTN:
                 handlePushBltn(ctx, instr, extraData);
@@ -1992,6 +1971,22 @@ VMContext* VM_create(DataWin* dataWin) {
 
     // Register built-in functions
     VMBuiltins_registerAll(dataWin->gen8.major >= 2);
+
+    // Pre-resolve all FUNC entries to cached builtin pointers or script code indices.
+    // This eliminates per-call string hash lookups in handleCall.
+    ctx->funcCallCacheCount = dataWin->func.functionCount;
+    ctx->funcCallCache = safeMalloc(dataWin->func.functionCount * sizeof(FuncCallCache));
+    repeat(dataWin->func.functionCount, i) {
+        const char* name = dataWin->func.functions[i].name;
+        BuiltinFunc builtin = VMBuiltins_find(name);
+        ctx->funcCallCache[i].builtin = (void*) builtin;
+        if (builtin != nullptr) {
+            ctx->funcCallCache[i].scriptCodeIndex = -1;
+        } else {
+            ptrdiff_t mapIdx = shgeti(ctx->funcMap, (char*) name);
+            ctx->funcCallCache[i].scriptCodeIndex = (mapIdx >= 0) ? ctx->funcMap[mapIdx].value : -1;
+        }
+    }
 
     fprintf(stderr, "VM: Initialized with %u global vars, sparse self vars (hashmap), %u functions mapped\n", ctx->globalVarCount, (uint32_t) shlen(ctx->funcMap));
 
@@ -2692,6 +2687,9 @@ void VM_free(VMContext* ctx) {
     shfree(ctx->opcodesToBeTraced);
     shfree(ctx->stackToBeTraced);
 #endif
+
+    // Free function call cache
+    free(ctx->funcCallCache);
 
     // Free cross-reference map
     if (ctx->crossRefMap != nullptr) {

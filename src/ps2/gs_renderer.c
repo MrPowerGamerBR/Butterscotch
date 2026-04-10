@@ -1308,10 +1308,12 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
 
     // Vertical alignment
     int32_t lineCount = TextUtils_countLines(text, textLen);
-    float totalHeight = (float) lineCount * (float) font->emSize;
     float valignOffset = 0;
-    if (renderer->drawValign == 1) valignOffset = -totalHeight / 2.0f;
-    else if (renderer->drawValign == 2) valignOffset = -totalHeight;
+    if (renderer->drawValign != 0) {
+        float totalHeight = (float) lineCount * (float) font->emSize;
+        if (renderer->drawValign == 1) valignOffset = -totalHeight / 2.0f;
+        else if (renderer->drawValign == 2) valignOffset = -totalHeight;
+    }
 
     float cursorY = valignOffset;
     int32_t lineStart = 0;
@@ -1327,10 +1329,12 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
         const char* line = text + lineStart;
 
         // Horizontal alignment
-        float lineWidth = TextUtils_measureLineWidth(font, line, lineLen);
         float halignOffset = 0;
-        if (renderer->drawHalign == 1) halignOffset = -lineWidth / 2.0f;
-        else if (renderer->drawHalign == 2) halignOffset = -lineWidth;
+        if (renderer->drawHalign != 0) {
+            float lineWidth = TextUtils_measureLineWidth(font, line, lineLen);
+            if (renderer->drawHalign == 1) halignOffset = -lineWidth / 2.0f;
+            else if (renderer->drawHalign == 2) halignOffset = -lineWidth;
+        }
 
         float cursorX = halignOffset;
 

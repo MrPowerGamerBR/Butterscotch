@@ -18,6 +18,7 @@
 #include "runner_keyboard.h"
 #include "runner.h"
 #include "input_recording.h"
+#include "debug_overlay.h"
 #include "gl_renderer.h"
 #include "glfw_file_system.h"
 #include "ma_audio_system.h"
@@ -568,6 +569,7 @@ int main(int argc, char* argv[]) {
 
     // Main loop
     bool debugPaused = false;
+    bool debugShowCollisionMasks = false;
     double lastFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(window) && !runner->shouldExit) {
         // Clear last frame's pressed/released state, then poll new input events
@@ -634,6 +636,12 @@ int main(int argc, char* argv[]) {
                 }
 
                 free(json);
+            }
+
+            // Toggle the collision mask debug overlay
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F2)) {
+                debugShowCollisionMasks = !debugShowCollisionMasks;
+                fprintf(stderr, "Debug: Collision mask overlay %s!\n", debugShowCollisionMasks ? "enabled" : "disabled");
             }
 
             // Reset global interact state because I HATE when I get stuck while moving through rooms
@@ -764,6 +772,8 @@ int main(int argc, char* argv[]) {
 
                 Runner_draw(runner);
 
+                if (debugShowCollisionMasks) DebugOverlay_drawCollisionMasks(runner);
+
                 renderer->vtable->endView(renderer);
                 anyViewRendered = true;
             }
@@ -774,6 +784,9 @@ int main(int argc, char* argv[]) {
             runner->viewCurrent = 0;
             renderer->vtable->beginView(renderer, 0, 0, gameW, gameH, 0, 0, gameW, gameH, 0.0f);
             Runner_draw(runner);
+
+            if (debugShowCollisionMasks) DebugOverlay_drawCollisionMasks(runner);
+
             renderer->vtable->endView(renderer);
         }
 
