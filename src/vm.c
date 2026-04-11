@@ -179,6 +179,7 @@ static bool arrayMapHasVariable(ArrayMapEntry* map, int32_t varID) {
 // Read from an array map, returning default RValue_makeReal(0.0) if not found
 // Returns a non-owning copy: the array map retains ownership of any owned strings.
 static RValue arrayMapGet(ArrayMapEntry* map, int32_t varID, int32_t arrayIndex) {
+    if (map == nullptr) return RValue_makeReal(0.0); // We still need to check if returning 0.0 (real) is correct, but for now, this will do
     int64_t k = arrayMapKey(varID, arrayIndex);
     ptrdiff_t idx = hmgeti(map, k);
     if (0 > idx) return RValue_makeReal(0.0);
