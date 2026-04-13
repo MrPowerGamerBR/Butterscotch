@@ -78,6 +78,8 @@ elseif(PLATFORM STREQUAL "ps2")
     add_compile_definitions(NO_RVALUE_INT64)
     # Disable Butterscotch VM/interpreter tracing checks
     add_compile_definitions(DISABLE_VM_TRACING)
+    # Platform identifier for PS2-specific code paths (e.g., scratchpad allocation)
+    add_compile_definitions(PLATFORM_PS2)
     # Disable the PS2 audio system
     option(DISABLE_PS2_AUDIO "Disable the PS2 audio system" OFF)
     if(DISABLE_PS2_AUDIO)

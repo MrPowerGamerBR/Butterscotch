@@ -1898,7 +1898,14 @@ static RValue executeLoop(VMContext* ctx) {
 // ===[ Public API ]===
 
 VMContext* VM_create(DataWin* dataWin) {
+#ifdef PLATFORM_PS2
+    // Place VMContext in scratchpad RAM
+    requireMessage(16384 >= sizeof(VMContext), "VMContext exceeds PS2 scratchpad size (16 KB)");
+    VMContext* ctx = (VMContext*) 0x70000000;
+    memset(ctx, 0, sizeof(VMContext));
+#else
     VMContext* ctx = safeCalloc(1, sizeof(VMContext));
+#endif
     ctx->dataWin = dataWin;
     ctx->stack.top = 0;
     ctx->selfId = -1;
@@ -2728,5 +2735,7 @@ void VM_free(VMContext* ctx) {
         envFrame = parent;
     }
 
+#ifndef PLATFORM_PS2
     free(ctx);
+#endif
 }

@@ -122,43 +122,59 @@ typedef struct EnvFrame {
 } EnvFrame;
 
 // ===[ VMStack - Upward-growing array of RValue slots ]===
-#define VM_STACK_SIZE 16384
+#define VM_STACK_SIZE 1024
 
 typedef struct {
-    RValue slots[VM_STACK_SIZE];
     int32_t top;
+    RValue slots[VM_STACK_SIZE];
 } VMStack;
 
 // Forward declaration for Runner
 struct Runner;
 
 // ===[ VMContext - Holds all VM state ]===
+// Fields are ordered by access frequency so that the hottest data sits in the first bytes of the struct
+// This way data can be kept "hot" in the CPU cache or, depending on the platform, in scratchpad RAM
 typedef struct VMContext {
-    DataWin* dataWin;
-    struct Runner* runner;
+    // Hot: touched every instruction in the dispatch loop
     uint8_t* bytecodeBase;
     uint32_t ip;
     uint32_t codeEnd;
-    VMStack stack;
     RValue* localVars;
     uint32_t localVarCount;
     RValue* globalVars;
     uint32_t globalVarCount;
-    int32_t selfId;
-    int32_t otherId;
     struct Instance* currentInstance;
     struct Instance* otherInstance; // "other" instance for collision events
+    DataWin* dataWin;
+    struct Runner* runner;
+    ArrayMapEntry* localArrayMap;
+    ArrayMapEntry* globalArrayMap;
+    FuncCallCache* funcCallCache;
+    const char* currentCodeName;
+
+    // Warm: touched on calls, variable resolution, event dispatch
     CallFrame* callStack;
     int32_t callDepth;
     EnvFrame* envStack; // Environment stack for with-statements (PushEnv/PopEnv)
-    const char* currentCodeName;
-    // Array variable maps: key = ((int64_t)varID << 32) | (uint32_t)arrayIndex
-    ArrayMapEntry* globalArrayMap;
-    ArrayMapEntry* localArrayMap;
-    // Tracks which global varIDs have array data (for array aliasing)
-    struct { int32_t key; int32_t value; }* globalArrayVarTracker;
     RValue* scriptArgs;       // Arguments passed to current script (nullptr for non-script code)
     int32_t scriptArgCount;   // Number of arguments passed
+    int32_t selfId;
+    int32_t otherId;
+    // Current event context (set by Runner_executeEvent, -1 when not in an event)
+    int32_t currentEventType;
+    int32_t currentEventSubtype;
+    int32_t currentEventObjectIndex; // objectIndex of the object that owns the executing event handler
+    // Cached varID for the built-in "creator" self variable (-1 if not found)
+    int32_t creatorVarID;
+    uint32_t funcCallCacheCount;
+    bool traceEventInherited;
+    bool hasFixedSeed;
+    bool actionRelativeFlag; // D&D action relative flag (set by action_set_relative)
+
+    // Cold: init-only or rare lookups
+    // Tracks which global varIDs have array data (for array aliasing)
+    struct { int32_t key; int32_t value; }* globalArrayVarTracker;
     // funcName -> codeIndex hash map (stb_ds)
     struct { char* key; int32_t value; }* funcMap;
     // varName -> varID hash map for global variables (stb_ds)
@@ -167,6 +183,8 @@ typedef struct VMContext {
     StringBooleanEntry* loggedUnknownFuncs;
     // "codeName\tfuncName" -> true, for deduplicating stubbed function warnings
     StringBooleanEntry* loggedStubbedFuncs;
+    // Cross-reference map for disassembler: targetCodeIndex -> stb_ds array of callerCodeIndex
+    struct { int32_t key; int32_t* value; }* crossRefMap;
 #ifndef DISABLE_VM_TRACING
     StringBooleanEntry* varReadsToBeTraced;
     StringBooleanEntry* varWritesToBeTraced;
@@ -178,20 +196,9 @@ typedef struct VMContext {
     StringBooleanEntry* stackToBeTraced;
     StringBooleanEntry* tilesToBeTraced;
 #endif
-    // Current event context (set by Runner_executeEvent, -1 when not in an event)
-    int32_t currentEventType;
-    int32_t currentEventSubtype;
-    int32_t currentEventObjectIndex; // objectIndex of the object that owns the executing event handler
-    bool traceEventInherited;
-    bool hasFixedSeed;
-    bool actionRelativeFlag; // D&D action relative flag (set by action_set_relative)
-    // Cached varID for the built-in "creator" self variable (-1 if not found)
-    int32_t creatorVarID;
-    // Cross-reference map for disassembler: targetCodeIndex -> stb_ds array of callerCodeIndex
-    struct { int32_t key; int32_t* value; }* crossRefMap;
-    // Cached function call resolution (indexed by funcIndex from FUNC chunk)
-    FuncCallCache* funcCallCache;
-    uint32_t funcCallCacheCount;
+
+    // Stack at the end because it is a big chunky boi (we don't want it pushing fields around)
+    VMStack stack;
 } VMContext;
 
 // ===[ Public API ]===
