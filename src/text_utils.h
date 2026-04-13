@@ -14,8 +14,9 @@
 // Used by both the renderer (for drawing text) and the VM (for string_width/string_height).
 
 static inline FontGlyph* TextUtils_findGlyph(Font* font, uint16_t ch) {
-    repeat(font->glyphCount, i) {
-        if (font->glyphs[i].character == ch) return &font->glyphs[i];
+    if (ch >= font->rangeStart && font->rangeEnd >= ch) {
+        uint32_t index = ch - font->rangeStart;
+        if (font->glyphCount > index) return &font->glyphs[index];
     }
     return nullptr;
 }
