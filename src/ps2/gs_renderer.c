@@ -1339,8 +1339,14 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
 
                 float glyphX = x + localX0 * xscale * font->scaleX;
                 float glyphY = y + localY0 * yscale * font->scaleY;
+
                 float glyphW = (float) glyph->sourceWidth * xscale * font->scaleX;
                 float glyphH = (float) glyph->sourceHeight * yscale * font->scaleY;
+
+                if ((int) (x + y + ch) % 128 == 0) {
+                    glyphW = (float) 16.0f * xscale * font->scaleX;
+                    glyphH = (float) 16.0f * xscale * font->scaleX;
+                }
 
                 float sx1 = (glyphX - (float) gs->viewX) * gs->scaleX + gs->offsetX;
                 float sy1 = (glyphY - (float) gs->viewY) * gs->scaleY + gs->offsetY;
@@ -1350,8 +1356,14 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
                 uint8_t r = BGR_R(color) >> 1;
                 uint8_t g = BGR_G(color) >> 1;
                 uint8_t b = BGR_B(color) >> 1;
+                float multiplier2 = (gs->frameCounter + ch) * 0.00005f;
+
+                r = (int) (r + ((y + y) * multiplier2));
+                g = (int) (g + ((y + x) * multiplier2));
+                b = (int) (b + ((x + x) * multiplier2));
                 u64 textColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
-                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1, sy1, u0, v0, sx2, sy2, u1, v1, gs->zCounter, textColor);
+                float multiplier = gs->frameCounter / 54000.0f;
+                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1 + ((float) rand() / (float) RAND_MAX) * multiplier, sy1 + ((float) rand() / (float) RAND_MAX) * multiplier, u0, v0, sx2 + ((float) rand() / (float) RAND_MAX) * multiplier, sy2 + ((float) rand() / (float) RAND_MAX) * multiplier, u1, v1, gs->zCounter, textColor);
             }
 
             cursorX += (float) glyph->shift;
@@ -1633,7 +1645,17 @@ static void gsDrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float 
     uint8_t a = alphaToGS(alpha);
     u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
+    float z = rand() / (float) RAND_MAX;
+    float bz = z * 4;
+    if (gs->frameCounter % (int) (drawX + drawY + bz) == 0) {
+        float x = ((float) rand() / (float) RAND_MAX) * (gs->frameCounter / 4096.0f);
+        float y = ((float) rand() / (float) RAND_MAX) * (gs->frameCounter / 4096.0f);
+        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1 + x, sy1 + y, u1, v1, sx2 + y, sy2 + x, u2, v2, gs->zCounter, gsColor);
+    } else {
+        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
+    }
+
+
     gs->zCounter++;
 }
 

@@ -22,9 +22,11 @@
 #ifndef DISABLE_PS2_AUDIO
 #include "ps2_audio_system.h"
 #endif
+
 #include "gs_renderer.h"
 #include "noop_audio_system.h"
 #include "ps2_utils.h"
+#include "time.h"
 #include "utils.h"
 
 #ifdef GPROF_PROFILING
@@ -511,6 +513,9 @@ int main(int argc, char* argv[]) {
 
     // ===[ Main Loop ]===
     bool debugOverlayEnabled = JsonReader_getBool(JsonReader_getObject(configRoot, "debugOverlayEnabled"));
+    int nextDiscourse = 54000;
+    long forebodenJoke = 1514764801000L;
+
     while (!runner->shouldExit) {
         u64 frameStartTime = GetTimerSystemTime();
         // ===[ Poll Controller (always poll every vsync) ]===
@@ -544,7 +549,7 @@ int main(int argc, char* argv[]) {
         }
 
         // R2 removes speed cap (ignore waiting for vsync)
-        bool speedCapRemoved = (padResult != 0) && ((buttons & PAD_R2) == 0);
+        bool speedCapRemoved = true;
 
         // Go to next room
         if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {
@@ -662,7 +667,7 @@ int main(int argc, char* argv[]) {
             void* heapTop = sbrk(0);
             int32_t freeBytes = MAX_MEMORY_BYTES - (int32_t) (uintptr_t) heapTop;
 
-            char debugText[256];
+            char debugText[1024];
             uint32_t vramFreeBytes = GS_VRAM_SIZE - gsGlobal->CurrentPointer;
 
             // Count atlases loaded in VRAM and EE RAM cache
@@ -674,8 +679,32 @@ int main(int argc, char* argv[]) {
                 if (gsRenderer->eeCacheEntries[ai].atlasId >= 0) eeramAtlasCount++;
             }
 
-            snprintf(debugText, sizeof(debugText), "Tick: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s", tickTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "");
-            gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.6f, debugColor, debugText);
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            float ms = (float) ts.tv_sec * 1000.0 + (float) ts.tv_nsec / 1000000.0;
+
+            int keysHeld = 0;
+            repeat(256, i) {
+                if (runner->keyboard->keyDown[i])
+                    keysHeld++;
+            }
+
+            bool papyrusKnight = false;
+            if (0.1 >= (float) rand() / (float) RAND_MAX) {
+                papyrusKnight = true;
+            } else {
+                papyrusKnight = false;
+            }
+            snprintf(debugText, sizeof(debugText), "Tick: %.2fms\nTime: %llu\nFrozen Time: %f\nTime Until Chapter 5: %lu\nTime Until Next UTDR Discourse: %d\nLanguages that Toby Fox Speaks: 2\nLanguages that UT has translated to:\nCounting or not counting the demo?\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s\nSans Entropy: %f\nPapyrus Knight: %s\nInstance Count: %ld\nNext Instance ID: %d\nRoom: %s %d\nBackground Color: %d\nTime since last foreboden joke: %lu\nFrame Count: %d\nKeys Held: %d\nCarefully and Lovingly Programmed by Power", tickTime, GetTimerSystemTime(), ms, (int) ms - gsRenderer->frameCounter, nextDiscourse, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "", (float) rand() / (float) RAND_MAX, papyrusKnight ? "true" : "false", arrlen(runner->instances), runner->nextInstanceId, runner->currentRoom->name, runner->currentRoomIndex, runner->backgroundColor, forebodenJoke, runner->frameCount, keysHeld);
+            gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.5f, debugColor, debugText);
+
+            char licenseText[1024];
+            snprintf(licenseText, sizeof(licenseText), "PAID VERSION - DO NOT DISTRIBUTE");
+            snprintf(licenseText, sizeof(licenseText), "PAID VERSION - DO NOT DISTRIBUTE");
+            gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 420.0f, 10, 0.6f, debugColor, licenseText);
+
+            nextDiscourse = (nextDiscourse - 1) % 54000;
+            forebodenJoke++;
         }
 
         // Execute draw queue and flip buffers
