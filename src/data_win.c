@@ -1385,7 +1385,12 @@ static void parseFUNC(BinaryReader* reader, DataWin* dw) {
         repeat(f->functionCount, i) {
             f->functions[i].name = readStringPtr(reader, dw);
             f->functions[i].occurrences = BinaryReader_readUint32(reader);
-            f->functions[i].firstAddress = BinaryReader_readUint32(reader);
+            uint32_t rawAddr = BinaryReader_readUint32(reader);
+            // In GMS 2.3+ (bytecodeVersion >= 17), firstAddress points to the operand word (instruction + 4), not the instruction itself
+            if (dw->gen8.bytecodeVersion >= 17 && rawAddr != (uint32_t) -1) {
+                rawAddr -= 4;
+            }
+            f->functions[i].firstAddress = rawAddr;
         }
     } else {
         f->functions = nullptr;
