@@ -1779,11 +1779,32 @@ static RValue executeLoop(VMContext* ctx) {
             if (shgeti(ctx->opcodesToBeTraced, "*") != -1 || shgeti(ctx->opcodesToBeTraced, ctx->currentCodeName) != -1) {
                 char opcodeStr[32], operandStr[256] = "", commentStr[128] = "";
                 formatInstruction(ctx, ctx->bytecodeBase, instrAddr, instr, extraData, opcodeStr, sizeof(opcodeStr), operandStr, sizeof(operandStr), commentStr, sizeof(commentStr));
-                if (operandStr[0] != '\0') {
-                    fprintf(stderr, "VM: [%s] @%04X [0x%08X] %s %s [stack=%d]\n", ctx->currentCodeName, instrAddr, instr, opcodeStr, operandStr, ctx->stack.top);
-                } else {
-                    fprintf(stderr, "VM: [%s] @%04X [0x%08X] %s [stack=%d]\n", ctx->currentCodeName, instrAddr, instr, opcodeStr, ctx->stack.top);
+
+                // Build typed stack contents string (bottom of the stack -> top of the stack)
+                size_t stackCap = 256;
+                size_t stackLen = 1;
+                char* stackBuf = safeCalloc(stackCap, sizeof(char));
+                stackBuf[0] = '[';
+                repeat(ctx->stack.top, si) {
+                    char* typed = RValue_toStringTyped(ctx->stack.slots[si]);
+                    const char* separator = (si > 0) ? ", " : "";
+                    size_t needed = strlen(separator) + strlen(typed) + 2; // +2 for "]" and null
+                    if (stackLen + needed > stackCap) {
+                        stackCap = (stackLen + needed) * 2;
+                        stackBuf = realloc(stackBuf, stackCap);
+                    }
+                    stackLen += sprintf(stackBuf + stackLen, "%s%s", separator, typed);
+                    free(typed);
                 }
+                stackBuf[stackLen++] = ']';
+                stackBuf[stackLen] = '\0';
+
+                if (operandStr[0] != '\0') {
+                    fprintf(stderr, "VM: [%s] @%04X [0x%08X] %s %s [stack=%d] %s\n", ctx->currentCodeName, instrAddr, instr, opcodeStr, operandStr, ctx->stack.top, stackBuf);
+                } else {
+                    fprintf(stderr, "VM: [%s] @%04X [0x%08X] %s [stack=%d] %s\n", ctx->currentCodeName, instrAddr, instr, opcodeStr, ctx->stack.top, stackBuf);
+                }
+                free(stackBuf);
             }
         }
 #endif
