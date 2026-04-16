@@ -56,6 +56,7 @@ typedef enum {
 
     // Room properties
     BUILTIN_VAR_ROOM,
+    BUILTIN_VAR_ROOM_FIRST,
     BUILTIN_VAR_ROOM_SPEED,
     BUILTIN_VAR_ROOM_WIDTH,
     BUILTIN_VAR_ROOM_HEIGHT,

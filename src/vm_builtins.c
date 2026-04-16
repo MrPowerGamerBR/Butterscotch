@@ -143,6 +143,7 @@ int16_t VMBuiltins_resolveBuiltinVarId(const char* name) {
 
     // Room properties
     if (strcmp(name, "room") == 0) return BUILTIN_VAR_ROOM;
+    if (strcmp(name, "room_first") == 0) return BUILTIN_VAR_ROOM_FIRST;
     if (strcmp(name, "room_speed") == 0) return BUILTIN_VAR_ROOM_SPEED;
     if (strcmp(name, "room_width") == 0) return BUILTIN_VAR_ROOM_WIDTH;
     if (strcmp(name, "room_height") == 0) return BUILTIN_VAR_ROOM_HEIGHT;
@@ -364,6 +365,7 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
 
     // Room properties
     if (builtinVarId == BUILTIN_VAR_ROOM) return RValue_makeReal((GMLReal) runner->currentRoomIndex);
+    if (builtinVarId == BUILTIN_VAR_ROOM_FIRST) return RValue_makeReal((GMLReal) runner->dataWin->gen8.roomOrder[0]);
     if (builtinVarId == BUILTIN_VAR_ROOM_SPEED) return RValue_makeReal((GMLReal) runner->currentRoom->speed);
     if (builtinVarId == BUILTIN_VAR_ROOM_WIDTH) return RValue_makeReal((GMLReal) runner->currentRoom->width);
     if (builtinVarId == BUILTIN_VAR_ROOM_HEIGHT) return RValue_makeReal((GMLReal) runner->currentRoom->height);
@@ -690,7 +692,7 @@ void VMBuiltins_setVariable(VMContext* ctx, int16_t builtinVarId, const char* na
         builtinVarId == BUILTIN_VAR_ID || builtinVarId == BUILTIN_VAR_OBJECT_INDEX ||
         builtinVarId == BUILTIN_VAR_CURRENT_TIME ||
         builtinVarId == BUILTIN_VAR_VIEW_CURRENT || builtinVarId == BUILTIN_VAR_PATH_INDEX ||
-        builtinVarId == BUILTIN_VAR_DEBUG_MODE ||
+        builtinVarId == BUILTIN_VAR_DEBUG_MODE || builtinVarId == BUILTIN_VAR_ROOM_FIRST || 
         (builtinVarId >= BUILTIN_VAR_BUFFER_FIXED && BUILTIN_VAR_BUFFER_SEEK_END >= builtinVarId)) {
         fprintf(stderr, "VM: Warning - attempted write to read-only built-in '%s'\n", name);
         return;
@@ -1229,6 +1231,12 @@ static RValue builtinRandomize(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_
 }
 
 // ===[ ROOM FUNCTIONS ]===
+
+static RValue builtinRoomExists(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    int32_t roomId = RValue_toInt32(args[0]);
+    return RValue_makeBool(roomId >= 0 && (uint32_t) roomId < ctx->runner->dataWin->room.count);
+}
 
 static RValue builtinRoomGetName(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (1 > argCount) return RValue_makeUndefined();
@@ -5321,6 +5329,7 @@ void VMBuiltins_registerAll(VMContext* ctx, bool isGMS2) {
     VM_registerBuiltin(ctx, "randomize", builtinRandomize);
 
     // Room
+    VM_registerBuiltin(ctx, "room_exists", builtinRoomExists);
     VM_registerBuiltin(ctx, "room_get_name", builtinRoomGetName);
     VM_registerBuiltin(ctx, "room_goto_next", builtinRoomGotoNext);
     VM_registerBuiltin(ctx, "room_goto_previous", builtinRoomGotoPrevious);
