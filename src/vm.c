@@ -1692,7 +1692,9 @@ static void handleConv(VMContext* ctx, uint32_t instr) {
     }
 
     // Set gmlStackType to the destination type so Dup can compute correct byte sizes
-    result.gmlStackType = dstType;
+    if (IS_BC17_OR_HIGHER(ctx)) {
+        result.gmlStackType = dstType;
+    }
     stackPush(ctx, result);
 }
 
