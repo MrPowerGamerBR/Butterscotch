@@ -1783,7 +1783,7 @@ static void handleDup(VMContext* ctx, uint32_t instr) {
     // It takes the top N items and moves them below the next M items.
     // Bits 0-10: top group size (in native type units)
     // Bits 11-14: bottom group size (in native type units)
-    if ((operand & 0x8000) != 0) {
+    if (IS_BC17_OR_HIGHER(ctx) && (operand & 0x8000) != 0) {
         int32_t topNativeCount = operand & 0x7FF;
         int32_t bottomNativeCount = (operand >> 11) & 0xF;
         int32_t topBytes = topNativeCount * typeSize;
