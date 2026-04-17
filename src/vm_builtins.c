@@ -3192,6 +3192,19 @@ static RValue builtinInstanceCreate(VMContext* ctx, RValue* args, int32_t argCou
     return RValue_makeReal((GMLReal) inst->instanceId);
 }
 
+static RValue builtinInstanceCopy(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    Instance* source = (Instance*) ctx->currentInstance;
+    if (source == nullptr) {
+        fprintf(stderr, "VM: instance_copy: no current instance\n");
+        return RValue_makeReal(-4.0); // noone
+    }
+    bool performEvent = argCount > 0 ? RValue_toBool(args[0]) : false;
+    Instance* inst = Runner_copyInstance(runner, source, performEvent);
+    if (inst == nullptr) return RValue_makeReal(-4.0);
+    return RValue_makeReal((GMLReal) inst->instanceId);
+}
+
 static RValue builtinInstanceCreateDepth(VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeReal(0.0);
     Runner* runner = (Runner*) ctx->runner;
@@ -6157,6 +6170,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     else {
         VM_registerBuiltin(ctx, "instance_create_depth", builtinInstanceCreateDepth);
     }
+    VM_registerBuiltin(ctx, "instance_copy", builtinInstanceCopy);
     VM_registerBuiltin(ctx, "instance_change", builtinInstanceChange);
     VM_registerBuiltin(ctx, "instance_deactivate_all", builtinInstanceDeactivateAll);
     VM_registerBuiltin(ctx, "instance_activate_all", builtinInstanceActivateAll);

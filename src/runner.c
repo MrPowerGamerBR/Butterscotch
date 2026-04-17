@@ -1134,6 +1134,20 @@ Instance* Runner_createInstance(Runner* runner, GMLReal x, GMLReal y, int32_t ob
     return inst;
 }
 
+Instance* Runner_copyInstance(Runner* runner, Instance* source, bool performEvent) {
+    requireNotNull(source);
+    if (isObjectDisabled(runner, source->objectIndex)) return nullptr;
+
+    Instance* inst = createAndInitInstance(runner, runner->nextInstanceId++, source->objectIndex, source->x, source->y);
+    Instance_copyFields(inst, source);
+    inst->createEventFired = true;
+    if (performEvent) {
+        Runner_executeEvent(runner, inst, EVENT_PRECREATE, 0);
+        Runner_executeEvent(runner, inst, EVENT_CREATE, 0);
+    }
+    return inst;
+}
+
 void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst) {
     GameObject* gameObject = &runner->dataWin->objt.objects[inst->objectIndex];
     Runner_executeEvent(runner, inst, EVENT_DESTROY, 0);

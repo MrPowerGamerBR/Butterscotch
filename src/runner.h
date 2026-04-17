@@ -278,6 +278,7 @@ void Runner_draw(Runner* runner);
 void Runner_drawBackgrounds(Runner* runner, bool foreground);
 void Runner_scrollBackgrounds(Runner* runner);
 Instance* Runner_createInstance(Runner* runner, GMLReal x, GMLReal y, int32_t objectIndex);
+Instance* Runner_copyInstance(Runner* runner, Instance* source, bool performEvent);
 void Runner_destroyInstance(Runner* runner, Instance* inst);
 void Runner_cleanupDestroyedInstances(Runner* runner);
 void Runner_dumpState(Runner* runner);

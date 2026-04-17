@@ -56,6 +56,10 @@ typedef struct Instance {
 Instance* Instance_create(uint32_t instanceId, int32_t objectIndex, GMLReal x, GMLReal y);
 void Instance_free(Instance* instance);
 
+// Deep-copy all mutable fields from source to dst: built-in properties, alarms, selfVars, selfArrayMap, selfArrayVarTracker.
+// Does NOT copy instanceId, objectIndex, destroyed, or createEventFired. Strings are duplicated so ownership stays independent.
+void Instance_copyFields(Instance* dst, Instance* source);
+
 // Get a self variable by varID. Returns RVALUE_UNDEFINED if absent. The returned RValue is non-owning.
 static inline RValue Instance_getSelfVar(Instance* inst, int32_t varID) {
     requireNotNull(inst);

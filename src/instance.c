@@ -75,6 +75,70 @@ void Instance_free(Instance* instance) {
     free(instance);
 }
 
+void Instance_copyFields(Instance* source, Instance* destination) {
+    destination->x = source->x;
+    destination->y = source->y;
+    destination->xprevious = source->xprevious;
+    destination->yprevious = source->yprevious;
+    destination->xstart = source->xstart;
+    destination->ystart = source->ystart;
+    destination->persistent = source->persistent;
+    destination->solid = source->solid;
+    destination->active = source->active;
+    destination->visible = source->visible;
+    destination->outsideRoom = source->outsideRoom;
+    destination->maskIndex = source->maskIndex;
+    destination->spriteIndex = source->spriteIndex;
+    destination->imageSpeed = source->imageSpeed;
+    destination->imageIndex = source->imageIndex;
+    destination->imageXscale = source->imageXscale;
+    destination->imageYscale = source->imageYscale;
+    destination->imageAngle = source->imageAngle;
+    destination->imageAlpha = source->imageAlpha;
+    destination->imageBlend = source->imageBlend;
+    destination->depth = source->depth;
+    destination->speed = source->speed;
+    destination->direction = source->direction;
+    destination->hspeed = source->hspeed;
+    destination->vspeed = source->vspeed;
+    destination->friction = source->friction;
+    destination->gravity = source->gravity;
+    destination->gravityDirection = source->gravityDirection;
+    destination->pathIndex = source->pathIndex;
+    destination->pathPosition = source->pathPosition;
+    destination->pathPositionPrevious = source->pathPositionPrevious;
+    destination->pathSpeed = source->pathSpeed;
+    destination->pathScale = source->pathScale;
+    destination->pathOrientation = source->pathOrientation;
+    destination->pathEndAction = source->pathEndAction;
+    destination->pathXStart = source->pathXStart;
+    destination->pathYStart = source->pathYStart;
+    repeat(GML_ALARM_COUNT, i) {
+        destination->alarm[i] = source->alarm[i];
+    }
+
+    // Deep-copy self variables (Instance_setSelfVar handles string duplication)
+    repeat(hmlen(source->selfVars), i) {
+        Instance_setSelfVar(destination, source->selfVars[i].key, source->selfVars[i].value);
+    }
+
+    // Deep-copy self array map, duplicating owned strings
+    repeat(hmlen(source->selfArrayMap), i) {
+        RValue val = source->selfArrayMap[i].value;
+        if (val.type == RVALUE_STRING && val.string != nullptr) {
+            val = RValue_makeOwnedString(safeStrdup(val.string));
+        } else {
+            val.ownsString = false;
+        }
+        hmput(destination->selfArrayMap, source->selfArrayMap[i].key, val);
+    }
+
+    // Deep-copy self array var tracker
+    repeat(hmlen(source->selfArrayVarTracker), i) {
+        hmput(destination->selfArrayVarTracker, source->selfArrayVarTracker[i].key, source->selfArrayVarTracker[i].value);
+    }
+}
+
 // Compute speed and direction from hspeed/vspeed (HTML5: Compute_Speed1)
 void Instance_computeSpeedFromComponents(Instance* inst) {
     // Direction
