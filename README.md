@@ -32,6 +32,7 @@ Of course, there are exceptions that break game compatibility altogether:
 ## Supported Platforms
 
 * Linux (GLFW, OpenGL)
+* macOS (GLFW, OpenGL)
 * Windows (GLFW, OpenGL, MinGW)
 * PlayStation 2 (ps2sdk, gsKit)
 * Haiku (GLFW)
