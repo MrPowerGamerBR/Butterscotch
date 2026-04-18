@@ -63,6 +63,54 @@ static inline uint16_t TextUtils_decodeUtf8(const char* str, int32_t len, int32_
     return 0xFFFD;
 }
 
+static inline int32_t TextUtils_utf8AdvanceCodepoints(const char* str, int32_t byteLen, int32_t codepointsToSkip) {
+    int32_t pos = 0;
+    while (pos < byteLen && codepointsToSkip > 0) {
+        pos++;
+        while (pos < byteLen && ((uint8_t)str[pos] & 0xC0) == 0x80) {
+            pos++;
+        }
+        codepointsToSkip--;
+    }
+    return pos;
+}
+
+static inline int32_t TextUtils_utf8CodepointCount(const char* str, int32_t byteLen) {
+    int32_t count = 0;
+    for (int32_t i = 0; i < byteLen; i++) {
+        if (((uint8_t)str[i] & 0xC0) != 0x80) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static inline int32_t TextUtils_utf8EncodeCodepoint(uint32_t cp, char* out) {
+    if (cp <= 0x7FU) {
+        out[0] = (char) cp;
+        return 1;
+    }
+    if (cp <= 0x7FFU) {
+        out[0] = (char) (0xC0U | (cp >> 6));
+        out[1] = (char) (0x80U | (cp & 0x3FU));
+        return 2;
+    }
+    if (cp <= 0xFFFFU) {
+        out[0] = (char) (0xE0U | (cp >> 12));
+        out[1] = (char) (0x80U | ((cp >> 6) & 0x3FU));
+        out[2] = (char) (0x80U | (cp & 0x3FU));
+        return 3;
+    }
+    if (cp <= 0x10FFFFU) {
+        out[0] = (char) (0xF0U | (cp >> 18));
+        out[1] = (char) (0x80U | ((cp >> 12) & 0x3FU));
+        out[2] = (char) (0x80U | ((cp >> 6) & 0x3FU));
+        out[3] = (char) (0x80U | (cp & 0x3FU));
+        return 4;
+    }
+    return 0;
+}
+
 // Line stride used for multi-line text. Matches HTML5 runner behavior:
 // - When `linesep` is not provided to draw_text, it defaults to `font.TextHeight('M')`
 //   which is `max_glyph_height * scaleY`. We apply scaleY via the transform matrix already,

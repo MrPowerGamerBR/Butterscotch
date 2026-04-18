@@ -814,10 +814,12 @@ static RValue builtinStringLength(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     if (value.type == RVALUE_STRING) {
         if (value.string == nullptr)
             return RValue_makeInt32(0);
-        return RValue_makeInt32((int32_t) strlen(value.string));
+        int32_t byteLen = (int32_t) strlen(value.string);
+        return RValue_makeInt32(TextUtils_utf8CodepointCount(value.string, byteLen));
     }
     char* str = RValue_toString(value);
-    int32_t len = (int32_t) strlen(str);
+    int32_t byteLen = (int32_t) strlen(str);
+    int32_t len = TextUtils_utf8CodepointCount(str, byteLen);
     free(str);
     return RValue_makeInt32(len);
 }
@@ -936,12 +938,18 @@ static RValue builtinStringCopy(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
     int32_t strLen = (int32_t) strlen(str);
 
     if (0 > pos) pos = 0;
-    if (pos >= strLen || 0 >= len) return RValue_makeOwnedString(safeStrdup(""));
-    if (pos + len > strLen) len = strLen - pos;
+    if (0 >= len) return RValue_makeOwnedString(safeStrdup(""));
 
-    char* result = safeMalloc(len + 1);
-    memcpy(result, str + pos, len);
-    result[len] = '\0';
+    int32_t byteStart = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
+    if (byteStart >= strLen) return RValue_makeOwnedString(safeStrdup(""));
+
+    int32_t byteEnd = byteStart + TextUtils_utf8AdvanceCodepoints(str + byteStart, strLen - byteStart, len);
+    if (byteEnd > strLen) byteEnd = strLen;
+
+    int32_t nbytes = byteEnd - byteStart;
+    char* result = safeMalloc(nbytes + 1);
+    memcpy(result, str + byteStart, (size_t) nbytes);
+    result[nbytes] = '\0';
     return RValue_makeOwnedString(result);
 }
 
@@ -965,12 +973,19 @@ static RValue builtinOrd(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argC
     if (1 > argCount || args[0].type != RVALUE_STRING || args[0].string == nullptr || args[0].string[0] == '\0') {
         return RValue_makeReal(0.0);
     }
-    return RValue_makeReal((GMLReal) (unsigned char) args[0].string[0]);
+    const char* str = args[0].string;
+    int32_t pos = 0;
+    uint16_t cp = TextUtils_decodeUtf8(str, (int32_t)strlen(str), &pos);
+    return RValue_makeReal((GMLReal) cp);
 }
 
 static RValue builtinChr(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeOwnedString(safeStrdup(""));
-    char buf[2] = { (char) RValue_toInt32(args[0]), '\0' };
+    uint32_t cp = (uint32_t) RValue_toInt32(args[0]);
+    char buf[5];
+    int32_t n = TextUtils_utf8EncodeCodepoint(cp, buf);
+    if (0 >= n) return RValue_makeOwnedString(safeStrdup(""));
+    buf[n] = '\0';
     return RValue_makeOwnedString(safeStrdup(buf));
 }
 
@@ -980,7 +995,9 @@ static RValue builtinStringPos(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_
     const char* haystack = args[1].string != nullptr ? args[1].string : "";
     const char* found = strstr(haystack, needle);
     if (found == nullptr) return RValue_makeReal(0.0);
-    return RValue_makeReal((GMLReal) (found - haystack + 1)); // 1-based
+    int32_t byteIndex = (int32_t) (found - haystack);
+    int32_t charIndex = TextUtils_utf8CodepointCount(haystack, byteIndex) + 1; // 1-based codepoint index
+    return RValue_makeReal((GMLReal) charIndex);
 }
 
 static RValue builtinStringCharAt(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -989,8 +1006,15 @@ static RValue builtinStringCharAt(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     int32_t pos = RValue_toInt32(args[1]) - 1; // 1-based
     int32_t strLen = (int32_t) strlen(str);
     if (0 > pos || pos >= strLen) return RValue_makeOwnedString(safeStrdup(""));
-    char buf[2] = { str[pos], '\0' };
-    return RValue_makeOwnedString(safeStrdup(buf));
+    int32_t byteStart = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
+    if (byteStart >= strLen) return RValue_makeOwnedString(safeStrdup(""));
+    int32_t byteNext = byteStart;
+    TextUtils_decodeUtf8(str, strLen, &byteNext);
+    int32_t nbytes = byteNext - byteStart;
+    char* out = safeMalloc(nbytes + 1);
+    memcpy(out, str + byteStart, (size_t) nbytes);
+    out[nbytes] = '\0';
+    return RValue_makeOwnedString(out);
 }
 
 static RValue builtinStringDelete(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -1001,12 +1025,18 @@ static RValue builtinStringDelete(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     int32_t strLen = (int32_t) strlen(str);
 
     if (0 > pos || pos >= strLen || 0 >= count) return RValue_makeOwnedString(safeStrdup(str));
-    if (pos + count > strLen) count = strLen - pos;
 
-    char* result = safeMalloc(strLen - count + 1);
-    memcpy(result, str, pos);
-    memcpy(result + pos, str + pos + count, strLen - pos - count);
-    result[strLen - count] = '\0';
+    int32_t byteStart = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
+    if (byteStart >= strLen) return RValue_makeOwnedString(safeStrdup(str));
+
+    int32_t byteEnd = byteStart + TextUtils_utf8AdvanceCodepoints(str + byteStart, strLen - byteStart, count);
+    if (byteEnd > strLen) byteEnd = strLen;
+
+    int32_t removeLen = byteEnd - byteStart;
+    char* result = safeMalloc(strLen - removeLen + 1);
+    memcpy(result, str, (size_t) byteStart);
+    memcpy(result + byteStart, str + byteEnd, (size_t) (strLen - byteEnd));
+    result[strLen - removeLen] = '\0';
     return RValue_makeOwnedString(result);
 }
 
@@ -1019,12 +1049,13 @@ static RValue builtinStringInsert(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     int32_t subLen = (int32_t) strlen(substr);
 
     if (0 > pos) pos = 0;
-    if (pos > strLen) pos = strLen;
+    int32_t bytePos = TextUtils_utf8AdvanceCodepoints(str, strLen, pos);
+    if (bytePos > strLen) bytePos = strLen;
 
     char* result = safeMalloc(strLen + subLen + 1);
-    memcpy(result, str, pos);
-    memcpy(result + pos, substr, subLen);
-    memcpy(result + pos + subLen, str + pos, strLen - pos);
+    memcpy(result, str, (size_t) bytePos);
+    memcpy(result + bytePos, substr, (size_t) subLen);
+    memcpy(result + bytePos + subLen, str + bytePos, (size_t) (strLen - bytePos));
     result[strLen + subLen] = '\0';
     return RValue_makeOwnedString(result);
 }
