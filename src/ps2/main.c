@@ -601,6 +601,9 @@ int main(int argc, char* argv[]) {
         printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
     }
 
+    runner->nativeWindow = nullptr;
+    runner->setWindowTitle = nullptr;
+
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing first room...", &loadingState);
     Runner_initFirstRoom(runner);
 
