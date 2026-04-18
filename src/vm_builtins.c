@@ -3137,13 +3137,14 @@ static RValue builtinWindowSetCaption(VMContext* ctx, MAYBE_UNUSED RValue* args,
     char* val = RValue_toString(args[0]);
     char windowTitle[256];
     snprintf(windowTitle, sizeof(windowTitle), "Butterscotch - %s", val);
-    free(val);
 
     Runner* runner = (Runner*) ctx->runner;
     if (runner->setWindowTitle && runner->nativeWindow) {
         runner->setWindowTitle(runner->nativeWindow, windowTitle);
+        printf("GL: Window title set to: %s\n", val);
     }
-
+    
+    free(val);
     return RValue_makeUndefined();
 }
 
