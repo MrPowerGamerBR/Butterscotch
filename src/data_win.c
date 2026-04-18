@@ -1474,8 +1474,8 @@ static void parseFUNC(BinaryReader* reader, DataWin* dw) {
             f->functions[i].name = readStringPtr(reader, dw);
             f->functions[i].occurrences = BinaryReader_readUint32(reader);
             uint32_t rawAddr = BinaryReader_readUint32(reader);
-            // In GMS 2.3+ (bytecodeVersion >= 17), firstAddress points to the operand word (instruction + 4), not the instruction itself
-            if (dw->gen8.bytecodeVersion >= 17 && rawAddr != (uint32_t) -1) {
+            // In GMS 2.3+, firstAddress points to the operand word (instruction + 4), not the instruction itself
+            if (DataWin_isVersionAtLeast(dw, 2, 3, 0, 0) && rawAddr != (uint32_t) -1) {
                 rawAddr -= 4;
             }
             f->functions[i].firstAddress = rawAddr;
@@ -1768,12 +1768,16 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
             // Texture Group Info chunk (bytecodeVersion >= 17)
         } else if (memcmp(chunkName, "ACRV", 4) == 0) {
             // Animation Curves chunk (GMS 2.3+)
+            DataWin_bumpVersionTo(dw, 2, 3, 0, 0);
         } else if (memcmp(chunkName, "SEQN", 4) == 0) {
             // Sequences chunk (GMS 2.3+)
+            DataWin_bumpVersionTo(dw, 2, 3, 0, 0);
         } else if (memcmp(chunkName, "TAGS", 4) == 0) {
             // Tags chunk (GMS 2.3+)
+            DataWin_bumpVersionTo(dw, 2, 3, 0, 0);
         } else if (memcmp(chunkName, "FEDS", 4) == 0) {
             // Filter Effects Data chunk (GMS 2.3.6+)
+            DataWin_bumpVersionTo(dw, 2, 3, 6, 0);
         } else if (options.parseTpag && memcmp(chunkName, "TPAG", 4) == 0) {
             parseTPAG(&reader, dw);
         } else if (options.parseCode && memcmp(chunkName, "CODE", 4) == 0) {
