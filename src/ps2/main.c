@@ -765,6 +765,13 @@ int main(int argc, char* argv[]) {
                 Runner_draw(runner);
 
                 renderer->vtable->endView(renderer);
+
+                int32_t guiW = runner->guiWidth > 0 ? runner->guiWidth : portW;
+                int32_t guiH = runner->guiHeight > 0 ? runner->guiHeight : portH;
+                renderer->vtable->beginGUI(renderer, guiW, guiH, portX, portY, portW, portH);
+                Runner_drawGUI(runner);
+                renderer->vtable->endGUI(renderer);
+
                 anyViewRendered = true;
             }
         }
@@ -775,6 +782,12 @@ int main(int argc, char* argv[]) {
             renderer->vtable->beginView(renderer, 0, 0, gameW, gameH, 0, 0, gameW, gameH, 0.0f);
             Runner_draw(runner);
             renderer->vtable->endView(renderer);
+
+            int32_t guiW = runner->guiWidth > 0 ? runner->guiWidth : gameW;
+            int32_t guiH = runner->guiHeight > 0 ? runner->guiHeight : gameH;
+            renderer->vtable->beginGUI(renderer, guiW, guiH, 0, 0, gameW, gameH);
+            Runner_drawGUI(runner);
+            renderer->vtable->endGUI(renderer);
         }
 
         runner->viewCurrent = 0;

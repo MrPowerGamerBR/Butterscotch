@@ -305,6 +305,10 @@ typedef struct Runner {
 
     // Used by the "os_type" built-in
     YoYoOperatingSystem osType;
+
+    // GUI layer size (display_set_gui_size). 0 = auto-match the current view's port size.
+    int32_t guiWidth;
+    int32_t guiHeight;
 } Runner;
 
 const char* Runner_getEventName(int32_t eventType, int32_t eventSubtype);
@@ -316,6 +320,7 @@ void Runner_executeEvent(Runner* runner, Instance* instance, int32_t eventType, 
 void Runner_executeEventFromObject(Runner* runner, Instance* instance, int32_t startObjectIndex, int32_t eventType, int32_t eventSubtype);
 void Runner_executeEventForAll(Runner* runner, int32_t eventType, int32_t eventSubtype);
 void Runner_draw(Runner* runner);
+void Runner_drawGUI(Runner* runner);
 void Runner_drawBackgrounds(Runner* runner, bool foreground);
 void Runner_scrollBackgrounds(Runner* runner);
 Instance* Runner_createInstance(Runner* runner, GMLReal x, GMLReal y, int32_t objectIndex);

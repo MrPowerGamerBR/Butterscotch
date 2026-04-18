@@ -913,6 +913,28 @@ static void gsEndView(MAYBE_UNUSED Renderer* renderer) {
     // No-op
 }
 
+static void gsBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, MAYBE_UNUSED int32_t portX, MAYBE_UNUSED int32_t portY, MAYBE_UNUSED int32_t portW, MAYBE_UNUSED int32_t portH) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    gs->viewX = 0;
+    gs->viewY = 0;
+
+    if (guiW > 0 && guiH > 0) {
+        gs->scaleX = 640.0f / (float) guiW;
+        gs->scaleY = gs->scaleX;
+    } else {
+        gs->scaleX = 2.0f;
+        gs->scaleY = 2.0f;
+    }
+
+    float renderedH = (float) guiH * gs->scaleY;
+    gs->offsetX = 0.0f;
+    gs->offsetY = (448.0f - renderedH) / 2.0f;
+}
+
+static void gsEndGUI(MAYBE_UNUSED Renderer* renderer) {
+    // No-op
+}
+
 static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
     GsRenderer* gs = (GsRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -1648,6 +1670,8 @@ static RendererVtable gsVtable = {
     .endFrame = gsEndFrame,
     .beginView = gsBeginView,
     .endView = gsEndView,
+    .beginGUI = gsBeginGUI,
+    .endGUI = gsEndGUI,
     .drawSprite = gsDrawSprite,
     .drawSpritePart = gsDrawSpritePart,
     .drawRectangle = gsDrawRectangle,

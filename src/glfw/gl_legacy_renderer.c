@@ -130,6 +130,31 @@ static void glEndView(MAYBE_UNUSED Renderer* renderer) {
     glDisable(GL_SCISSOR_TEST);
 }
 
+static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t portX, int32_t portY, int32_t portW, int32_t portH) {
+    GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    int32_t glPortY = gl->gameH - portY - portH;
+    glViewport(portX, glPortY, portW, portH);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(portX, glPortY, portW, portH);
+
+    Matrix4f projection;
+    Matrix4f_identity(&projection);
+    Matrix4f_ortho(&projection, 0.0f, (float) guiW, (float) guiH, 0.0f, -1.0f, 1.0f);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(projection.m);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glActiveTexture(GL_TEXTURE0);
+}
+
+static void glEndGUI(MAYBE_UNUSED Renderer* renderer) {
+    glDisable(GL_SCISSOR_TEST);
+}
+
 static void glEndFrame(MAYBE_UNUSED Renderer* renderer) {}
 
 static void glRendererFlush(MAYBE_UNUSED Renderer* renderer) {}
@@ -1010,6 +1035,8 @@ static RendererVtable glVtable = {
     .endFrame = glEndFrame,
     .beginView = glBeginView,
     .endView = glEndView,
+    .beginGUI = glBeginGUI,
+    .endGUI = glEndGUI,
     .drawSprite = glDrawSprite,
     .drawSpritePart = glDrawSpritePart,
     .drawRectangle = glDrawRectangle,

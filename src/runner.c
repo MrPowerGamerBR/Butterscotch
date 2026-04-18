@@ -695,6 +695,25 @@ void Runner_draw(Runner* runner) {
     Runner_drawBackgrounds(runner, true);
 
     fireDrawSubtype(runner, drawList, drawCount, DRAW_POST);
+
+    arrfree(drawList);
+}
+
+void Runner_drawGUI(Runner* runner) {
+    Instance** drawList = nullptr;
+    int32_t count = (int32_t) arrlen(runner->instances);
+    repeat(count, i) {
+        Instance* inst = runner->instances[i];
+        if (inst->active && inst->visible) {
+            arrput(drawList, inst);
+        }
+    }
+
+    int32_t drawCount = (int32_t) arrlen(drawList);
+    if (drawCount > 1) {
+        qsort(drawList, drawCount, sizeof(Instance*), compareInstanceDepth);
+    }
+
     fireDrawSubtype(runner, drawList, drawCount, DRAW_GUI_BEGIN);
     fireDrawSubtype(runner, drawList, drawCount, DRAW_GUI);
     fireDrawSubtype(runner, drawList, drawCount, DRAW_GUI_END);

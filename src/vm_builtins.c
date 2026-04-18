@@ -4798,6 +4798,62 @@ static RValue builtinMakeColourHsv(VMContext* ctx, RValue* args, int32_t argCoun
 STUB_RETURN_VALUE(display_get_width, 640.0)
 STUB_RETURN_VALUE(display_get_height, 480.0)
 
+static int32_t resolveGuiWidth(Runner* runner) {
+    if (runner->guiWidth > 0) return runner->guiWidth;
+    Room* room = runner->currentRoom;
+    if (room != nullptr) {
+        repeat(8, vi) {
+            if (room->views[vi].enabled && room->views[vi].portWidth > 0) {
+                return room->views[vi].portWidth;
+            }
+        }
+        if (room->width > 0) return (int32_t) room->width;
+    }
+    return 320;
+}
+
+static int32_t resolveGuiHeight(Runner* runner) {
+    if (runner->guiHeight > 0) return runner->guiHeight;
+    Room* room = runner->currentRoom;
+    if (room != nullptr) {
+        repeat(8, vi) {
+            if (room->views[vi].enabled && room->views[vi].portHeight > 0) {
+                return room->views[vi].portHeight;
+            }
+        }
+        if (room->height > 0) return (int32_t) room->height;
+    }
+    return 240;
+}
+
+static RValue builtinDisplayGetGuiWidth(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    return RValue_makeInt32(resolveGuiWidth(runner));
+}
+
+static RValue builtinDisplayGetGuiHeight(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    return RValue_makeInt32(resolveGuiHeight(runner));
+}
+
+static RValue builtinDisplaySetGuiSize(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t w = RValue_toInt32(args[0]);
+    int32_t h = RValue_toInt32(args[1]);
+    runner->guiWidth = w > 0 ? w : 0;
+    runner->guiHeight = h > 0 ? h : 0;
+    return RValue_makeUndefined();
+}
+
+static RValue builtinDisplaySetGuiMaximise(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    // GMS: display_set_gui_maximise(xscale, yscale, xoffset, yoffset). We don't support scaling yet; reset to auto (match view).
+    Runner* runner = (Runner*) ctx->runner;
+    runner->guiWidth = 0;
+    runner->guiHeight = 0;
+    return RValue_makeUndefined();
+}
+
 // place_meeting(x, y, obj) - returns true if the calling instance would collide with obj at position (x, y)
 static RValue builtinPlaceMeeting(VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeBool(false);
@@ -6422,6 +6478,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     // Display
     VM_registerBuiltin(ctx, "display_get_width", builtin_display_get_width);
     VM_registerBuiltin(ctx, "display_get_height", builtin_display_get_height);
+    VM_registerBuiltin(ctx, "display_get_gui_width", builtinDisplayGetGuiWidth);
+    VM_registerBuiltin(ctx, "display_get_gui_height", builtinDisplayGetGuiHeight);
+    VM_registerBuiltin(ctx, "display_set_gui_size", builtinDisplaySetGuiSize);
+    VM_registerBuiltin(ctx, "display_set_gui_maximise", builtinDisplaySetGuiMaximise);
+    VM_registerBuiltin(ctx, "display_set_gui_maximize", builtinDisplaySetGuiMaximise);
 
     // Collision
     VM_registerBuiltin(ctx, "place_meeting", builtinPlaceMeeting);
