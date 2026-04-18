@@ -258,6 +258,8 @@ typedef struct Runner {
     bool drawBackgroundColor;
     bool shouldExit;
     bool debugMode;
+    void* nativeWindow;
+    void (*setWindowTitle)(void* window, const char* title);
     TileLayerMapEntry* tileLayerMap; // stb_ds hashmap: depth -> tile layer state
     RuntimeLayer* runtimeLayers; // stb_ds array, index-parallel to currentRoom->layers for parsed entries; dynamic entries appended
     uint32_t nextLayerId;        // counter for IDs of layers/elements created at runtime

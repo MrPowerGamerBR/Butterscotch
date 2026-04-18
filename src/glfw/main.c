@@ -457,6 +457,10 @@ static void characterCallback(GLFWwindow* window, unsigned int codepoint) {
     RunnerKeyboard_onCharacter(runner->keyboard, codepoint);
 }
 
+static void setGlfwWindowTitle(void* window, const char* title) {
+    glfwSetWindowTitle((GLFWwindow*) window, title);
+}
+
 void saveInputRecording() {
     // Save input recording if active, then free
     if (globalInputRecording != nullptr) {
@@ -676,6 +680,8 @@ int main(int argc, char* argv[]) {
     Runner* runner = Runner_create(dataWin, vm, renderer, (FileSystem*) glfwFileSystem, audioSystem);
     runner->debugMode = args.debug;
     runner->osType = args.osType;
+    runner->nativeWindow = window;
+    runner->setWindowTitle = setGlfwWindowTitle;
 
     // Set up input recording/playback (both can be active: playback then continue recording)
     if (args.playbackInputsPath != nullptr) {

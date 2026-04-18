@@ -3123,7 +3123,6 @@ STUB_RETURN_ZERO(joystick_check_button)
 // Window stubs
 STUB_RETURN_ZERO(window_get_fullscreen)
 STUB_RETURN_UNDEFINED(window_set_fullscreen)
-STUB_RETURN_UNDEFINED(window_set_caption)
 STUB_RETURN_UNDEFINED(window_set_size)
 STUB_RETURN_UNDEFINED(window_center)
 static RValue builtinWindowGetWidth(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -3132,6 +3131,20 @@ static RValue builtinWindowGetWidth(VMContext* ctx, MAYBE_UNUSED RValue* args, M
 
 static RValue builtinWindowGetHeight(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowHeight);
+}
+
+static RValue builtinWindowSetCaption(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    char* val = RValue_toString(args[0]);
+    char windowTitle[256];
+    snprintf(windowTitle, sizeof(windowTitle), "Butterscotch - %s", val);
+    free(val);
+
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->setWindowTitle && runner->nativeWindow) {
+        runner->setWindowTitle(runner->nativeWindow, windowTitle);
+    }
+
+    return RValue_makeUndefined();
 }
 
 // ===[ Game State Functions ]===
@@ -6301,7 +6314,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     // Window
     VM_registerBuiltin(ctx, "window_get_fullscreen", builtin_window_get_fullscreen);
     VM_registerBuiltin(ctx, "window_set_fullscreen", builtin_window_set_fullscreen);
-    VM_registerBuiltin(ctx, "window_set_caption", builtin_window_set_caption);
+    VM_registerBuiltin(ctx, "window_set_caption", builtinWindowSetCaption);
     VM_registerBuiltin(ctx, "window_set_size", builtin_window_set_size);
     VM_registerBuiltin(ctx, "window_center", builtin_window_center);
     VM_registerBuiltin(ctx, "window_get_width", builtinWindowGetWidth);
