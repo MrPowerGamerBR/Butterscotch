@@ -197,8 +197,9 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
         slot->ownsDecoder = false;
     } else {
         bool isEmbedded = (sound->flags & 0x01) != 0;
+        bool isCompressed = (sound->flags & 0x02) != 0;
 
-        if (isEmbedded) {
+        if (isEmbedded || isCompressed) {
             // Embedded audio: decode from AUDO chunk memory
             if (0 > sound->audioFile || (uint32_t) sound->audioFile >= ma->base.audioGroups[sound->audioGroup]->audo.count) {
                 fprintf(stderr, "Audio: Invalid audio file index %d for sound '%s'\n", sound->audioFile, sound->name);
