@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -482,10 +483,26 @@ static int32_t glfwMouseButtonToGml(int glfwButton) {
 
 static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
     Runner* runner = (Runner*) glfwGetWindowUserPointer(window);
-    int fbWidth, fbHeight;
-    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
-    runner->mouse->mouseX = (xpos/fbWidth) * (runner->dataWin->gen8.defaultWindowWidth / 2.0);
-    runner->mouse->mouseY = (ypos/fbHeight) * (runner->dataWin->gen8.defaultWindowHeight / 2.0);
+    int winWidth, winHeight;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+
+    int32_t currentView = runner->viewCurrent;
+    RoomView* view = &runner->currentRoom->views[currentView];
+
+    int32_t width = runner->currentRoom->width;
+    int32_t height = runner->currentRoom->height;
+    int32_t offsetX = 0;
+    int32_t offsetY = 0;
+    if (view->enabled) {
+        // FIXME this statement breaks windowframe for some reason?
+        width = view->viewWidth;
+        height = view->viewHeight;
+        offsetX = view->viewX;
+        offsetY = view->viewY;
+    }
+
+    runner->mouse->mouseX = offsetX + (xpos/winWidth) * width;
+    runner->mouse->mouseY = offsetY + (ypos/winHeight) * height;
 }
 
 static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
