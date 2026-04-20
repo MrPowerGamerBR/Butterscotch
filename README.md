@@ -41,7 +41,7 @@ Of course, there are exceptions that break game compatibility altogether:
 ## Community Ports
 
 * [Xbox 360 (Butterscotch-360)](https://github.com/ceilingtilefan/Butterscotch-360) by @ceilingtilefan
-  
+
 ## Building Butterscotch
 
 ```bash
@@ -88,7 +88,6 @@ The GLFW target has a lot of nifty CLI parameters that you can use to trace and 
 * `--playback-inputs`: Playbacks user inputs
 * `--os-type`: Allows changing the built-in `os_type` value. The default is Windows. Example: When running Undertale Xbox, you would need to set it to `--os-type xboxone`.
 * `--profiler`: Logs which GML scripts are the heaviest in terms of time and executed instructions.
-* `--debug`: Enable debug features
 
 ## Debug Features
 
