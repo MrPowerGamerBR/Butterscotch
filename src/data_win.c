@@ -1104,9 +1104,26 @@ static void readRoomLayers(BinaryReader* reader, DataWin* dw, Room* room) {
         layer->backgroundData = nullptr;
         layer->instancesData = nullptr;
         layer->tilesData = nullptr;
+        if (DataWin_isVersionAtLeast(dw, 2022, 1, 0, 0)) {
+            // EffectEnabled (bool32), EffectType (string ptr), EffectProperties (SimpleList<EffectProperty>)
+            BinaryReader_skip(reader, 4); // EffectEnabled
+            BinaryReader_skip(reader, 4); // EffectType (string ptr)
+            uint32_t effectPropCount = BinaryReader_readUint32(reader);
+            // Each EffectProperty is 12 bytes: Kind(int32) + Name(ptr) + Value(ptr)
+            BinaryReader_skip(reader, effectPropCount * 12);
+        }
         switch (layer->type) {
             case RoomLayerType_Path:
+            case RoomLayerType_Path2:
                 break; // Nothing to do
+            case RoomLayerType_Effect:
+                // In GMS 2022.1+, Effect layer data is empty (fields moved to layer header).
+                if (!DataWin_isVersionAtLeast(dw, 2022, 1, 0, 0)) {
+                    BinaryReader_skip(reader, 4); // EffectType (string ptr)
+                    uint32_t propCount = BinaryReader_readUint32(reader);
+                    BinaryReader_skip(reader, propCount * 12);
+                }
+                break;
 
             case RoomLayerType_Assets: {
                 RoomLayerAssetsData* assets = safeMalloc(sizeof(RoomLayerAssetsData));
@@ -1284,6 +1301,68 @@ static void parseROOM(BinaryReader* reader, DataWin* dw, bool lazyLoadRooms, Str
                 }
                 break;
             }
+        }
+    }
+
+    // Detect whether Layer headers include EffectEnabled/EffectType/EffectProperties fields (added in GMS 2022.1).
+    if (DataWin_isVersionAtLeast(dw, 2, 3, 0, 0) && !DataWin_isVersionAtLeast(dw, 2022, 1, 0, 0)) {
+        repeat(count, i) {
+            BinaryReader_seek(reader, ptrs[i]);
+            // Room header before layersPtr: 22 uint32s (name..metersPerPixel).
+            BinaryReader_skip(reader, 22 * 4);
+            uint32_t layersPtr = BinaryReader_readUint32(reader);
+            uint32_t seqnPtr = BinaryReader_readUint32(reader);
+            BinaryReader_seek(reader, layersPtr);
+            uint32_t layerCount = BinaryReader_readUint32(reader);
+            if (layerCount == 0) continue;
+            uint32_t jumpOffset = BinaryReader_readUint32(reader);
+            uint32_t nextOffset = (layerCount == 1) ? seqnPtr : BinaryReader_readUint32(reader);
+            // Layer header: name(4) id(4) type(4) depth(4) xOff(4) yOff(4) hSpd(4) vSpd(4) visible(4) = 9 uint32s = 36 bytes.
+            // jumpOffset points to start of the layer; we seek to jumpOffset+8 to skip name+id then read type.
+            BinaryReader_seek(reader, jumpOffset + 8);
+            uint32_t layerType = BinaryReader_readUint32(reader);
+            if (layerType == RoomLayerType_Path || layerType == RoomLayerType_Path2) continue;
+            bool detected = false;
+            switch (layerType) {
+                case RoomLayerType_Background: {
+                    // After type, there's depth+xOff+yOff+hSpd+vSpd+visible = 6*4 = 24, then 10 background fields = 40 bytes.
+                    // Total legacy body after type read: 24 + 40 = 64 bytes. 2022.1 adds effect data > 64 bytes of additional data past the next layer boundary.
+                    size_t absPos = BinaryReader_getPosition(reader);
+                    if (nextOffset - absPos > 16 * 4) detected = true;
+                    break;
+                }
+                case RoomLayerType_Instances: {
+                    BinaryReader_skip(reader, 6 * 4);
+                    uint32_t instanceCount = BinaryReader_readUint32(reader);
+                    size_t absPos = BinaryReader_getPosition(reader);
+                    if (nextOffset - absPos != instanceCount * 4) detected = true;
+                    break;
+                }
+                case RoomLayerType_Assets: {
+                    BinaryReader_skip(reader, 6 * 4);
+                    uint32_t tileOffset = BinaryReader_readUint32(reader);
+                    size_t absPos = BinaryReader_getPosition(reader);
+                    if (tileOffset != absPos + 8 && tileOffset != absPos + 12) detected = true;
+                    break;
+                }
+                case RoomLayerType_Tiles: {
+                    BinaryReader_skip(reader, 7 * 4);
+                    uint32_t tileMapWidth = BinaryReader_readUint32(reader);
+                    uint32_t tileMapHeight = BinaryReader_readUint32(reader);
+                    size_t absPos = BinaryReader_getPosition(reader);
+                    if (nextOffset - absPos != tileMapWidth * tileMapHeight * 4) detected = true;
+                    break;
+                }
+                case RoomLayerType_Effect: {
+                    BinaryReader_skip(reader, 7 * 4);
+                    uint32_t propertyCount = BinaryReader_readUint32(reader);
+                    size_t absPos = BinaryReader_getPosition(reader);
+                    if (nextOffset - absPos != propertyCount * 3 * 4) detected = true;
+                    break;
+                }
+            }
+            if (detected) DataWin_bumpVersionTo(dw, 2022, 1, 0, 0);
+            break;
         }
     }
 
