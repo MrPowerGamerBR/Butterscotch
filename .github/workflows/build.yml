@@ -20,7 +20,7 @@ jobs:
           echo "date=$(git log -1 --format=%cd --date=short)" >> $GITHUB_OUTPUT
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libglfw3-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake libglfw3-dev libbz2-dev
 
       - name: Configure
         run: cmake -B build -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
@@ -61,6 +61,14 @@ jobs:
             -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
           make -C /tmp/glfw/build -j$(nproc)
           sudo make -C /tmp/glfw/build install
+
+      - name: Build bzip2 for MinGW
+        run: |
+          curl -L https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz -o /tmp/bzip2.tar.gz
+          tar -xf /tmp/bzip2.tar.gz -C /tmp
+          make -C /tmp/bzip2-1.0.8 libbz2.a CC=x86_64-w64-mingw32-gcc AR=x86_64-w64-mingw32-ar RANLIB=x86_64-w64-mingw32-ranlib -j$(nproc)
+          sudo cp /tmp/bzip2-1.0.8/libbz2.a /usr/x86_64-w64-mingw32/lib/
+          sudo cp /tmp/bzip2-1.0.8/bzlib.h /usr/x86_64-w64-mingw32/include/
 
       - name: Configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
@@ -144,6 +152,14 @@ jobs:
             -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
           make -C /tmp/glfw/build -j$(nproc)
           sudo make -C /tmp/glfw/build install
+
+      - name: Build bzip2 for MinGW (32-bit)
+        run: |
+          curl -L https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz -o /tmp/bzip2.tar.gz
+          tar -xf /tmp/bzip2.tar.gz -C /tmp
+          make -C /tmp/bzip2-1.0.8 libbz2.a CC=i686-w64-mingw32-gcc AR=i686-w64-mingw32-ar RANLIB=i686-w64-mingw32-ranlib -j$(nproc)
+          sudo cp /tmp/bzip2-1.0.8/libbz2.a /usr/i686-w64-mingw32/lib/
+          sudo cp /tmp/bzip2-1.0.8/bzlib.h /usr/i686-w64-mingw32/include/
 
       - name: Configure
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
