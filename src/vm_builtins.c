@@ -5406,6 +5406,30 @@ static RValue builtinLayerGetForcedDepth(VMContext* ctx, MAYBE_UNUSED RValue* ar
 
 // ===[ GMS2 Layer Runtime API ]===
 
+// GMS layer functions accept either a numeric layer id or a layer name string.
+// Returns the resolved runtime id, or -1 if no match.
+static int32_t resolveLayerIdArg(Runner* runner, RValue arg) {
+    if (arg.type == RVALUE_STRING) {
+        const char* name = arg.string;
+        if (name == nullptr) return -1;
+        size_t runtimeLayerCount = arrlenu(runner->runtimeLayers);
+        repeat(runtimeLayerCount, i) {
+            RuntimeLayer* rl = &runner->runtimeLayers[i];
+            if (rl->dynamic && rl->dynamicName != nullptr && strcmp(rl->dynamicName, name) == 0)
+                return (int32_t) rl->id;
+        }
+        if (runner->currentRoom != nullptr) {
+            repeat(runner->currentRoom->layerCount, i) {
+                RoomLayer* layer = &runner->currentRoom->layers[i];
+                if (layer->name != nullptr && strcmp(layer->name, name) == 0)
+                    return (int32_t) layer->id;
+            }
+        }
+        return -1;
+    }
+    return RValue_toInt32(arg);
+}
+
 static RValue builtinLayerGetId(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
     char* name = RValue_toString(args[0]);
@@ -5435,13 +5459,13 @@ static RValue builtinLayerGetId(VMContext* ctx, RValue* args, MAYBE_UNUSED int32
 
 static RValue builtinLayerExists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     return RValue_makeBool(Runner_findRuntimeLayerById(runner, id) != nullptr);
 }
 
 static RValue builtinLayerGetName(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer != nullptr && runtimeLayer->dynamic && runtimeLayer->dynamicName != nullptr)
@@ -5456,7 +5480,7 @@ static RValue builtinLayerGetName(VMContext* ctx, RValue* args, MAYBE_UNUSED int
 
 static RValue builtinLayerGetDepth(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5467,7 +5491,7 @@ static RValue builtinLayerGetDepth(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 
 static RValue builtinLayerDepth(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     int32_t depth = RValue_toInt32(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5479,7 +5503,7 @@ static RValue builtinLayerDepth(VMContext* ctx, RValue* args, MAYBE_UNUSED int32
 
 static RValue builtinLayerGetVisible(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5490,7 +5514,7 @@ static RValue builtinLayerGetVisible(VMContext* ctx, RValue* args, MAYBE_UNUSED 
 
 static RValue builtinLayerSetVisible(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     bool visible = RValue_toBool(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5502,7 +5526,7 @@ static RValue builtinLayerSetVisible(VMContext* ctx, RValue* args, MAYBE_UNUSED 
 
 static RValue builtinLayerGetX(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5513,7 +5537,7 @@ static RValue builtinLayerGetX(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_
 
 static RValue builtinLayerX(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     float x = (float) RValue_toReal(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5525,7 +5549,7 @@ static RValue builtinLayerX(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t a
 
 static RValue builtinLayerGetY(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5536,7 +5560,7 @@ static RValue builtinLayerGetY(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_
 
 static RValue builtinLayerY(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     float y = (float) RValue_toReal(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5548,7 +5572,7 @@ static RValue builtinLayerY(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t a
 
 static RValue builtinLayerGetHspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5559,7 +5583,7 @@ static RValue builtinLayerGetHspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 
 static RValue builtinLayerHspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     float hs = (float) RValue_toReal(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5571,7 +5595,7 @@ static RValue builtinLayerHspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED int3
 
 static RValue builtinLayerGetVspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
@@ -5605,7 +5629,7 @@ static RValue builtinLayerCreate(VMContext* ctx, RValue* args, int32_t argCount)
 
 static RValue builtinLayerDestroy(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     size_t count = arrlenu(runner->runtimeLayers);
     repeat(count, i) {
         if ((int32_t) runner->runtimeLayers[i].id != id)
@@ -5624,7 +5648,7 @@ static RValue builtinLayerDestroy(VMContext* ctx, RValue* args, MAYBE_UNUSED int
 
 static RValue builtinLayerBackgroundCreate(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t layerId = RValue_toInt32(args[0]);
+    int32_t layerId = resolveLayerIdArg(runner, args[0]);
     int32_t spriteIndex = RValue_toInt32(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, layerId);
@@ -5655,7 +5679,7 @@ static RValue builtinLayerBackgroundCreate(VMContext* ctx, RValue* args, MAYBE_U
 
 static RValue builtinLayerBackgroundExists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t layerId = RValue_toInt32(args[0]);
+    int32_t layerId = resolveLayerIdArg(runner, args[0]);
     int32_t elementId = RValue_toInt32(args[1]);
 
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, layerId);
@@ -5745,7 +5769,7 @@ static RValue builtinLayerBackgroundAlpha(VMContext* ctx, RValue* args, MAYBE_UN
 #if IS_BC17_OR_HIGHER_ENABLED
 static RValue builtinLayerGetAllElements(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
 
     RValue arr = VM_createArray(ctx);
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
@@ -5842,7 +5866,7 @@ static RValue builtinLayerGetIdAtDepth(VMContext* ctx, RValue* args, MAYBE_UNUSE
 
 static RValue builtinLayerVspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
-    int32_t id = RValue_toInt32(args[0]);
+    int32_t id = resolveLayerIdArg(runner, args[0]);
     float vs = (float) RValue_toReal(args[1]);
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer != nullptr) runtimeLayer->vSpeed = vs;
