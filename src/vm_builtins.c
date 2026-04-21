@@ -4685,6 +4685,12 @@ static RValue builtinSurfaceGetHeight(VMContext* ctx, RValue* args, MAYBE_UNUSED
 }
 
 // Sprite functions
+static RValue builtin_spriteAdd(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logStubbedFunction(ctx, "sprite_add");
+    // Return 1, so that a sprite_exists check passes
+    return RValue_makeInt32(1);
+}
+
 static RValue builtin_spriteExists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (args[0].type == RVALUE_UNDEFINED) return RValue_makeBool(false);
     int32_t spriteIndex = RValue_toInt32(args[0]);
@@ -6741,6 +6747,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "surface_get_height", builtinSurfaceGetHeight);
 
     // Sprite info
+    VM_registerBuiltin(ctx, "sprite_add", builtin_spriteAdd);
     VM_registerBuiltin(ctx, "sprite_exists", builtin_spriteExists);
     VM_registerBuiltin(ctx, "sprite_get_width", builtin_spriteGetWidth);
     VM_registerBuiltin(ctx, "sprite_get_height", builtin_spriteGetHeight);
