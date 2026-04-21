@@ -1787,10 +1787,9 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
             case CMP_EQ:  result = eq;  break;
             case CMP_NEQ: result = !eq; break;
             default:      result = false; break;
-        }
-    } 
+        } 
 #if IS_BC17_OR_HIGHER_ENABLED
-    else if (a.type == RVALUE_METHOD || b.type == RVALUE_METHOD) {
+    } else if (a.type == RVALUE_METHOD || b.type == RVALUE_METHOD) {
         // Method is only == to the same method
         bool eq = (a.type == RVALUE_METHOD && b.type == RVALUE_METHOD) && (a.method == b.method);
         switch (cmpKind) {
@@ -1798,9 +1797,8 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
             case CMP_NEQ: result = !eq; break;
             default:      result = false; break;
         }
-    }
 #endif
-    else if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
+    } else if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
         int cmp = strcmp(a.string != nullptr ? a.string : "", b.string != nullptr ? b.string : "");
         switch (cmpKind) {
             case CMP_LT:  result = 0 > cmp; break;
