@@ -415,14 +415,14 @@ static int32_t sdl2KeyToGml(int sdl2Key) {
     // Special keys need mapping
     switch (sdl2Key) {
         case SDLK_ESCAPE:        return VK_ESCAPE;
-        case SDLK_ENTER:         return VK_ENTER;
+        case SDLK_RETURN:         return VK_ENTER;
         case SDLK_TAB:           return VK_TAB;
         case SDLK_BACKSPACE:     return VK_BACKSPACE;
         case SDLK_SPACE:         return VK_SPACE;
         case SDLK_LSHIFT:
         case SDLK_RSHIFT:   return VK_SHIFT;
         case SDLK_LCTRL:
-        case SDLK_RCTRL: return VK_CTRL;
+        case SDLK_RCTRL: return VK_CONTROL;
         case SDLK_LALT:
         case SDLK_RALT:     return VK_ALT;
         case SDLK_UP:            return VK_UP;
@@ -626,7 +626,7 @@ int main(int argc, char* argv[]) {
     SDL2FileSystem* sdl2FileSystem = SDL2FileSystem_create(args.dataWinPath);
 
     // Init SDL2
-    if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_TIMER|SDL_INIT_GAMECTRLLER)) {
+    if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_TIMER|SDL_INIT_GAMECONTROLLER)) {
         fprintf(stderr, "Failed to initialize SDL2\n");
         DataWin_free(dataWin);
         freeCommandLineArgs(&args);
@@ -662,7 +662,7 @@ int main(int argc, char* argv[]) {
 
     SDL_GLContext context = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, context);
-    SDL_GL_SwapInterval(0); // Disable v-sync, we control timing ourselves
+    SDL_GL_SetSwapInterval(0); // Disable v-sync, we control timing ourselves
 
     // Load OpenGL function pointers via GLAD
     if (!gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress)) {
