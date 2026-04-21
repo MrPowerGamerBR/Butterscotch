@@ -16,7 +16,7 @@ add_compile_definitions(
 )
 
 if(PLATFORM STREQUAL "")
-    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=glfw (or another supported platform).")
+    message(FATAL_ERROR "PLATFORM is not set! Use -DPLATFORM=sdl2 (or another supported platform).")
 endif()
 
 # To avoid unused code in production builds that are only used for a single game (example: PlayStation 2 target), we can enable/disable specific bytecode versions
@@ -45,7 +45,7 @@ target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # stb_ds
 target_include_directories(butterscotch PUBLIC vendor/stb/ds)
 
-if(PLATFORM STREQUAL "glfw")
+if(PLATFORM STREQUAL "sdl2")
     # GLAD
     add_library(glad STATIC vendor/glad/src/glad.c)
     target_include_directories(glad PUBLIC vendor/glad/include)
