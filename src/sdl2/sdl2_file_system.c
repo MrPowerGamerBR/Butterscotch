@@ -1,15 +1,16 @@
-#include "glfw_file_system.h"
+#include "sdl2_file_system.h"
 #include "utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <SDL2/SDL.h>
 
 // ===[ Helpers ]===
 
 // The caller must make sure to free the returned string!
-static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
+static char* buildFullPath(SDL2FileSystem* fs, const char* relativePath) {
     if (strstr(relativePath, fs->basePath) != nullptr) return safeStrdup(relativePath);
     size_t baseLen = strlen(fs->basePath);
     size_t relLen = strlen(relativePath);
@@ -23,20 +24,20 @@ static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
 // ===[ Vtable Implementations ]===
 
 // The caller must make sure to free the returned string!
-static char* glfwResolvePath(FileSystem* fs, const char* relativePath) {
-    return buildFullPath((GlfwFileSystem*) fs, relativePath);
+static char* sdl2ResolvePath(FileSystem* fs, const char* relativePath) {
+    return buildFullPath((SDL2FileSystem*) fs, relativePath);
 }
 
-static bool glfwFileExists(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static bool sdl2FileExists(FileSystem* fs, const char* relativePath) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     struct stat st;
     bool exists = (stat(fullPath, &st) == 0);
     free(fullPath);
     return exists;
 }
 
-static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static char* sdl2ReadFileText(FileSystem* fs, const char* relativePath) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     FILE* f = fopen(fullPath, "rb");
     free(fullPath);
     if (f == nullptr)
@@ -53,8 +54,8 @@ static char* glfwReadFileText(FileSystem* fs, const char* relativePath) {
     return content;
 }
 
-static bool glfwWriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static bool sdl2WriteFileText(FileSystem* fs, const char* relativePath, const char* contents) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     FILE* f = fopen(fullPath, "wb");
     free(fullPath);
     if (f == nullptr)
@@ -66,15 +67,15 @@ static bool glfwWriteFileText(FileSystem* fs, const char* relativePath, const ch
     return written == len;
 }
 
-static bool glfwDeleteFile(FileSystem* fs, const char* relativePath) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static bool sdl2DeleteFile(FileSystem* fs, const char* relativePath) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     int result = remove(fullPath);
     free(fullPath);
     return result == 0;
 }
 
-static bool glfwReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t** outData, int32_t* outSize) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static bool sdl2ReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t** outData, int32_t* outSize) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     FILE* f = fopen(fullPath, "rb");
     free(fullPath);
     if (f == nullptr)
@@ -93,8 +94,8 @@ static bool glfwReadFileBinary(FileSystem* fs, const char* relativePath, uint8_t
     return true;
 }
 
-static bool glfwWriteFileBinary(FileSystem* fs, const char* relativePath, const uint8_t* data, int32_t size) {
-    char* fullPath = buildFullPath((GlfwFileSystem*) fs, relativePath);
+static bool sdl2WriteFileBinary(FileSystem* fs, const char* relativePath, const uint8_t* data, int32_t size) {
+    char* fullPath = buildFullPath((SDL2FileSystem*) fs, relativePath);
     FILE* f = fopen(fullPath, "wb");
     free(fullPath);
     if (f == nullptr)
@@ -107,21 +108,21 @@ static bool glfwWriteFileBinary(FileSystem* fs, const char* relativePath, const 
 
 // ===[ Vtable ]===
 
-static FileSystemVtable glfwFileSystemVtable = {
-    .resolvePath = glfwResolvePath,
-    .fileExists = glfwFileExists,
-    .readFileText = glfwReadFileText,
-    .writeFileText = glfwWriteFileText,
-    .deleteFile = glfwDeleteFile,
-    .readFileBinary = glfwReadFileBinary,
-    .writeFileBinary = glfwWriteFileBinary,
+static FileSystemVtable sdl2FileSystemVtable = {
+    .resolvePath = sdl2ResolvePath,
+    .fileExists = sdl2FileExists,
+    .readFileText = sdl2ReadFileText,
+    .writeFileText = sdl2WriteFileText,
+    .deleteFile = sdl2DeleteFile,
+    .readFileBinary = sdl2ReadFileBinary,
+    .writeFileBinary = sdl2WriteFileBinary,
 };
 
 // ===[ Lifecycle ]===
 
-GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
-    GlfwFileSystem* fs = safeCalloc(1, sizeof(GlfwFileSystem));
-    fs->base.vtable = &glfwFileSystemVtable;
+SDL2FileSystem* SDL2FileSystem_create(const char* dataWinPath) {
+    SDL2FileSystem* fs = safeCalloc(1, sizeof(SDL2FileSystem));
+    fs->base.vtable = &sdl2FileSystemVtable;
 
     // Derive basePath by stripping the filename from dataWinPath
     const char* lastSlash = strrchr(dataWinPath, '/');
@@ -141,7 +142,7 @@ GlfwFileSystem* GlfwFileSystem_create(const char* dataWinPath) {
     return fs;
 }
 
-void GlfwFileSystem_destroy(GlfwFileSystem* fs) {
+void SDL2FileSystem_destroy(SDL2FileSystem* fs) {
     if (fs == nullptr) return;
     free(fs->basePath);
     free(fs);

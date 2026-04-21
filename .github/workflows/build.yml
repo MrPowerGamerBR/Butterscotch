@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build-glfw-linux-x86_64:
-    name: Build (GLFW/Linux x86_64)
+  build-SDL2-linux-x86_64:
+    name: Build (SDL2/Linux x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,11 +19,18 @@ jobs:
           echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "date=$(git log -1 --format=%cd --date=short)" >> $GITHUB_OUTPUT
 
+      - uses: libsdl-org/setup-sdl@main
+        id: sdl
+        with:
+          install-linux-dependencies: true
+          version: 2-latest
+          version-sdl-image: 2-latest
+
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake libglfw3-dev libbz2-dev
+        run: sudo apt-get update && sudo apt-get install -y cmake libbz2-dev
 
       - name: Configure
-        run: cmake -B build -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+        run: cmake -B build -DPLATFORM=sdl2 -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -31,11 +38,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-linux-x86_64
+          name: butterscotch-SDL2-linux-x86_64
           path: build/butterscotch
 
-  build-glfw-windows-x86_64:
-    name: Build (GLFW/Windows x86_64)
+  build-SDL2-windows-x86_64:
+    name: Build (SDL2/Windows x86_64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,16 +58,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake mingw-w64
 
-      - name: Build GLFW for MinGW
+      - name: Build SDL2 for MinGW
         run: |
-          git clone https://github.com/glfw/glfw.git /tmp/glfw
-          git -C /tmp/glfw checkout fdd14e65b1c29e4e6df875fb5669ec00d6793531
-          cmake -B /tmp/glfw/build -S /tmp/glfw \
+          git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
+          cmake -B /tmp/SDL2/build -S /tmp/SDL2 \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32 \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
-          make -C /tmp/glfw/build -j$(nproc)
-          sudo make -C /tmp/glfw/build install
+          make -C /tmp/SDL2/build -j$(nproc)
+          sudo make -C /tmp/SDL2/build install
 
       - name: Build bzip2 for MinGW
         run: |
@@ -71,7 +76,7 @@ jobs:
           sudo cp /tmp/bzip2-1.0.8/bzlib.h /usr/x86_64-w64-mingw32/include/
 
       - name: Configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake -DPLATFORM=sdl2 -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -79,11 +84,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-windows-x86_64
+          name: butterscotch-SDL2-windows-x86_64
           path: build/butterscotch.exe
 
-  build-glfw-linux-x86:
-    name: Build (GLFW/Linux x86)
+  build-SDL2-linux-x86:
+    name: Build (SDL2/Linux x86)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,21 +105,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake gcc-multilib g++-multilib pkg-config libbz2-dev:i386 libx11-dev:i386 libxrandr-dev:i386 libxinerama-dev:i386 libxcursor-dev:i386 libxi-dev:i386 libgl-dev:i386
 
-      - name: Build GLFW (32-bit)
+      - name: Build SDL2 (32-bit)
         run: |
-          git clone https://github.com/glfw/glfw.git /tmp/glfw
-          git -C /tmp/glfw checkout fdd14e65b1c29e4e6df875fb5669ec00d6793531
-          cmake -B /tmp/glfw/build -S /tmp/glfw \
+          git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
+          cmake -B /tmp/SDL2/build -S /tmp/SDL2-x86 \
             -DCMAKE_C_FLAGS=-m32 \
-            -DCMAKE_INSTALL_PREFIX=/usr/local/glfw-x86 \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF -DGLFW_BUILD_WAYLAND=OFF
-          make -C /tmp/glfw/build -j$(nproc)
-          sudo make -C /tmp/glfw/build install
+            -DCMAKE_INSTALL_PREFIX=/usr/local/SDL2-x86 \
+          make -C /tmp/SDL2/build -j$(nproc)
+          sudo make -C /tmp/SDL2/build install
 
       - name: Configure
         run: |
-          export PKG_CONFIG_PATH=/usr/local/glfw-x86/lib/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
-          cmake -B build -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_EXE_LINKER_FLAGS=-m32 "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+          export PKG_CONFIG_PATH=/usr/local/SDL2-x86/lib/pkgconfig:/usr/lib/i386-linux-gnu/pkgconfig
+          cmake -B build -DPLATFORM=sdl2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-m32 -DCMAKE_EXE_LINKER_FLAGS=-m32 "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -122,11 +125,11 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-linux-x86
+          name: butterscotch-SDL2-linux-x86
           path: build/butterscotch
 
-  build-glfw-windows-x86:
-    name: Build (GLFW/Windows x86)
+  build-SDL2-windows-x86:
+    name: Build (SDL2/Windows x86)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,16 +145,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake mingw-w64
 
-      - name: Build GLFW for MinGW (32-bit)
+      - name: Build SDL2 for MinGW
         run: |
-          git clone https://github.com/glfw/glfw.git /tmp/glfw
-          git -C /tmp/glfw checkout fdd14e65b1c29e4e6df875fb5669ec00d6793531
-          cmake -B /tmp/glfw/build -S /tmp/glfw \
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64-i686.cmake \
+          git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
+          cmake -B /tmp/SDL2/build -S /tmp/SDL2 \
+            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/i686-w64-mingw32 \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
-          make -C /tmp/glfw/build -j$(nproc)
-          sudo make -C /tmp/glfw/build install
+          make -C /tmp/SDL2/build -j$(nproc)
+          sudo make -C /tmp/SDL2/build install
 
       - name: Build bzip2 for MinGW (32-bit)
         run: |
@@ -162,7 +163,7 @@ jobs:
           sudo cp /tmp/bzip2-1.0.8/bzlib.h /usr/i686-w64-mingw32/include/
 
       - name: Configure
-        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DPLATFORM=glfw -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
+        run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DPLATFORM=sdl2 -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -170,7 +171,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: butterscotch-glfw-windows-x86
+          name: butterscotch-SDL2-windows-x86
           path: build/butterscotch.exe
 
   build-ps2:

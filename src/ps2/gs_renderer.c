@@ -963,7 +963,7 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
     bool hasRotation = angleDeg != 0.0f;
 
     if (hasRotation) {
-        // Rotated: compute 4 transformed corners via matrix, same approach as the GLFW renderer
+        // Rotated: compute 4 transformed corners via matrix, same approach as the GL renderer
         // Position the cropped region within the original bounding box
         float localX0 = cropX - originX;
         float localY0 = cropY - originY;
