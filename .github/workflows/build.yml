@@ -63,9 +63,9 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
           cmake -B /tmp/SDL2/build -S /tmp/SDL2 \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
-            -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32 \
-          make -C /tmp/SDL2/build -j$(nproc)
-          sudo make -C /tmp/SDL2/build install
+            -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32
+          cmake --build /tmp/SDL2/build --parallel $(nproc)
+          sudo cmake --install /tmp/SDL2/build install
 
       - name: Build bzip2 for MinGW
         run: |
@@ -110,9 +110,9 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
           cmake -B /tmp/SDL2/build -S /tmp/SDL2-x86 \
             -DCMAKE_C_FLAGS=-m32 \
-            -DCMAKE_INSTALL_PREFIX=/usr/local/SDL2-x86 \
-          make -C /tmp/SDL2/build -j$(nproc)
-          sudo make -C /tmp/SDL2/build install
+            -DCMAKE_INSTALL_PREFIX=/usr/local/SDL2-x86
+          cmake --build /tmp/SDL2/build --parallel $(nproc)
+          sudo cmake --install /tmp/SDL2/build install
 
       - name: Configure
         run: |
@@ -150,9 +150,9 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
           cmake -B /tmp/SDL2/build -S /tmp/SDL2 \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
-            -DCMAKE_INSTALL_PREFIX=/usr/i686-w64-mingw32 \
-          make -C /tmp/SDL2/build -j$(nproc)
-          sudo make -C /tmp/SDL2/build install
+            -DCMAKE_INSTALL_PREFIX=/usr/i686-w64-mingw32
+          cmake --build /tmp/SDL2/build --parallel $(nproc)
+          sudo cmake --install /tmp/SDL2/build install
 
       - name: Build bzip2 for MinGW (32-bit)
         run: |
