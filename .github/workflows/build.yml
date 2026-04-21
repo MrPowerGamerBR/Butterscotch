@@ -108,7 +108,7 @@ jobs:
       - name: Build SDL2 (32-bit)
         run: |
           git clone https://github.com/libsdl-org/SDL.git /tmp/SDL2 -b release-2.32.10
-          cmake -B /tmp/SDL2/build -S /tmp/SDL2-x86 \
+          cmake -B /tmp/SDL2/build -S /tmp/SDL2 \
             -DCMAKE_C_FLAGS=-m32 \
             -DCMAKE_INSTALL_PREFIX=/usr/local/SDL2-x86
           cmake --build /tmp/SDL2/build --parallel $(nproc)

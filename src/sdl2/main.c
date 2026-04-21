@@ -409,7 +409,7 @@ static void captureScreenshot(const char* filenamePattern, int frameNumber, int 
 
 static int32_t sdl2KeyToGml(int sdl2Key) {
     // Letters: SDLK_A (65) -> 65 (same as GML)
-    if (sdl2Key >= SDLK_A && sdl2Key <= SDLK_Z) return sdl2Key;
+    if (sdl2Key >= SDLK_a && sdl2Key <= SDLK_z) return sdl2Key;
     // Numbers: SDLK_0 (48) -> 48
     if (sdl2Key >= SDLK_0 && sdl2Key <= SDLK_9) return sdl2Key;
     // Special keys need mapping
@@ -421,8 +421,8 @@ static int32_t sdl2KeyToGml(int sdl2Key) {
         case SDLK_SPACE:         return VK_SPACE;
         case SDLK_LSHIFT:
         case SDLK_RSHIFT:   return VK_SHIFT;
-        case SDLK_LCONTROL:
-        case SDLK_RCONTROL: return VK_CONTROL;
+        case SDLK_LCTRL:
+        case SDLK_RCTRL: return VK_CTRL;
         case SDLK_LALT:
         case SDLK_RALT:     return VK_ALT;
         case SDLK_UP:            return VK_UP;
@@ -445,8 +445,8 @@ static int32_t sdl2KeyToGml(int sdl2Key) {
         case SDLK_DELETE:        return VK_DELETE;
         case SDLK_HOME:          return VK_HOME;
         case SDLK_END:           return VK_END;
-        case SDLK_PAGE_UP:       return VK_PAGEUP;
-        case SDLK_PAGE_DOWN:     return VK_PAGEDOWN;
+        case SDLK_PAGEUP:       return VK_PAGEUP;
+        case SDLK_PAGEDOWN:     return VK_PAGEDOWN;
         default:                     return -1; // Unknown
     }
 }
@@ -626,7 +626,7 @@ int main(int argc, char* argv[]) {
     SDL2FileSystem* sdl2FileSystem = SDL2FileSystem_create(args.dataWinPath);
 
     // Init SDL2
-    if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_TIMER|SDL_INIT_GAMECONTROLLER)) {
+    if (!SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS|SDL_INIT_TIMER|SDL_INIT_GAMECTRLLER)) {
         fprintf(stderr, "Failed to initialize SDL2\n");
         DataWin_free(dataWin);
         freeCommandLineArgs(&args);
@@ -660,7 +660,7 @@ int main(int argc, char* argv[]) {
         SDL_HideWindow(window);
     }
 
-    SDLGL_Context glContext = SDL_GL_CreateContext(window);
+    SDL_GLContext context = SDL_GL_CreateContext(window);
     SDL_GL_MakeCurrent(window, context);
     SDL_GL_SwapInterval(0); // Disable v-sync, we control timing ourselves
 
