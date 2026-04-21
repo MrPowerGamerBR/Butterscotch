@@ -65,7 +65,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32
           cmake --build /tmp/SDL2/build --parallel $(nproc)
-          sudo cmake --install /tmp/SDL2/build install
+          sudo cmake --install /tmp/SDL2/build
 
       - name: Build bzip2 for MinGW
         run: |
@@ -112,7 +112,7 @@ jobs:
             -DCMAKE_C_FLAGS=-m32 \
             -DCMAKE_INSTALL_PREFIX=/usr/local/SDL2-x86
           cmake --build /tmp/SDL2/build --parallel $(nproc)
-          sudo cmake --install /tmp/SDL2/build install
+          sudo cmake --install /tmp/SDL2/build
 
       - name: Configure
         run: |
@@ -152,7 +152,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/mingw-w64.cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/i686-w64-mingw32
           cmake --build /tmp/SDL2/build --parallel $(nproc)
-          sudo cmake --install /tmp/SDL2/build install
+          sudo cmake --install /tmp/SDL2/build
 
       - name: Build bzip2 for MinGW (32-bit)
         run: |
