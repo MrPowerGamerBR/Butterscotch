@@ -166,9 +166,7 @@ jobs:
         run: cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-i686.cmake -DPLATFORM=sdl2 -DCMAKE_BUILD_TYPE=Release "-DBUTTERSCOTCH_COMMIT_HASH=${{ steps.commit-info.outputs.hash }}" "-DBUTTERSCOTCH_COMMIT_DATE=${{ steps.commit-info.outputs.date }}"
 
       - name: Build
-        run: |
-          find -name *.dll /tmp/SDL2/build
-          cmake --build build -j$(nproc)
+        run: cmake --build build -j$(nproc)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
