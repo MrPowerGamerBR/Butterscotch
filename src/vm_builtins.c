@@ -4393,7 +4393,24 @@ static RValue builtin_drawTextTransformed(VMContext* ctx, RValue* args, MAYBE_UN
     free(str);
     return RValue_makeUndefined();
 }
-STUB_RETURN_UNDEFINED(draw_text_ext)
+
+static RValue builtin_drawTextExt(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    int32_t separation = RValue_toInt32(args[3]);
+    int32_t width = RValue_toInt32(args[4]);
+
+    PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawText(runner->renderer, processedText.text, x, y, 1.0f, 1.0f, 0.0f);
+    PreprocessedText_free(processedText);
+    free(str);
+    return RValue_makeUndefined();
+}
+
 STUB_RETURN_UNDEFINED(draw_text_ext_transformed)
 
 static RValue builtin_drawTextColor(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -6702,7 +6719,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_set_valign", builtin_drawSetValign);
     VM_registerBuiltin(ctx, "draw_text", builtin_drawText);
     VM_registerBuiltin(ctx, "draw_text_transformed", builtin_drawTextTransformed);
-    VM_registerBuiltin(ctx, "draw_text_ext", builtin_draw_text_ext);
+    VM_registerBuiltin(ctx, "draw_text_ext", builtin_drawTextExt);
     VM_registerBuiltin(ctx, "draw_text_ext_transformed", builtin_draw_text_ext_transformed);
     VM_registerBuiltin(ctx, "draw_text_color", builtin_drawTextColor);
     VM_registerBuiltin(ctx, "draw_text_color_transformed", builtin_drawTextColorTransformed);
