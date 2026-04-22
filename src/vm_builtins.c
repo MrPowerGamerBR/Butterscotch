@@ -5627,7 +5627,8 @@ static void instanceSetLayerActiveState(Runner* runner, int32_t layerId, bool is
 
         repeat(layerData->instanceCount, instanceIndex) {
             Instance* inst = hmget(runner->instancesToId, layerData->instanceIds[instanceIndex]);
-            if (inst != nullptr && !inst->destroyed) inst->active = isActive;
+            if (inst != nullptr && !inst->destroyed)
+                inst->active = isActive;
         }
         return;
     }
@@ -7204,8 +7205,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "instance_activate_all", builtinInstanceActivateAll);
     VM_registerBuiltin(ctx, "instance_activate_object", builtinInstanceActivateObject);
     VM_registerBuiltin(ctx, "instance_deactivate_object", builtinInstanceDeactivateObject);
-    VM_registerBuiltin(ctx, "instance_deactivate_layer", builtinInstanceDeactivateLayer);
     VM_registerBuiltin(ctx, "instance_activate_layer", builtinInstanceActivateLayer);
+    VM_registerBuiltin(ctx, "instance_deactivate_layer", builtinInstanceDeactivateLayer);
     VM_registerBuiltin(ctx, "action_kill_object", builtinActionKillObject);
     VM_registerBuiltin(ctx, "action_create_object", builtinActionCreateObject);
     VM_registerBuiltin(ctx, "action_set_relative", builtinActionSetRelative);
