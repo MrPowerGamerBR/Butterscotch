@@ -292,8 +292,8 @@ static void executeEventPerObject(Runner* runner, int32_t eventType, int32_t eve
 }
 
 void Runner_executeEventForAll(Runner* runner, int32_t eventType, int32_t eventSubtype) {
-    // On BC17+ (GMS 2.x), the native runner dispatches events in the eventUsesPerObjectDispatch set per-object. Route those through executeEventPerObject to match.
-    if (IS_BC17_OR_HIGHER(runner->vmContext) && eventUsesBC17PerObjectDispatch(eventType)) {
+    // On GMS 2.x, the native runner dispatches events in the eventUsesPerObjectDispatch set per-object. Route those through executeEventPerObject to match.
+    if (DataWin_isVersionAtLeast(runner->dataWin, 2, 0, 0, 0) && eventUsesBC17PerObjectDispatch(eventType)) {
         executeEventPerObject(runner, eventType, eventSubtype);
         return;
     }
