@@ -538,7 +538,7 @@ int main(int argc, char* argv[]) {
     );
 
     Gen8* gen8 = &dataWin->gen8;
-    printf("Loaded \"%s\" (%d) successfully! [Bytecode Version %u]\n", gen8->name, gen8->gameID, gen8->bytecodeVersion);
+    printf("Loaded \"%s\" (%d) successfully! [Bytecode Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->bytecodeVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
 
     #ifdef __GLIBC__
     {
