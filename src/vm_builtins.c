@@ -1268,7 +1268,7 @@ static RValue builtinDistanceToObject(VMContext* ctx, RValue* args, int32_t argC
     InstanceBBox selfBBox = Collision_computeBBox(ctx->dataWin, self);
     if (!selfBBox.valid) return RValue_makeReal(0.0);
 
-    GMLReal minDist = 10000000000.0;
+    GMLReal minDistSq = 1e20;
     int32_t count = (int32_t) arrlen(runner->instances);
 
     repeat(count, i) {
@@ -1286,11 +1286,11 @@ static RValue builtinDistanceToObject(VMContext* ctx, RValue* args, int32_t argC
         if (otherBBox.top > selfBBox.bottom)  yd = otherBBox.top - selfBBox.bottom;
         if (selfBBox.top > otherBBox.bottom)  yd = selfBBox.top - otherBBox.bottom;
 
-        GMLReal dist = GMLReal_sqrt(xd * xd + yd * yd);
-        if (minDist > dist) minDist = dist;
+        GMLReal distSq = xd * xd + yd * yd;
+        if (minDistSq > distSq) minDistSq = distSq;
     }
 
-    return RValue_makeReal(minDist);
+    return RValue_makeReal(GMLReal_sqrt(minDistSq));
 }
 
 static RValue builtinPointDirection(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
