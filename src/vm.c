@@ -220,12 +220,12 @@ static void patchReferenceOperands(VMContext* ctx) {
 
 // Resolve a variable operand: returns upper bits | varIndex (read directly from patched bytecode)
 static uint32_t resolveVarOperand(const uint8_t* extraData) {
-    return BinaryUtils_readUint32(extraData);
+    return BinaryUtils_readUint32Aligned(extraData);
 }
 
 // Resolve a function operand: returns funcIndex (read directly from patched bytecode)
 static uint32_t resolveFuncOperand(const uint8_t* extraData) {
-    return BinaryUtils_readUint32(extraData);
+    return BinaryUtils_readUint32Aligned(extraData);
 }
 
 // ===[ Array Operations ]===
@@ -1079,19 +1079,19 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
 
     switch (type1) {
         case GML_TYPE_DOUBLE:
-            stackPush(ctx, RValue_makeReal(BinaryUtils_readFloat64(extraData)));
+            stackPush(ctx, RValue_makeReal(BinaryUtils_readFloat64Aligned(extraData)));
             break;
         case GML_TYPE_FLOAT:
-            stackPush(ctx, RValue_makeReal((GMLReal) BinaryUtils_readFloat32(extraData)));
+            stackPush(ctx, RValue_makeReal((GMLReal) BinaryUtils_readFloat32Aligned(extraData)));
             break;
         case GML_TYPE_INT32:
-            stackPush(ctx, RValue_makeInt32(BinaryUtils_readInt32(extraData)));
+            stackPush(ctx, RValue_makeInt32(BinaryUtils_readInt32Aligned(extraData)));
             break;
         case GML_TYPE_INT64:
-            stackPush(ctx, RValue_makeInt64(BinaryUtils_readInt64(extraData)));
+            stackPush(ctx, RValue_makeInt64(BinaryUtils_readInt64Aligned(extraData)));
             break;
         case GML_TYPE_BOOL:
-            stackPush(ctx, RValue_makeBool(BinaryUtils_readInt32(extraData) != 0));
+            stackPush(ctx, RValue_makeBool(BinaryUtils_readInt32Aligned(extraData) != 0));
             break;
         case GML_TYPE_VARIABLE: {
             int32_t instanceType = (int32_t) instrInstanceType(instr);
@@ -1181,7 +1181,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             break;
         }
         case GML_TYPE_STRING: {
-            int32_t stringIndex = BinaryUtils_readInt32(extraData);
+            int32_t stringIndex = BinaryUtils_readInt32Aligned(extraData);
             require(stringIndex >= 0 && ctx->dataWin->strg.count > (uint32_t) stringIndex);
             stackPush(ctx, RValue_makeString(ctx->dataWin->strg.strings[stringIndex]));
             break;
@@ -2523,7 +2523,7 @@ static RValue executeLoop(VMContext* ctx) {
             Profiler_tickInstruction(ctx->profiler);
 #endif
         uint32_t instrAddr = ctx->ip;
-        uint32_t instr = BinaryUtils_readUint32(ctx->bytecodeBase + ctx->ip);
+        uint32_t instr = BinaryUtils_readUint32Aligned(ctx->bytecodeBase + ctx->ip);
         ctx->ip += 4;
 
         // extraData pointer (may not be used depending on opcode)
