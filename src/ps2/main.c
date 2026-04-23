@@ -358,7 +358,7 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
     void* heapTop = sbrk(0);
     int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
     char memText[48];
-    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", usedBytes / (1024.0f * 1024.0f), MAX_MEMORY_BYTES / (1024.0f * 1024.0f));
+    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", (double) (usedBytes / (1024.0f * 1024.0f)), (double) (MAX_MEMORY_BYTES / (1024.0f * 1024.0f)));
     gsKit_fontm_print_scaled(gs, fontm, 320.0f, barY + barH + 30.0f, 1, 0.4f, gray, memText);
 
     // Record item counts for already-parsed chunks (callback fires before parsing, so we scan all counts each time and add any newly non-zero ones in the order they appear)
@@ -609,7 +609,7 @@ int main(int argc, char* argv[]) {
         void* heapTop = sbrk(0);
         int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
         int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
-        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
+        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, (double) (usedBytes / 1024.0f), MAX_MEMORY_BYTES, (double) (MAX_MEMORY_BYTES / 1024.0f), freeBytes, (double) (freeBytes / 1024.0f));
     }
 
     FileSystem* fileSystem = Ps2FileSystem_create(configRoot, dataWin->gen8.displayName);
@@ -663,7 +663,7 @@ int main(int argc, char* argv[]) {
         void* heapTop = sbrk(0);
         int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
         int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
-        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
+        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, (double) (usedBytes / 1024.0f), MAX_MEMORY_BYTES, (double) (MAX_MEMORY_BYTES / 1024.0f), freeBytes, (double) (freeBytes / 1024.0f));
     }
 
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing first room...", &loadingState);
@@ -893,7 +893,7 @@ int main(int argc, char* argv[]) {
                 if (gsRenderer->eeCacheEntries[ai].atlasId >= 0) eeramAtlasCount++;
             }
 
-            snprintf(debugText, sizeof(debugText), "Tick: %.2fms\nStep: %.2fms\nDraw: %.2fms\nAudio: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s", tickTime, stepTime, drawTime, audioTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "");
+            snprintf(debugText, sizeof(debugText), "Tick: %.2fms\nStep: %.2fms\nDraw: %.2fms\nAudio: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s", (double) tickTime, (double) stepTime, (double) drawTime, (double) audioTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "");
             gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.6f, debugColor, debugText);
 
             if (debugOverlayState == 1) {

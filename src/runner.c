@@ -1950,10 +1950,10 @@ void Runner_dumpState(Runner* runner) {
         }
 
         printf("\n--- Instance #%d (%s, objectIndex=%d) ---\n", inst->instanceId, objName, inst->objectIndex);
-        printf("  Position: (%g, %g)\n", inst->x, inst->y);
+        printf("  Position: (%g, %g)\n", (double) inst->x, (double) inst->y);
         printf("  Depth: %d\n", inst->depth);
-        printf("  Sprite: %s (index %d), imageIndex=%g, imageSpeed=%g\n", spriteName, inst->spriteIndex, inst->imageIndex, inst->imageSpeed);
-        printf("  Scale: (%g, %g), Angle: %g, Alpha: %g, Blend: 0x%06X\n", inst->imageXscale, inst->imageYscale, inst->imageAngle, inst->imageAlpha, inst->imageBlend);
+        printf("  Sprite: %s (index %d), imageIndex=%g, imageSpeed=%g\n", spriteName, inst->spriteIndex, (double) inst->imageIndex, (double) inst->imageSpeed);
+        printf("  Scale: (%g, %g), Angle: %g, Alpha: %g, Blend: 0x%06X\n", (double) inst->imageXscale, (double) inst->imageYscale, (double) inst->imageAngle, (double) inst->imageAlpha, inst->imageBlend);
         printf("  Visible: %s, Active: %s, Solid: %s, Persistent: %s\n", inst->visible ? "true" : "false", inst->active ? "true" : "false", inst->solid ? "true" : "false", inst->persistent ? "true" : "false");
         printf("  Parent: %s (parentId=%d)\n", parentName, gameObject != nullptr ? gameObject->parentId : -1);
 

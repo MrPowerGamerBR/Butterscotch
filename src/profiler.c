@@ -164,9 +164,9 @@ char* Profiler_createReport(const Profiler* p, int topN, int framesInWindow) {
 
     StringBuilder_appendFormat(&stringBuilder, "GML Profiler (avg %d frames)\n", framesInWindow);
     repeat(limit, i) {
-        double perFrameMs = (sorted[i].value.nanos / 1000000.0) / frames;
+        double perFrameMs = ((double) sorted[i].value.nanos / (double) 1000000) / frames;
         double opsPerFrame = (double) sorted[i].value.ops / frames;
-        double nsPerOp = sorted[i].value.ops > 0 ? (double) sorted[i].value.nanos / (double) sorted[i].value.ops : 0.0;
+        double nsPerOp = sorted[i].value.ops > 0 ? (double) sorted[i].value.nanos / (double) sorted[i].value.ops : (double) 0;
         StringBuilder_appendFormat(&stringBuilder, "%.2fms %.0f ops (%.0f ns/op) %s\n", perFrameMs, opsPerFrame, nsPerOp, sorted[i].key);
     }
     StringBuilder_appendFormat(&stringBuilder, "total %.2fms/frame, %.0f ops/frame (%zu scripts)", totalMs / frames, totalOpsPerFrame, sortedEntriesCount);

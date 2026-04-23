@@ -6460,10 +6460,10 @@ static RValue builtinMpGridPath(VMContext* ctx, RValue* args, int32_t argCount) 
     GMLReal yg = RValue_toReal(args[5]);
     bool allowDiag = RValue_toBool(args[6]);
 
-    int32_t sx = (int32_t) floor((xs - g->left) / g->cellWidth);
-    int32_t sy = (int32_t) floor((ys - g->top) / g->cellHeight);
-    int32_t gx = (int32_t) floor((xg - g->left) / g->cellWidth);
-    int32_t gy = (int32_t) floor((yg - g->top) / g->cellHeight);
+    int32_t sx = (int32_t) GMLReal_floor((xs - g->left) / g->cellWidth);
+    int32_t sy = (int32_t) GMLReal_floor((ys - g->top) / g->cellHeight);
+    int32_t gx = (int32_t) GMLReal_floor((xg - g->left) / g->cellWidth);
+    int32_t gy = (int32_t) GMLReal_floor((yg - g->top) / g->cellHeight);
 
     if (sx < 0 || sx >= g->hcells || sy < 0 || sy >= g->vcells) return RValue_makeBool(false);
     if (gx < 0 || gx >= g->hcells || gy < 0 || gy >= g->vcells) return RValue_makeBool(false);

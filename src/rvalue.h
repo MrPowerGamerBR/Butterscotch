@@ -138,7 +138,7 @@ static char* RValue_toString(RValue val) {
     char buf[64];
     switch (val.type) {
         case RVALUE_REAL:
-            snprintf(buf, sizeof(buf), "%.16g", val.real);
+            snprintf(buf, sizeof(buf), "%.16g", (double) val.real);
             return safeStrdup(buf);
         case RVALUE_INT32:
             snprintf(buf, sizeof(buf), "%d", val.int32);
@@ -195,7 +195,7 @@ static char* RValue_toStringTyped(RValue val) {
     char buf[128];
     switch (val.type) {
         case RVALUE_REAL:
-            snprintf(buf, sizeof(buf), "real(%.16g)", val.real);
+            snprintf(buf, sizeof(buf), "real(%.16g)", (double) val.real);
             return safeStrdup(buf);
         case RVALUE_INT32:
             snprintf(buf, sizeof(buf), "int32(%d)", val.int32);
