@@ -2517,17 +2517,22 @@ static void handleBreak(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
 #endif
 
 static RValue executeLoop(VMContext* ctx) {
-    while (ctx->codeEnd > ctx->ip) {
+    // codeEnd and bytecodeBase are invariant for the lifetime of this executeLoop call, so let's hoist them to avoid the compiler emitting code to
+    // reload the values at the end of every iteration.
+    const uint32_t codeEnd = ctx->codeEnd;
+    const uint8_t* const bytecodeBase = ctx->bytecodeBase;
+
+    while (codeEnd > ctx->ip) {
 #ifdef ENABLE_VM_PROFILER
         if (ctx->profiler != nullptr)
             Profiler_tickInstruction(ctx->profiler);
 #endif
         uint32_t instrAddr = ctx->ip;
-        uint32_t instr = BinaryUtils_readUint32Aligned(ctx->bytecodeBase + ctx->ip);
+        uint32_t instr = BinaryUtils_readUint32Aligned(bytecodeBase + ctx->ip);
         ctx->ip += 4;
 
         // extraData pointer (may not be used depending on opcode)
-        const uint8_t* extraData = ctx->bytecodeBase + ctx->ip;
+        const uint8_t* extraData = bytecodeBase + ctx->ip;
 
         // If instruction has extra data (bit 30 set), advance IP past it
         if (instrHasExtraData(instr)) {
