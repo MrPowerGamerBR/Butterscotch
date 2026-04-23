@@ -343,10 +343,27 @@ static void glEndFrame(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*) renderer;
     glBindVertexArray(0);
 
+    int effectiveEndX, effectiveEndY;
+    int effectiveStartX, effectiveStartY;
+
+    // Try and match the "intended" aspect ratio as closely 
+    // as possible while still fitting on the screen
+    if ((gl->gameW * gl->windowH) / gl->gameH < gl->windowW) {
+        effectiveEndX = (gl->gameW * gl->windowH) / gl->gameH;
+        effectiveEndY = gl->windowH;
+    } else {
+        effectiveEndX = gl->windowW;
+        effectiveEndY = (gl->gameH * gl->windowW) / gl->gameW;
+    }
+    effectiveX = (gl->windowW - effectiveEndX) / 2;
+    effectiveY = (gl->windowH - effectiveEndY) / 2;
+    effectiveEndX += effectiveX;
+    effectiveEndY += effectiveY;
+
     // Blit the full game-resolution FBO to the window
     glBindFramebuffer(GL_READ_FRAMEBUFFER, gl->fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, gl->fboWidth, gl->fboHeight, 0, 0, gl->windowW, gl->windowH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, gl->fboWidth, gl->fboHeight, effectiveX, effectiveY, effectiveEndX, effectiveEndY, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
