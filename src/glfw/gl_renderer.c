@@ -355,15 +355,15 @@ static void glEndFrame(Renderer* renderer) {
         effectiveEndX = gl->windowW;
         effectiveEndY = (gl->gameH * gl->windowW) / gl->gameW;
     }
-    effectiveX = (gl->windowW - effectiveEndX) / 2;
-    effectiveY = (gl->windowH - effectiveEndY) / 2;
-    effectiveEndX += effectiveX;
-    effectiveEndY += effectiveY;
+    effectiveStartX = (gl->windowW - effectiveEndX) / 2;
+    effectiveStartY = (gl->windowH - effectiveEndY) / 2;
+    effectiveEndX += effectiveStartX;
+    effectiveEndY += effectiveStartY;
 
     // Blit the full game-resolution FBO to the window
     glBindFramebuffer(GL_READ_FRAMEBUFFER, gl->fbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-    glBlitFramebuffer(0, 0, gl->fboWidth, gl->fboHeight, effectiveX, effectiveY, effectiveEndX, effectiveEndY, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, gl->fboWidth, gl->fboHeight, effectiveStartX, effectiveStartY, effectiveEndX, effectiveEndY, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
