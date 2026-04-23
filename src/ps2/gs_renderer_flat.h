@@ -19,9 +19,6 @@ typedef struct {
     float offsetY;
     int32_t viewX;
     int32_t viewY;
-
-    // Z counter for depth ordering (gsKit uses Z for draw order)
-    uint16_t zCounter;
 } GsRendererFlat;
 
 Renderer* GsRendererFlat_create(GSGLOBAL* gsGlobal);

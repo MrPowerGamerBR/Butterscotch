@@ -880,7 +880,6 @@ static void gsDestroy(Renderer* renderer) {
 
 static void gsBeginFrame(Renderer* renderer, MAYBE_UNUSED int32_t gameW, MAYBE_UNUSED int32_t gameH, MAYBE_UNUSED int32_t windowW, MAYBE_UNUSED int32_t windowH) {
     GsRenderer* gs = (GsRenderer*) renderer;
-    gs->zCounter = 1;
     gs->frameCounter++;
     gs->evictedAtlasUsedInCurrentFrame = false;
 }
@@ -1028,9 +1027,9 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
         uint8_t a = alphaToGS(alpha);
         u64 fallbackColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
         if (hasRotation) {
-            gsKit_prim_quad(gs->gsGlobal, sx0, sy0, sx1, sy1, sx2, sy2, sx3, sy3, gs->zCounter, fallbackColor);
+            gsKit_prim_quad(gs->gsGlobal, sx0, sy0, sx1, sy1, sx2, sy2, sx3, sy3, 0, fallbackColor);
         } else {
-            gsKit_prim_sprite(gs->gsGlobal, sx0, sy0, sx3, sy3, gs->zCounter, fallbackColor);
+            gsKit_prim_sprite(gs->gsGlobal, sx0, sy0, sx3, sy3, 0, fallbackColor);
         }
         return;
     }
@@ -1064,11 +1063,11 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
             sx1, sy1, u1, v0, // top-right
             sx2, sy2, u0, v1, // bottom-left
             sx3, sy3, u1, v1, // bottom-right
-            gs->zCounter,
+            0,
             gsColor
-            );
+        );
     } else {
-        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx0, sy0, u0, v0, sx3, sy3, u1, v1, gs->zCounter, gsColor);
+        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx0, sy0, u0, v0, sx3, sy3, u1, v1, 0, gsColor);
     }
 }
 
@@ -1103,7 +1102,7 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
         uint8_t g = BGR_G(color);
         uint8_t b = BGR_B(color);
         uint8_t a = alphaToGS(alpha);
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, GS_SETREG_RGBAQ(r, g, b, a, 0x00));
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, GS_SETREG_RGBAQ(r, g, b, a, 0x00));
         return;
     }
 
@@ -1152,7 +1151,7 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     uint8_t a = alphaToGS(alpha);
     u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
+    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, 0, gsColor);
 }
 
 static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline) {
@@ -1174,12 +1173,12 @@ static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, fl
         // Draw 4 one-pixel-wide edges: top, bottom, left, right
         float pw = gs->scaleX; // one pixel width in screen coords
         float ph = gs->scaleY; // one pixel height in screen coords
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2 + pw, sy1 + ph, gs->zCounter, rectColor); // top
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy2, sx2 + pw, sy2 + ph, gs->zCounter, rectColor); // bottom
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1 + ph, sx1 + pw, sy2, gs->zCounter, rectColor); // left
-        gsKit_prim_sprite(gs->gsGlobal, sx2, sy1 + ph, sx2 + pw, sy2, gs->zCounter, rectColor); // right
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2 + pw, sy1 + ph, 0, rectColor); // top
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy2, sx2 + pw, sy2 + ph, 0, rectColor); // bottom
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1 + ph, sx1 + pw, sy2, 0, rectColor); // left
+        gsKit_prim_sprite(gs->gsGlobal, sx2, sy1 + ph, sx2 + pw, sy2, 0, rectColor); // right
     } else {
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, rectColor);
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, rectColor);
     }
 }
 
@@ -1197,7 +1196,7 @@ static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y
     float sy2 = (y2 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
 
     u64 lineColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
-    gsKit_prim_line(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, lineColor);
+    gsKit_prim_line(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, lineColor);
 }
 
 // PS2 gsKit doesn't support per-vertex colors on lines, so we just use color1
@@ -1377,7 +1376,7 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
                 float sx2 = (glyphX + glyphW - gsViewX) * gsScaleX + gsOffsetX;
                 float sy2 = (glyphY + glyphH - gsViewY) * gsScaleY + gsOffsetY;
 
-                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1, sy1, u0, v0, sx2, sy2, u1, v1, gs->zCounter, textColor);
+                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1, sy1, u0, v0, sx2, sy2, u1, v1, 0, textColor);
             }
 
             cursorX += (float) glyph->shift;
@@ -1539,14 +1538,14 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
                 float sy2 = (glyphY + glyphH - gsViewY) * gsScaleY + gsOffsetY;
 
                 gsKit_prim_triangle_goraud_texture_3d(gs->gsGlobal, &glyphTex,
-                        sx1, sy1, gs->zCounter, u0, v0,
-                        sx2, sy1, gs->zCounter, u1, v0,
-                        sx2, sy2, gs->zCounter, u1, v1,
+                        sx1, sy1, 0, u0, v0,
+                        sx2, sy1, 0, u1, v0,
+                        sx2, sy2, 0, u1, v1,
                         textColor1, textColor2, textColor3);
                 gsKit_prim_triangle_goraud_texture_3d(gs->gsGlobal, &glyphTex,
-                    sx1, sy1, gs->zCounter, u0, v0,
-                    sx2, sy2, gs->zCounter, u1, v1,
-                    sx1, sy2, gs->zCounter, u0, v1,
+                    sx1, sy1, 0, u0, v0,
+                    sx2, sy2, 0, u1, v1,
+                    sx1, sy2, 0, u0, v1,
                     textColor1, textColor3, textColor4);
             }
 
@@ -1594,11 +1593,7 @@ static void gsDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
         float b = (float) BGR_B(renderer->drawColor);
 
         u64 triColor = GS_SETREG_RGBAQ(r, g, b, alphaToGS(renderer->drawAlpha), 0x00);
-        gsKit_prim_triangle_gouraud_3d(gs->gsGlobal, 
-            sx1, sy1, gs->zCounter,
-            sx2, sy2, gs->zCounter,
-            sx3, sy3, gs->zCounter,
-            triColor, triColor, triColor);
+        gsKit_prim_triangle_gouraud_3d(gs->gsGlobal, sx1, sy1, 0,sx2, sy2, 0,sx3, sy3, 0,triColor, triColor, triColor);
     }
 }
 
@@ -1665,7 +1660,7 @@ static void gsDrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float 
     uint8_t a = alphaToGS(alpha);
     u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
+    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, 0, gsColor);
 }
 
 // ===[ Vtable ]===
@@ -1701,6 +1696,5 @@ Renderer* GsRenderer_create(GSGLOBAL* gsGlobal) {
     gs->gsGlobal = gsGlobal;
     gs->scaleX = 2.0f;
     gs->scaleY = 2.0f;
-    gs->zCounter = 1;
     return (Renderer*) gs;
 }

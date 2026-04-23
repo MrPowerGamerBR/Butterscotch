@@ -88,9 +88,6 @@ typedef struct {
     int32_t viewX;
     int32_t viewY;
 
-    // Z counter for depth ordering
-    uint16_t zCounter;
-
     // ATLAS.BIN data
     uint16_t atlasTPAGCount;
     uint16_t atlasTileCount;
