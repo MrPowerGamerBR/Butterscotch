@@ -1384,6 +1384,44 @@ static RValue builtinStringInsert(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeOwnedString(result);
 }
 
+static RValue builtinStringReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
+    char* str = RValue_toString(args[0]);
+    char* needle = RValue_toString(args[1]);
+    int32_t strLen = (int32_t) strlen(str);
+    int32_t needleLen = (int32_t) strlen(needle);
+    if (0 == needleLen) {
+        free(needle);
+        return RValue_makeOwnedString(str);
+    }
+
+    char* replacement = RValue_toString(args[2]);
+    int32_t replacementLen = (int32_t) strlen(replacement);
+
+    // There can be only ONE.
+    char *appearance = strstr(str, needle);
+    if (!appearance) {
+        free(needle);
+        free(replacement);
+        return RValue_makeOwnedString(str);
+    }
+
+    int32_t newLen = strLen - needleLen + replacementLen + 1;
+    int32_t preEditLen = (int32_t) (appearance - str);
+    char *postString = str + preEditLen + needleLen;
+    int32_t postLen = strlen(postString);
+    char *outputString = safeMalloc(newLen);
+    strncpy(outputString, str, preEditLen);
+    strncpy(outputString + preEditLen, replacement, replacementLen);
+    strncpy(outputString + preEditLen + replacementLen, postString, postLen);
+
+    free(str);
+    free(needle);
+    free(replacement);
+
+    return RValue_makeOwnedString(outputString);
+}
+
 static RValue builtinStringReplaceAll(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
     char* str = RValue_toString(args[0]);
@@ -7249,6 +7287,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "string_char_at", builtinStringCharAt);
     VM_registerBuiltin(ctx, "string_delete", builtinStringDelete);
     VM_registerBuiltin(ctx, "string_insert", builtinStringInsert);
+    VM_registerBuiltin(ctx, "string_replace", builtinStringReplace);
     VM_registerBuiltin(ctx, "string_replace_all", builtinStringReplaceAll);
     VM_registerBuiltin(ctx, "string_repeat", builtinStringRepeat);
     VM_registerBuiltin(ctx, "ord", builtinOrd);
