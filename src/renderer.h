@@ -23,6 +23,10 @@ typedef struct {
     void (*endGUI)(Renderer* renderer);
     void (*drawSprite)(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha);
     void (*drawSpritePart)(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha);
+    
+    void (*drawSpritePos)(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha);
+
+
     void (*drawRectangle)(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline);
     void (*drawLine)(Renderer* renderer, float x1, float y1, float x2, float y2, float width, uint32_t color, float alpha);
     void (*drawTriangle)(Renderer *renderer, float x1, float y1, float x2, float y2, float x3, float y3, bool outline);
@@ -96,6 +100,18 @@ static void Renderer_drawSpriteExt(Renderer* renderer, int32_t spriteIndex, int3
     Sprite* sprite = &dw->sprt.sprites[spriteIndex];
     renderer->vtable->drawSprite(renderer, tpagIndex, x, y, (float) sprite->originX, (float) sprite->originY, xscale, yscale, rot, color, alpha);
 }
+
+
+static void Renderer_drawSpritePos(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
+    DataWin* dw = renderer->dataWin;
+    int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
+    if (0 > tpagIndex) return;
+
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+    renderer->vtable->drawSpritePos(renderer, tpagIndex, (float) sprite->originX, (float) sprite->originY, x1, y1, x2, y2, x3, y3, x4, y4,  alpha);
+}
+
+
 
 // Partial draw: draw_sprite_part(sprite, subimg, left, top, width, height, x, y)
 static void Renderer_drawSpritePart(Renderer* renderer, int32_t spriteIndex, int32_t subimg, int32_t left, int32_t top, int32_t width, int32_t height, float x, float y) {

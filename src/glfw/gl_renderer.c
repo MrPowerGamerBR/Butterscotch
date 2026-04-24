@@ -523,6 +523,76 @@ static void glDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     gl->quadCount++;
 }
 
+
+
+//void (*drawSpritePos)(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha);
+
+
+static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    DataWin* dw = renderer->dataWin;
+
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
+    if (!ensureTextureLoaded(gl, (uint32_t) pageId)) return;
+
+    GLuint texId = gl->glTextures[pageId];
+    int32_t texW = gl->textureWidths[pageId];
+    int32_t texH = gl->textureHeights[pageId];
+
+    // Flush if texture changed or batch full
+    if (gl->quadCount > 0 && gl->currentTextureId != texId) flushBatch(gl);
+    if (gl->quadCount >= MAX_QUADS) flushBatch(gl);
+    gl->currentTextureId = texId;
+
+    // Compute UVs for the sub-region within the atlas
+    // Compute normalized UVs from TPAG source rect
+    float u0 = (float) tpag->sourceX / (float) texW;
+    float v0 = (float) tpag->sourceY / (float) texH;
+    float u1 = (float) (tpag->sourceX + tpag->boundingWidth) / (float) texW;
+    float v1 = (float) (tpag->sourceY + tpag->boundingHeight) / (float) texH;
+
+    // Quad corners (no origin offset, no transform - draw_sprite_part ignores sprite origin)
+
+    // Convert BGR color to RGB floats
+    float r = 1.0f;
+    float g = 1.0f;
+    float b = 1.0f;
+
+    // Write 4 vertices into batch buffer
+    float* verts = gl->vertexData + gl->quadCount * VERTICES_PER_QUAD * FLOATS_PER_VERTEX;
+
+    //I dunno mann putting this offset to it makes Tenna appear correctly mostly but breaks other things?
+    //yeah yeah I did just copy and paste similar functions and modify it but hey it worky! yay!
+
+    // Vertex 0: top-left
+    verts[0] = x1-originX; verts[1] = y1-originY; verts[2] = u0; verts[3] = v0;
+    verts[4] = r;  verts[5] = g;  verts[6] = b;  verts[7] = alpha;
+
+    // Vertex 1: top-right
+    verts[8]  = x2-originX; verts[9]  = y2-originY; verts[10] = u1; verts[11] = v0;
+    verts[12] = r;  verts[13] = g;  verts[14] = b;  verts[15] = alpha;
+
+    // Vertex 2: bottom-right
+    verts[16] = x3-originX; verts[17] = y3-originY; verts[18] = u1; verts[19] = v1;
+    verts[20] = r;  verts[21] = g;  verts[22] = b;  verts[23] = alpha;
+
+    // Vertex 3: bottom-left
+    verts[24] = x4-originX; verts[25] = y4-originY; verts[26] = u0; verts[27] = v1;
+    verts[28] = r;  verts[29] = g;  verts[30] = b;  verts[31] = alpha;
+
+    gl->quadCount++;
+}
+
+
+
+
+
+
+
 // Emits a single colored quad into the batch using the white pixel texture
 static void emitColoredQuad(GLRenderer* gl, float x0, float y0, float x1, float y1, float r, float g, float b, float a) {
     if (gl->quadCount > 0 && gl->currentTextureId != gl->whiteTexture) {
@@ -1258,6 +1328,7 @@ static RendererVtable glVtable = {
     .beginGUI = glBeginGUI,
     .endGUI = glEndGUI,
     .drawSprite = glDrawSprite,
+    .drawSpritePos = glDrawSpritePos,
     .drawSpritePart = glDrawSpritePart,
     .drawRectangle = glDrawRectangle,
     .drawLine = glDrawLine,

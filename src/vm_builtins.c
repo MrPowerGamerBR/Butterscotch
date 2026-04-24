@@ -4324,6 +4324,39 @@ static RValue builtin_drawSpritePartExt(VMContext* ctx, RValue* args, MAYBE_UNUS
     return RValue_makeUndefined();
 }
 
+
+static RValue builtin_drawSpritePos(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    int32_t spriteIndex = RValue_toInt32(args[0]);
+    int32_t subimg = RValue_toInt32(args[1]);
+    float x1 = (float) RValue_toReal(args[2]);
+    float y1 = (float) RValue_toReal(args[3]);
+    float x2 = (float) RValue_toReal(args[4]);
+    float y2 = (float) RValue_toReal(args[5]);
+    float x3 = (float) RValue_toReal(args[6]);
+    float y3 = (float) RValue_toReal(args[7]);
+    float x4 = (float) RValue_toReal(args[8]);
+    float y4 = (float) RValue_toReal(args[9]);
+    float alpha = (float) RValue_toReal(args[10]);
+
+    if (0 > subimg && ctx->currentInstance != nullptr) {
+        subimg = (int32_t) ((Instance*) ctx->currentInstance)->imageIndex;
+    }
+
+    Renderer_drawSpritePos(runner->renderer, spriteIndex, subimg, x1, y1, x2, y2, x3, y3, x4, y4, alpha);
+
+    return RValue_makeUndefined();
+}
+
+
+
+
+
+
+
+
 static RValue builtin_drawRectangle(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
     if (runner->renderer == nullptr) return RValue_makeUndefined();
@@ -7248,6 +7281,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_sprite_stretched_ext", builtin_drawSpriteStretchedExt);
     VM_registerBuiltin(ctx, "draw_sprite_part", builtin_drawSpritePart);
     VM_registerBuiltin(ctx, "draw_sprite_part_ext", builtin_drawSpritePartExt);
+    VM_registerBuiltin(ctx, "draw_sprite_pos", builtin_drawSpritePos);
     VM_registerBuiltin(ctx, "draw_rectangle", builtin_drawRectangle);
     VM_registerBuiltin(ctx, "draw_rectangle_color", builtin_drawRectangleColor);
     VM_registerBuiltin(ctx, "draw_healthbar", builtin_drawHealthbar);
