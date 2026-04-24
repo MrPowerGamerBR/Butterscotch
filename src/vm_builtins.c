@@ -1273,6 +1273,26 @@ static RValue builtinStringRepeat(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeOwnedString(result);
 }
 
+static RValue builtinStringCount(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeInt32(0);
+    char* str = RValue_toString(args[0]);
+    char* substr = RValue_toString(args[1]);
+    size_t strLen = strlen(str);
+    size_t substrLen = strlen(substr);
+    int32_t count = 0;
+
+    if (substrLen > strLen) {
+        return RValue_makeInt32(0);
+    }
+
+    repeat(strLen, i) {
+        if (strncmp(str + i, substr, substrLen) == 0)
+            count++;
+    }
+
+    return RValue_makeInt32(count);
+}
+
 static RValue builtinOrd(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount || args[0].type != RVALUE_STRING || args[0].string == nullptr || args[0].string[0] == '\0') {
         return RValue_makeReal(0.0);
@@ -7290,6 +7310,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "string_replace", builtinStringReplace);
     VM_registerBuiltin(ctx, "string_replace_all", builtinStringReplaceAll);
     VM_registerBuiltin(ctx, "string_repeat", builtinStringRepeat);
+    VM_registerBuiltin(ctx, "string_count", builtinStringCount);
     VM_registerBuiltin(ctx, "ord", builtinOrd);
     VM_registerBuiltin(ctx, "chr", builtinChr);
 
