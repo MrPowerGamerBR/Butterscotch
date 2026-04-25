@@ -191,6 +191,8 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "keyboard_lastchar", BUILTIN_VAR_KEYBOARD_LASTCHAR },
     { "keyboard_lastkey", BUILTIN_VAR_KEYBOARD_LASTKEY },
     { "mask_index", BUILTIN_VAR_MASK_INDEX },
+    { "mouse_x", BUILTIN_VAR_MOUSE_X },
+    { "mouse_y", BUILTIN_VAR_MOUSE_Y },
     { "object_index", BUILTIN_VAR_OBJECT_INDEX },
     { "os_3ds", BUILTIN_VAR_OS_3DS },
     { "os_amazon", BUILTIN_VAR_OS_AMAZON },
@@ -259,6 +261,7 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "view_hspeed", BUILTIN_VAR_VIEW_HSPEED },
     { "view_hview", BUILTIN_VAR_VIEW_HVIEW },
     { "view_object", BUILTIN_VAR_VIEW_OBJECT },
+    { "view_surface_id", BUILTIN_VAR_VIEW_SURFACE_ID },
     { "view_vborder", BUILTIN_VAR_VIEW_VBORDER },
     { "view_visible", BUILTIN_VAR_VIEW_VISIBLE },
     { "view_vspeed", BUILTIN_VAR_VIEW_VSPEED },
@@ -613,6 +616,9 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
         case BUILTIN_VAR_VIEW_VSPEED:
             if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) return RValue_makeReal((GMLReal) runner->views[arrayIndex].speedY);
             return RValue_makeReal(0.0);
+        case BUILTIN_VAR_VIEW_SURFACE_ID:
+            if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) return RValue_makeReal((GMLReal) runner->viewSurfaceIds[arrayIndex]);
+            return RValue_makeReal(-1.0);
 
         // Background properties
         case BUILTIN_VAR_BACKGROUND_VISIBLE:
@@ -697,7 +703,13 @@ RValue VMBuiltins_getVariable(VMContext* ctx, int16_t builtinVarId, const char* 
             return RValue_makeString(runner->keyboard->lastChar);
         case BUILTIN_VAR_KEYBOARD_LASTKEY:
             return RValue_makeReal((GMLReal) runner->keyboard->lastKey);
-
+        
+        // Mouse
+        case BUILTIN_VAR_MOUSE_X:
+            return RValue_makeReal((GMLReal) runner->mouse->mouseX);
+        case BUILTIN_VAR_MOUSE_Y:
+            return RValue_makeReal((GMLReal) runner->mouse->mouseY);
+            
         // Surfaces
         case BUILTIN_VAR_APPLICATION_SURFACE:
             return RValue_makeReal(-1.0); // sentinel ID for the application surface
@@ -998,6 +1010,9 @@ void VMBuiltins_setVariable(VMContext* ctx, int16_t builtinVarId, const char* na
             return;
         case BUILTIN_VAR_VIEW_VSPEED:
             if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) runner->views[arrayIndex].speedY = RValue_toInt32(val);
+            return;
+        case BUILTIN_VAR_VIEW_SURFACE_ID:
+            if (arrayIndex >= 0 && MAX_VIEWS > arrayIndex) runner->viewSurfaceIds[arrayIndex] = RValue_toInt32(val);
             return;
 
         // Background properties
@@ -3558,6 +3573,21 @@ static RValue builtinKeyboardClear(VMContext* ctx, RValue* args, int32_t argCoun
     int32_t key = RValue_toInt32(args[0]);
     RunnerKeyboard_clear(runner->keyboard, key);
     return RValue_makeUndefined();
+}
+
+// Mouse functions
+static RValue builtinMouseCheckButton(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerMouse_checkButton(runner->mouse, button));
+}
+
+static RValue builtinMouseCheckButtonPressed(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeBool(false);
+    Runner* runner = (Runner*) ctx->runner;
+    int32_t button = RValue_toInt32(args[0]);
+    return RValue_makeBool(RunnerMouse_checkButtonPressed(runner->mouse, button));
 }
 
 // Joystick stubs
@@ -7473,6 +7503,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "keyboard_key_press", builtinKeyboardKeyPress);
     VM_registerBuiltin(ctx, "keyboard_key_release", builtinKeyboardKeyRelease);
     VM_registerBuiltin(ctx, "keyboard_clear", builtinKeyboardClear);
+
+    // Mouse
+    VM_registerBuiltin(ctx, "mouse_check_button", builtinMouseCheckButton);
+    VM_registerBuiltin(ctx, "mouse_check_button_pressed", builtinMouseCheckButtonPressed);
 
     // Joystick
     VM_registerBuiltin(ctx, "joystick_exists", builtin_joystick_exists);

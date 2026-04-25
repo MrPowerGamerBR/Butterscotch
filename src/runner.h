@@ -8,6 +8,7 @@
 #include "instance.h"
 #include "renderer.h"
 #include "runner_keyboard.h"
+#include "runner_mouse.h"
 #include "vm.h"
 
 // ===[ Event Type Constants ]===
@@ -295,6 +296,7 @@ typedef struct Runner {
     int frameCount;
     uint32_t nextInstanceId;
     RunnerKeyboardState* keyboard;
+    RunnerMouseState* mouse;
     RuntimeView views[MAX_VIEWS];
     RuntimeBackground backgrounds[8];
     uint32_t backgroundColor;      // runtime-mutable (BGR format)
@@ -308,6 +310,9 @@ typedef struct Runner {
     uint32_t nextLayerId;        // counter for IDs of layers/elements created at runtime
     SavedRoomState* savedRoomStates; // array of size dataWin->room.count, for persistent room support
     int32_t viewCurrent; // index of the view currently being drawn (for view_current)
+    int32_t renderGameW; // FBO width used by the last frame (= max port bound), 0 if not yet rendered
+    int32_t renderGameH; // FBO height used by the last frame (= max port bound), 0 if not yet rendered
+    int32_t viewSurfaceIds[8]; // view_surface_id per view, -1 = default (render to screen), else surface index
     struct { char* key; int value; }* disabledObjects; // stb_ds string hashmap, nullptr = no filtering
     struct { int key; Instance* value; }* instancesToId;
     bool forceDrawDepth;
