@@ -62,7 +62,7 @@ typedef struct RValue {
 #if IS_BC17_OR_HIGHER_ENABLED
     uint8_t gmlStackType; // GML data type from the instruction that pushed this value
 #endif
-} RValue;
+} __attribute__((aligned(8))) RValue;
 
 // Helper to initialize .gmlStackType only on BC17+ builds
 #if IS_BC17_OR_HIGHER_ENABLED
@@ -138,7 +138,7 @@ static char* RValue_toString(RValue val) {
     char buf[64];
     switch (val.type) {
         case RVALUE_REAL:
-            snprintf(buf, sizeof(buf), "%.16g", val.real);
+            snprintf(buf, sizeof(buf), "%.16g", (double) val.real);
             return safeStrdup(buf);
         case RVALUE_INT32:
             snprintf(buf, sizeof(buf), "%d", val.int32);
@@ -195,7 +195,7 @@ static char* RValue_toStringTyped(RValue val) {
     char buf[128];
     switch (val.type) {
         case RVALUE_REAL:
-            snprintf(buf, sizeof(buf), "real(%.16g)", val.real);
+            snprintf(buf, sizeof(buf), "real(%.16g)", (double) val.real);
             return safeStrdup(buf);
         case RVALUE_INT32:
             snprintf(buf, sizeof(buf), "int32(%d)", val.int32);

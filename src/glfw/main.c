@@ -584,7 +584,7 @@ int main(int argc, char* argv[]) {
             .parseGen8 = true,
             .parseOptn = true,
             .parseLang = true,
-            .parseExtn = true,
+            .parseExtn = false,
             .parseSond = true,
             .parseAgrp = true,
             .parseSprt = true,
@@ -611,7 +611,7 @@ int main(int argc, char* argv[]) {
     );
 
     Gen8* gen8 = &dataWin->gen8;
-    printf("Loaded \"%s\" (%d) successfully! [Bytecode Version %u]\n", gen8->name, gen8->gameID, gen8->bytecodeVersion);
+    printf("Loaded \"%s\" (%d) successfully! [Bytecode Version %u / GameMaker version %u.%u.%u.%u]\n", gen8->name, gen8->gameID, gen8->bytecodeVersion, dataWin->detectedFormat.major, dataWin->detectedFormat.minor, dataWin->detectedFormat.release, dataWin->detectedFormat.build);
 
     #ifdef __GLIBC__
     {
@@ -981,10 +981,11 @@ int main(int argc, char* argv[]) {
         if (viewsEnabled) {
         int32_t maxRight = 0;
         int32_t maxBottom = 0;
-        repeat(8, vi) {
-            if (!activeRoom->views[vi].enabled) continue;
-                int32_t right = activeRoom->views[vi].portX + activeRoom->views[vi].portWidth;
-                int32_t bottom = activeRoom->views[vi].portY + activeRoom->views[vi].portHeight;
+        repeat(MAX_VIEWS, vi) {
+            RuntimeView* view = &runner->views[vi];
+            if (!view->enabled) continue;
+                int32_t right = view->portX + view->portWidth;
+                int32_t bottom = view->portY + view->portHeight;
                 if (right > maxRight) maxRight = right;
                 if (bottom > maxBottom) maxBottom = bottom;
             }
@@ -1014,18 +1015,19 @@ int main(int argc, char* argv[]) {
         bool anyViewRendered = false;
 
         if (viewsEnabled) {
-            repeat(8, vi) {
-                if (!activeRoom->views[vi].enabled) continue;
+            repeat(MAX_VIEWS, vi) {
+                RuntimeView* view = &runner->views[vi];
+                if (!view->enabled) continue;
 
-                int32_t viewX = activeRoom->views[vi].viewX;
-                int32_t viewY = activeRoom->views[vi].viewY;
-                int32_t viewW = activeRoom->views[vi].viewWidth;
-                int32_t viewH = activeRoom->views[vi].viewHeight;
-                int32_t portX = activeRoom->views[vi].portX;
-                int32_t portY = activeRoom->views[vi].portY;
-                int32_t portW = activeRoom->views[vi].portWidth;
-                int32_t portH = activeRoom->views[vi].portHeight;
-                float viewAngle = runner->viewAngles[vi];
+                int32_t viewX = view->viewX;
+                int32_t viewY = view->viewY;
+                int32_t viewW = view->viewWidth;
+                int32_t viewH = view->viewHeight;
+                int32_t portX = view->portX;
+                int32_t portY = view->portY;
+                int32_t portW = view->portWidth;
+                int32_t portH = view->portHeight;
+                float viewAngle = view->viewAngle;
 
                 runner->viewCurrent = vi;
                 renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);

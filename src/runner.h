@@ -48,6 +48,8 @@
 #define OTHER_END_OF_PATH   8
 #define OTHER_USER0         10
 
+#define MAX_VIEWS 8
+
 // ===[ Operating System Types ]===
 // See GameMaker-HTML5's Globals.js
 typedef enum {
@@ -83,6 +85,24 @@ typedef enum {
     OS_LLVM_LINUX,
     OS_LLVM_WINPHONE
 } YoYoOperatingSystem;
+
+typedef struct {
+    bool enabled;
+    int32_t viewX;
+    int32_t viewY;
+    int32_t viewWidth;
+    int32_t viewHeight;
+    int32_t portX;
+    int32_t portY;
+    int32_t portWidth;
+    int32_t portHeight;
+    uint32_t borderX;
+    uint32_t borderY;
+    int32_t speedX;
+    int32_t speedY;
+    int32_t objectId;
+    float viewAngle;
+} RuntimeView;
 
 typedef struct {
     bool visible;
@@ -214,6 +234,18 @@ typedef struct {
     bool isValid;        // false after buffer_delete (tombstone)
 } GmlBuffer;
 
+// Motion planning grid used by mp_grid_* builtins. Cell value 1 = blocked.
+typedef struct {
+    bool inUse;
+    GMLReal left;
+    GMLReal top;
+    int32_t hcells;
+    int32_t vcells;
+    GMLReal cellWidth;
+    GMLReal cellHeight;
+    uint8_t* cells;
+} MpGrid;
+
 // Open text file handle for GML file_text_* functions
 #define MAX_OPEN_TEXT_FILES 32
 typedef struct {
@@ -237,6 +269,7 @@ typedef struct {
     bool drawBackgroundColor;
     TileLayerMapEntry* tileLayerMap; // stb_ds hashmap: depth -> tile layer state
     RuntimeLayer* runtimeLayers; // stb_ds array, index-parallel to currentRoom->layers
+    RuntimeView views[MAX_VIEWS];
 } SavedRoomState;
 
 typedef struct Runner {
@@ -249,12 +282,22 @@ typedef struct Runner {
     int32_t currentRoomIndex;
     int32_t currentRoomOrderPosition;
     Instance** instances; // stb_ds array of Instance*
+    // Per-object instance lists: for each object index, a stb_ds array of Instance*.
+    // An instance appears in its own object's list AND in every ancestor object's list (descendant-inclusive).
+    // This lets collision dispatch iterate only the instances of a target object (and its descendants) instead of scanning all instances in the room.
+    // Must be kept in sync with any instance creation, change, or deletion.
+    Instance*** instancesByObject;
+    // LIFO arena used to snapshot per-object instance lists before iteration.
+    // Any loop that might fire user code iterates a copy so that in-flight mutations (instance_change swap-remove, spawns, destroys) don't corrupt it.
+    // Each call pushes its snapshot (append) and pops on normal loop exit; nesting is safe because pushes/pops are LIFO and outer ranges stay untouched under newer pushes.
+    Instance** instanceSnapshots;
     int32_t pendingRoom;  // -1 = none
     bool gameStartFired;
     int frameCount;
     uint32_t nextInstanceId;
     RunnerKeyboardState* keyboard;
     RunnerMouseState* mouse;
+    RuntimeView views[MAX_VIEWS];
     RuntimeBackground backgrounds[8];
     uint32_t backgroundColor;      // runtime-mutable (BGR format)
     bool drawBackgroundColor;
@@ -266,7 +309,6 @@ typedef struct Runner {
     RuntimeLayer* runtimeLayers; // stb_ds array, index-parallel to currentRoom->layers for parsed entries; dynamic entries appended
     uint32_t nextLayerId;        // counter for IDs of layers/elements created at runtime
     SavedRoomState* savedRoomStates; // array of size dataWin->room.count, for persistent room support
-    float viewAngles[8]; // runtime-only view_angle per view (not stored in data.win)
     int32_t viewCurrent; // index of the view currently being drawn (for view_current)
     int32_t renderGameW; // FBO width used by the last frame (= max port bound), 0 if not yet rendered
     int32_t renderGameH; // FBO height used by the last frame (= max port bound), 0 if not yet rendered
@@ -279,12 +321,16 @@ typedef struct Runner {
     // The real runner uses a persistent YYObjectBase for this, the YYObjectBase is a "parent" of Instance
     // For now, we'll use a dummy Instance with objectIndex = -1 as a hack
     Instance* globalScopeInstance;
+    // Struct instances created by @@NewGMLObject@@. Reuses Instance with objectIndex=-1.
+    // Tracked separately so event/step/draw iteration over runner->instances stays clean.
+    Instance** structInstances;
     int32_t forcedDepth;
 
     // ===[ Builtin function state ]===
     DsMapEntry** dsMapPool; // stb_ds array of stb_ds hashmaps
     DsList* dsListPool; // stb_ds array of DsList
     GmlBuffer* gmlBufferPool; // stb_ds array of GmlBuffer
+    MpGrid* mpGridPool; // stb_ds array of motion-planning grids
 
     // Motion planning potential field settings
     GMLReal mpPotMaxrot;
@@ -329,9 +375,28 @@ void Runner_drawGUI(Runner* runner);
 void Runner_drawBackgrounds(Runner* runner, bool foreground);
 void Runner_scrollBackgrounds(Runner* runner);
 Instance* Runner_createInstance(Runner* runner, GMLReal x, GMLReal y, int32_t objectIndex);
+Instance* Runner_createInstanceWithDepth(Runner* runner, GMLReal x, GMLReal y, int32_t objectIndex, int32_t depth);
 Instance* Runner_copyInstance(Runner* runner, Instance* source, bool performEvent);
 void Runner_destroyInstance(Runner* runner, Instance* inst);
 void Runner_cleanupDestroyedInstances(Runner* runner);
+// Add inst to the per-object lists of its object and every ancestor.
+void Runner_addInstanceToObjectLists(Runner* runner, Instance* inst);
+// Remove inst from the per-object lists of its object and every ancestor, preserving creation order (stable remove).
+void Runner_removeInstanceFromObjectLists(Runner* runner, Instance* inst);
+// Reset every per-object list to length 0 without releasing the backing arrays.
+void Runner_clearAllObjectLists(Runner* runner);
+
+// Push a snapshot of instancesByObject[targetObjIndex] onto runner->instanceSnapshots. Returns the base offset where this snapshot begins.
+// The length is arrlen(runner->instanceSnapshots) - base.
+// Invalid indices or empty buckets push zero entries (base == current arena length).
+// Pair with Runner_popInstanceSnapshot(runner, base) when done.
+int32_t Runner_pushInstancesOfObject(Runner* runner, int32_t targetObjIndex);
+// Push a snapshot matching "target", which GML can pass in several forms: an object index (push the descendant-inclusive bucket), INSTANCE_ALL (push every instance in the room), or an instance ID >= 100000 (push that single instance if it exists).
+// Returns base offset for pairing with Runner_popInstanceSnapshot.
+int32_t Runner_pushInstancesForTarget(Runner* runner, int32_t target);
+// Truncate the snapshot arena back to "base", releasing everything pushed after it.
+void Runner_popInstanceSnapshot(Runner* runner, int32_t base);
+
 void Runner_dumpState(Runner* runner);
 char* Runner_dumpStateJson(Runner* runner);
 void Runner_free(Runner* runner);

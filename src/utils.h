@@ -36,6 +36,14 @@ abort(); \
 } \
 } while (0)
 
+#define requireMessageFormatted(condition, fmt, ...) \
+do { \
+if (!(condition)) { \
+fprintf(stderr, "Requirement failed at %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
+abort(); \
+} \
+} while (0)
+
 #define requireNotNull(ptr) ({ \
 typeof(ptr) _val = (ptr); \
 if (_val == NULL) { \

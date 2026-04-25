@@ -20,7 +20,7 @@
 
 // ===[ Stack Operations ]===
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
 static bool shouldTraceStack(VMContext* ctx) {
     if (shlen(ctx->stackToBeTraced) == 0) return false;
     if (ctx->traceBytecodeAfterFrame > ctx->runner->frameCount) return false;
@@ -64,7 +64,7 @@ static int gmlTypeNativeSize(uint8_t gmlType) {
 
 static void stackPush(VMContext* ctx, RValue val) {
     require(VM_STACK_SIZE > ctx->stack.top);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     if (shouldTraceStack(ctx)) {
         char* valStr = RValue_toStringTyped(val);
         ctx->stack.slots[ctx->stack.top++] = val;
@@ -94,7 +94,7 @@ static void stackPushTyped(VMContext* ctx, RValue val, uint8_t gmlStackType) {
 static RValue stackPop(VMContext* ctx) {
     require(ctx->stack.top > 0);
     RValue val = ctx->stack.slots[--ctx->stack.top];
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     if (shouldTraceStack(ctx)) {
         char* valStr = RValue_toStringTyped(val);
         char* stackBuf = formatStackContents(ctx);
@@ -220,12 +220,12 @@ static void patchReferenceOperands(VMContext* ctx) {
 
 // Resolve a variable operand: returns upper bits | varIndex (read directly from patched bytecode)
 static uint32_t resolveVarOperand(const uint8_t* extraData) {
-    return BinaryUtils_readUint32(extraData);
+    return BinaryUtils_readUint32Aligned(extraData);
 }
 
 // Resolve a function operand: returns funcIndex (read directly from patched bytecode)
 static uint32_t resolveFuncOperand(const uint8_t* extraData) {
-    return BinaryUtils_readUint32(extraData);
+    return BinaryUtils_readUint32Aligned(extraData);
 }
 
 // ===[ Array Operations ]===
@@ -287,7 +287,7 @@ static void storeIntoArraySlot(RValue* slot, RValue val) {
 // Returns the (possibly newly-forked) GMLArray* now in *slot.
 static GMLArray* VM_arrayWriteAt(VMContext* ctx, RValue* slot, int32_t index, RValue val) {
     require(slot != nullptr);
-    require(index >= 0);
+    requireMessageFormatted(index >= 0, "Trying to write to an array using a negative index! Index: %d", index);
 
     void* intendedOwner;
 #if IS_BC17_OR_HIGHER_ENABLED
@@ -355,7 +355,7 @@ void VM_arraySet(MAYBE_UNUSED VMContext* ctx, RValue* arrayRef, int32_t index, R
 
 // ===[ Trace Helpers ]===
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
 /**
  * @brief Checks if a variable access should be traced.
  *
@@ -474,21 +474,27 @@ static Variable* resolveVarDef(VMContext* ctx, uint32_t varRef) {
 // We key by that shared varID via the precomputed currentCodeLocalsSlotMap so reads/writes via any VARI
 // entry agree on the same localVars slot.
 static uint32_t resolveLocalSlot(VMContext* ctx, int32_t varID) {
-    if (IS_BC16_OR_BELOW(ctx) || ctx->currentCodeLocalsSlotMap == nullptr) {
+    if (IS_BC16_OR_BELOW(ctx)) {
         return (uint32_t) varID;
     }
-    // The GMS 2.3+ compiler sometimes omits array-only locals (e.g. `var __slots; __slots[i] = ...`) from CodeLocals entirely!
-    // The bytecode still pushes INSTANCE_LOCAL (-7) at runtime and references the variable by its VARI varID.
-    // When we see a varID that was not pre-registered, allocate a fresh slot on the fly and cache it in the slot map so subsequent accesses (and subsequent calls) reuse it.
+
+    // For BC17, we'll allocate the slot dynamically because the data.win CANNOT be trusted to know how localVars the script has
     uint32_t slot;
     ptrdiff_t idx = hmgeti(ctx->currentCodeLocalsSlotMap, varID);
     if (idx >= 0) {
+        // Already allocated :3
         slot = ctx->currentCodeLocalsSlotMap[idx].value;
     } else {
+        // Not allocated :(
         slot = (uint32_t) hmlen(ctx->currentCodeLocalsSlotMap);
+        // Even though we are dynamically allocating the slots, we are still bound to whatever localVars is allocated to
+        // So, if a script goes over the MAX_CODE_LOCALS, it would cause unforeseen consequences...
         requireMessage(MAX_CODE_LOCALS > slot, "resolveLocalSlot: exceeded MAX_CODE_LOCALS while allocating a slot for an array-only local");
         hmput(ctx->currentCodeLocalsSlotMap, varID, slot);
+        // stb_ds's hmput may reallocate and writes the new pointer back to its lvalue argument only, mirror the update into codeLocalsSlotMaps[] to actually persist it.
+        ctx->codeLocalsSlotMaps[ctx->currentCodeIndex] = ctx->currentCodeLocalsSlotMap;
     }
+
     // Grow this frame's localVars window to cover `slot` whether the entry is pre-existing or freshly allocated.
     // Pre-existing entries can still be past ctx->localVarCount if a nested call to the same code extended the slot map while the outer frame was suspended (the outer frame's localVarCount is captured at call entry and doesn't follow later growth).
     if (slot >= ctx->localVarCount) {
@@ -500,23 +506,24 @@ static uint32_t resolveLocalSlot(VMContext* ctx, int32_t varID) {
     return slot;
 }
 
-// Finds an active instance by target value.
-// target >= 100000: instance ID (find specific instance)
-// target >= 0 && target < 100000: object index (find first instance of that object, checking parent chains)
+// Finds an instance by target value.
+// target >= 100000: instance ID (find specific instance, including recently-destroyed-but-not-cleaned-up-yet ones so GML code can read properties of an instance just after instance_destroy within the same step).
+// target >= 0 && target < 100000: object index (find first ACTIVE instance of that object, checking parent chains)
 static Instance* findInstanceByTarget(VMContext* ctx, int32_t target) {
     Runner* runner = (Runner*) ctx->runner;
 
     if (target >= 100000) {
         // Instance ID - find specific instance
-        Instance* inst = hmget(runner->instancesToId, target);
-        return (inst != nullptr && inst->active) ? inst : nullptr;
+        return hmget(runner->instancesToId, target);
     }
 
-    // Object index - find first matching instance, checking parent chains
-    int32_t instanceCount = (int32_t) arrlen(runner->instances);
-    repeat(instanceCount, i) {
-        Instance* inst = runner->instances[i];
-        if (inst->active && VM_isObjectOrDescendant(ctx->dataWin, inst->objectIndex, target)) return inst;
+    // Object index - find first active matching instance via the descendant-inclusive bucket. Pure read, no user code, so we walk the bucket directly without an arena snapshot.
+    if (target >= 0 && runner->dataWin->objt.count > (uint32_t) target) {
+        Instance** bucket = runner->instancesByObject[target];
+        int32_t bucketCount = (int32_t) arrlen(bucket);
+        for (int32_t i = 0; bucketCount > i; i++) {
+            if (bucket[i]->active) return bucket[i];
+        }
     }
     return nullptr;
 }
@@ -531,6 +538,14 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
     if (access.hasInstanceType) {
         instanceType = access.instanceType;
     }
+
+    // BC17+: Push.v/Pop.v with instrInstanceType == -9 (STACKTOP) and VARTYPE_NORMAL means
+    // "the instance is on the stack" (e.g. `struct.field` after @@NewGMLObject@@). Pop it here.
+#if IS_BC17_OR_HIGHER_ENABLED
+    if (IS_BC17_OR_HIGHER(ctx) && !access.hasInstanceType && instanceType == INSTANCE_STACKTOP) {
+        instanceType = resolveInstanceStackTop(ctx);
+    }
+#endif
 
     // Resolve target instance for object/instance references (instanceType >= 0)
     Instance* targetInstance = (Instance*) ctx->currentInstance;
@@ -570,6 +585,15 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
             if (ctx->scriptArgs != nullptr && ctx->scriptArgCount > argIndex) {
                 result = ctx->scriptArgs[argIndex];
                 result.ownsString = false;
+                // If we are trying to access the argument via an array (example: argName[i]), we NEED to read INSIDE the array
+                // Example:
+                // function init(arg2) {
+                //     var test = arg2[0]; // We NEED to read the [0] from the array
+                // }
+                // Without this, the caller gets the whole array back
+                if (access.isArray && result.type == RVALUE_ARRAY && result.array != nullptr) {
+                    result = VM_arrayReadAt(&result, access.arrayIndex);
+                }
             } else {
                 result = RValue_makeUndefined();
             }
@@ -580,6 +604,43 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         return result;
     }
 
+#if IS_BC17_OR_HIGHER_ENABLED
+    // BC17+: instanceType == INSTANCE_BUILTIN (-6) on a Push.v means "look up this name as a function reference" (emitted for CallV dispatch paths like `@@This@@(); texture_set_interpolation_ext; CallV`).
+    // Intercept before the builtin-variable path: only treat it as a function if the VARI entry isn't a real built-in variable (varID == -6 with a resolved builtinVarId).
+    if (IS_BC17_OR_HIGHER(ctx) && instanceType == INSTANCE_BUILTIN && !(varDef->varID == -6 && varDef->builtinVarId != -1)) {
+        // `@@This@@(); push.v bltn.<name>; CallV` is also used for `self.method()` where `method` is a user-defined method stored on the instance (e.g. `init = method(...)` on an object).
+        // CallV pops [func, instance, args], so the instance is sitting right below the func we're about to push. Peek at it and try to read `<name>` off its selfVars first; if the VARI entry has a self scope and the peeked slot resolves to an instance with the field, return that method. Otherwise fall through to global function lookup.
+        if (varDef->instanceType == INSTANCE_SELF && ctx->stack.top > 0) {
+            RValue* peek = stackPeek(ctx);
+            int32_t peekId = RValue_toInt32(*peek);
+            Instance* peekInst = findInstanceByTarget(ctx, peekId);
+            if (peekInst != nullptr) {
+                ptrdiff_t svIdx = hmgeti(peekInst->selfVars, varDef->varID);
+                if (svIdx >= 0) {
+                    RValue val = peekInst->selfVars[svIdx].value;
+                    val.ownsString = false;
+                    return val;
+                }
+            }
+        }
+
+        // Then try user scripts/code entries (funcMap maps both "funcName" and "gml_Script_funcName")
+        ptrdiff_t mapIdx = shgeti(ctx->funcMap, varDef->name);
+        if (mapIdx >= 0) {
+            int32_t codeIndex = ctx->funcMap[mapIdx].value;
+            return RValue_makeMethod(codeIndex, -1);
+        }
+        // Then try registered built-ins
+        ptrdiff_t bidx = shgeti(ctx->builtinMap, (char*) varDef->name);
+        if (bidx >= 0) {
+            BuiltinFunc bf = ctx->builtinMap[bidx].value;
+            return (RValue){ .method = GMLMethod_createBuiltin(bf, -1), .type = RVALUE_METHOD, .ownsString = true, .gmlStackType = GML_TYPE_VARIABLE };
+        }
+        // Unresolved: return a method stub so CallV can log a single "unknown function" and return undefined instead of bailing out with a scary "unresolvable function reference" error.
+        return (RValue){ .method = GMLMethod_createUnresolved(varDef->name, -1), .type = RVALUE_METHOD, .ownsString = true, .gmlStackType = GML_TYPE_VARIABLE };
+    }
+#endif
+
     // Check for built-in variable (varID == -6 sentinel)
     if (varDef->varID == -6) {
         // For object/instance references, temporarily swap currentInstance so VMBuiltins reads the correct instance
@@ -589,7 +650,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
         RValue result = VMBuiltins_getVariable(ctx, varDef->builtinVarId, varDef->name, access.arrayIndex);
         if (needsInstanceSwap) ctx->currentInstance = savedInstance;
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         // Trace built-in variable reads
         if (instanceType == INSTANCE_GLOBAL) {
             if (shouldTraceVariable(ctx->varReadsToBeTraced, "global", nullptr, varDef->name)) {
@@ -654,7 +715,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
     // Array access: read array[index] from the slot.
     if (access.isArray) {
         RValue result = VM_arrayReadAt(slot, access.arrayIndex);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         const char* scopeName =
             instanceType == INSTANCE_LOCAL ? "local" :
             instanceType == INSTANCE_GLOBAL ? "global" :
@@ -673,7 +734,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
     RValue result = *slot;
     result.ownsString = false;
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     // Read tracing for scalar variables
     if (instanceType == INSTANCE_GLOBAL) {
         if (shouldTraceVariable(ctx->varReadsToBeTraced, "global", nullptr, varDef->name)) {
@@ -731,17 +792,26 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
         instanceType = access.instanceType;
     }
 
-    // GML: writing through an object reference (obj_foo.var = val) sets the variable on ALL instances of that object
+    // BC17+: Pop.v with instrInstanceType == -9 (STACKTOP) and VARTYPE_NORMAL means
+    // "the instance is on the stack" (e.g. `struct.field =` after @@NewGMLObject@@). Pop it here.
+#if IS_BC17_OR_HIGHER_ENABLED
+    if (IS_BC17_OR_HIGHER(ctx) && !access.hasInstanceType && instanceType == INSTANCE_STACKTOP) {
+        instanceType = resolveInstanceStackTop(ctx);
+    }
+#endif
+
+    // GML: writing through an object reference (obj_foo.var = val) sets the variable on ALL instances of that object. The setter (writeSingleInstanceVariable) can run user code, so iterate a snapshot of the bucket.
     if (instanceType >= 0 && 100000 > instanceType) {
         Runner* runner = (Runner*) ctx->runner;
-        int32_t instanceCount = (int32_t) arrlen(runner->instances);
         bool found = false;
-        repeat(instanceCount, i) {
-            Instance* inst = runner->instances[i];
-            if (!inst->active || !VM_isObjectOrDescendant(ctx->dataWin, inst->objectIndex, instanceType)) continue;
+        int32_t snapBase = Runner_pushInstancesOfObject(runner, instanceType);
+        int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+        for (int32_t i = snapBase; snapEnd > i; i++) {
+            Instance* inst = runner->instanceSnapshots[i];
+            if (!inst->active) continue;
             found = true;
             writeSingleInstanceVariable(ctx, inst, varDef, &access, val);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
             if (shouldTraceVariable(ctx->varWritesToBeTraced, instanceObjectName(ctx, inst), "self", varDef->name)) {
                 char* rvalueAsString = RValue_toStringTyped(val);
                 fprintf(stderr, "VM: [%s] WRITE %s.%s = %s (instanceId=%d, all-instances object write)\n", ctx->currentCodeName, instanceObjectName(ctx, inst), varDef->name, rvalueAsString, inst->instanceId);
@@ -749,6 +819,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             }
 #endif
         }
+        Runner_popInstanceSnapshot(runner, snapBase);
         if (!found) {
             if (ctx->dataWin->objt.count > (uint32_t) instanceType) {
                 GameObject* gameObject = &ctx->dataWin->objt.objects[instanceType];
@@ -792,7 +863,9 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             if (val.type == RVALUE_STRING && val.string != nullptr) {
                 ctx->scriptArgs[writeIndex] = RValue_makeOwnedString(safeStrdup(val.string));
             } else {
+                // Transfer ownership from val into scriptArgs: copy the tagged union as-is and neutralize val so the RValue_free below is a no-op for arrays/methods.
                 ctx->scriptArgs[writeIndex] = val;
+                val.ownsString = false;
             }
             if (writeIndex >= ctx->scriptArgCount) {
                 ctx->scriptArgCount = writeIndex + 1;
@@ -811,7 +884,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
         VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, access.arrayIndex);
         if (needsInstanceSwap) ctx->currentInstance = savedInstance;
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         // Trace built-in variable writes
         if (instanceType == INSTANCE_GLOBAL) {
             if (shouldTraceVariable(ctx->varWritesToBeTraced, "global", nullptr, varDef->name)) {
@@ -879,7 +952,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
     // Array write via VM_arrayWriteAt (handles CoW fork, grow, owner stamping).
     if (access.isArray) {
         VM_arrayWriteAt(ctx, slot, access.arrayIndex, val);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         const char* scopeName =
             instanceType == INSTANCE_LOCAL ? "local" :
             instanceType == INSTANCE_GLOBAL ? "global" :
@@ -895,7 +968,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
         return;
     }
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     bool shouldLogGlobal = false;
     bool shouldLogInstance = false;
 #endif
@@ -942,7 +1015,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             } else {
                 *dest = val;
             }
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
             if (shouldTraceVariable(ctx->varWritesToBeTraced, "global", nullptr, varDef->name)) {
                 char* rvalueAsString = RValue_toStringTyped(*dest);
                 fprintf(stderr, "VM: [%s] WRITE global.%s = %s\n", ctx->currentCodeName, varDef->name, rvalueAsString);
@@ -956,7 +1029,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
             // Self or object/instance reference - use sparse hashmap
             Instance* inst = targetInstance;
             Instance_setSelfVar(inst, varDef->varID, val);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
             if (shouldTraceVariable(ctx->varWritesToBeTraced, instanceObjectName(ctx, inst), "self", varDef->name)) {
                 RValue written = Instance_getSelfVar(inst, varDef->varID);
                 char* rvalueAsString = RValue_toStringTyped(written);
@@ -1010,19 +1083,19 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
 
     switch (type1) {
         case GML_TYPE_DOUBLE:
-            stackPush(ctx, RValue_makeReal(BinaryUtils_readFloat64(extraData)));
+            stackPush(ctx, RValue_makeReal(BinaryUtils_readFloat64Aligned(extraData)));
             break;
         case GML_TYPE_FLOAT:
-            stackPush(ctx, RValue_makeReal((GMLReal) BinaryUtils_readFloat32(extraData)));
+            stackPush(ctx, RValue_makeReal((GMLReal) BinaryUtils_readFloat32Aligned(extraData)));
             break;
         case GML_TYPE_INT32:
-            stackPush(ctx, RValue_makeInt32(BinaryUtils_readInt32(extraData)));
+            stackPush(ctx, RValue_makeInt32(BinaryUtils_readInt32Aligned(extraData)));
             break;
         case GML_TYPE_INT64:
-            stackPush(ctx, RValue_makeInt64(BinaryUtils_readInt64(extraData)));
+            stackPush(ctx, RValue_makeInt64(BinaryUtils_readInt64Aligned(extraData)));
             break;
         case GML_TYPE_BOOL:
-            stackPush(ctx, RValue_makeBool(BinaryUtils_readInt32(extraData) != 0));
+            stackPush(ctx, RValue_makeBool(BinaryUtils_readInt32Aligned(extraData) != 0));
             break;
         case GML_TYPE_VARIABLE: {
             int32_t instanceType = (int32_t) instrInstanceType(instr);
@@ -1112,7 +1185,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             break;
         }
         case GML_TYPE_STRING: {
-            int32_t stringIndex = BinaryUtils_readInt32(extraData);
+            int32_t stringIndex = BinaryUtils_readInt32Aligned(extraData);
             require(stringIndex >= 0 && ctx->dataWin->strg.count > (uint32_t) stringIndex);
             stackPush(ctx, RValue_makeString(ctx->dataWin->strg.strings[stringIndex]));
             break;
@@ -1287,16 +1360,18 @@ static void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) 
         if (varDef->varID == -6) {
             // Resolve target instance for built-in array variable writes (e.g. obj_foo.alarm[0] = 2)
             if (instanceType >= 0 && 100000 > instanceType) {
-                // Object reference: write to ALL instances of that object
+                // Object reference: write to ALL instances of that object. The setter can run user code, so iterate a snapshot of the bucket.
                 Runner* runner = (Runner*) ctx->runner;
-                int32_t instanceCount = (int32_t) arrlen(runner->instances);
                 Instance* savedInstance = (Instance*) ctx->currentInstance;
-                repeat(instanceCount, i) {
-                    Instance* inst = runner->instances[i];
-                    if (!inst->active || !VM_isObjectOrDescendant(ctx->dataWin, inst->objectIndex, instanceType)) continue;
+                int32_t snapBase = Runner_pushInstancesOfObject(runner, instanceType);
+                int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+                for (int32_t i = snapBase; snapEnd > i; i++) {
+                    Instance* inst = runner->instanceSnapshots[i];
+                    if (!inst->active) continue;
                     ctx->currentInstance = inst;
                     VMBuiltins_setVariable(ctx, varDef->builtinVarId, varDef->name, val, arrayIndex);
                 }
+                Runner_popInstanceSnapshot(runner, snapBase);
                 ctx->currentInstance = savedInstance;
             } else if (instanceType >= 0) {
                 // Instance ID reference
@@ -1365,7 +1440,7 @@ static void handlePop(VMContext* ctx, uint32_t instr, const uint8_t* extraData) 
             }
             if (slot != nullptr) {
                 VM_arrayWriteAt(ctx, slot, arrayIndex, val);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
                 bool isSelfScope = (instanceType != INSTANCE_LOCAL && instanceType != INSTANCE_GLOBAL);
                 const char* scopeName = instanceType == INSTANCE_LOCAL ? "local" : instanceType == INSTANCE_GLOBAL ? "global" : "self";
                 if (shouldTraceVariable(ctx->varWritesToBeTraced, scopeName, isSelfScope ? nullptr : "self", varDef->name)) {
@@ -1704,7 +1779,33 @@ static void handleCmp(VMContext* ctx, uint32_t instr) {
     RValue a = stackPop(ctx);
 
     bool result;
-    if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
+    if (a.type == RVALUE_UNDEFINED || b.type == RVALUE_UNDEFINED) {
+        // Undefined is only == to undefined
+        bool eq = a.type == b.type;
+        switch (cmpKind) {
+            case CMP_EQ:  result = eq;  break;
+            case CMP_NEQ: result = !eq; break;
+            default:      result = false; break;
+        }
+    } else if (a.type == RVALUE_ARRAY || b.type == RVALUE_ARRAY) {
+        // Array is only == to the same array
+        bool eq = (a.type == RVALUE_ARRAY && b.type == RVALUE_ARRAY) && (a.array == b.array);
+        switch (cmpKind) {
+            case CMP_EQ:  result = eq;  break;
+            case CMP_NEQ: result = !eq; break;
+            default:      result = false; break;
+        }
+#if IS_BC17_OR_HIGHER_ENABLED
+    } else if (a.type == RVALUE_METHOD || b.type == RVALUE_METHOD) {
+        // Method is only == to the same method
+        bool eq = (a.type == RVALUE_METHOD && b.type == RVALUE_METHOD) && (a.method == b.method);
+        switch (cmpKind) {
+            case CMP_EQ:  result = eq;  break;
+            case CMP_NEQ: result = !eq; break;
+            default:      result = false; break;
+        }
+#endif
+    } else if (a.type == RVALUE_STRING && b.type == RVALUE_STRING) {
         int cmp = strcmp(a.string != nullptr ? a.string : "", b.string != nullptr ? b.string : "");
         switch (cmpKind) {
             case CMP_LT:  result = 0 > cmp; break;
@@ -1898,7 +1999,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         }
     }
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     const char* funcName = ctx->dataWin->func.functions[funcIndex].name;
     bool functionIsBeingTraced = shgeti(ctx->functionCallsToBeTraced, "*") != -1 || shgeti(ctx->functionCallsToBeTraced, funcName) != -1 || shgeti(ctx->functionCallsToBeTraced, ctx->currentCodeName) != -1;
     char* functionArgumentList = nullptr;
@@ -1938,7 +2039,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
             if (args != stackArgs) free(args);
         }
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         if (functionIsBeingTraced) {
             char* returnValueAsString = RValue_toStringFancy(result);
             fprintf(stderr, "VM: [%s] Built-in function \"%s(%s)\" returned %s\n", ctx->currentCodeName, funcName, functionArgumentList, returnValueAsString);
@@ -1955,7 +2056,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
     if (cache->scriptCodeIndex >= 0) {
         RValue result = VM_callCodeIndex(ctx, cache->scriptCodeIndex, args, argCount);
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         if (functionIsBeingTraced) {
             char* returnValueAsString = RValue_toStringFancy(result);
             fprintf(stderr, "VM: [%s] Script function \"%s(%s)\" returned %s\n", ctx->currentCodeName, funcName, functionArgumentList, returnValueAsString);
@@ -1998,7 +2099,7 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
         if (args != stackArgs) free(args);
     }
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     if (functionIsBeingTraced) {
         free(functionArgumentList);
     }
@@ -2006,6 +2107,79 @@ static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData)
 
     stackPush(ctx, RValue_makeUndefined());
 }
+
+#if IS_BC17_OR_HIGHER_ENABLED
+// BC17+ CALLV: dynamic call through a variable (method/script reference).
+// Stack layout (top -> bottom): function, instance, arg[N-1], ..., arg[0]
+// argCount is in the low 16 bits of the instruction.
+static void handleCallV(VMContext* ctx, uint32_t instr) {
+    int32_t argCount = instr & 0xFFFF;
+
+    RValue function = stackPop(ctx);
+    RValue instance = stackPop(ctx);
+
+    RValue stackArgs[GML_MAX_ARGUMENTS];
+    RValue* args = nullptr;
+    if (argCount > 0) {
+        args = (GML_MAX_ARGUMENTS >= argCount) ? stackArgs : safeMalloc(argCount * sizeof(RValue));
+        repeat(argCount, i) {
+            args[i] = stackPop(ctx);
+        }
+    }
+
+    int32_t codeIndex = -1;
+    int32_t boundInstance = -1;
+    BuiltinFunc builtin = nullptr;
+    const char* unresolvedName = nullptr;
+    if (function.type == RVALUE_METHOD && function.method != nullptr) {
+        codeIndex = function.method->codeIndex;
+        boundInstance = function.method->boundInstanceId;
+        builtin = (BuiltinFunc) function.method->builtin;
+        unresolvedName = function.method->unresolvedName;
+    }
+
+    // Decide target self: prefer method's bound instance, else the stack-provided instance.
+    int32_t targetInstance = (boundInstance > 0) ? boundInstance : RValue_toInt32(instance);
+    Instance* savedSelf = ctx->currentInstance;
+    if (targetInstance != INSTANCE_SELF && targetInstance != 0) {
+        Instance* target = findInstanceByTarget(ctx, targetInstance);
+        if (target != nullptr) ctx->currentInstance = target;
+    }
+
+    RValue result;
+    if (codeIndex >= 0 && ctx->dataWin->code.count > (uint32_t) codeIndex) {
+        result = VM_callCodeIndex(ctx, codeIndex, args, argCount);
+    } else if (builtin != nullptr) {
+        result = builtin(ctx, args, argCount);
+    } else if (unresolvedName != nullptr) {
+        const char* callerName = VM_getCallerName(ctx);
+        char* dedupKey = VM_createDedupKey(callerName, unresolvedName);
+        if (ctx->alwaysLogUnknownFunctions || 0 > shgeti(ctx->loggedUnknownFuncs, dedupKey)) {
+            shput(ctx->loggedUnknownFuncs, dedupKey, true);
+            fprintf(stderr, "VM: [%s] Unknown function \"%s\"! (via CallV)\n", callerName, unresolvedName);
+        } else {
+            free(dedupKey);
+        }
+        result = RValue_makeUndefined();
+    } else {
+        fprintf(stderr, "VM: [%s] CALLV with unresolvable function reference (type=%d, codeIndex=%d)\n", ctx->currentCodeName, function.type, codeIndex);
+        result = RValue_makeUndefined();
+    }
+
+    ctx->currentInstance = savedSelf;
+
+    RValue_free(&function);
+    RValue_free(&instance);
+    if (args != nullptr) {
+        repeat(argCount, i) {
+            RValue_free(&args[i]);
+        }
+        if (args != stackArgs) free(args);
+    }
+
+    stackPushTyped(ctx, result, GML_TYPE_VARIABLE);
+}
+#endif
 
 // ===[ With-Statement Helpers (PushEnv/PopEnv) ]===
 
@@ -2103,12 +2277,13 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
     }
 
     if (target >= 0 && 100000 > target) {
-        // Object index - iterate over active instances of this object (or its descendants)
-        int32_t instanceCount = (int32_t) arrlen(runner->instances);
-        for (int32_t i = 0; instanceCount > i; i++) {
-            Instance* inst = runner->instances[i];
-            if (inst->active && VM_isObjectOrDescendant(ctx->dataWin, inst->objectIndex, target)) {
-                arrput(frame->instanceList, inst);
+        // Object index - copy the descendant-inclusive list for this object into the frame's own list. frame->instanceList has with-block lifetime (not the snapshot arena's loop lifetime), so we don't use the forEach macro; we just copy directly and filter "active" to match prior semantics (deactivated instances are skipped).
+        if (ctx->dataWin->objt.count > (uint32_t) target) {
+            Instance** source = runner->instancesByObject[target];
+            int32_t sourceCount = (int32_t) arrlen(source);
+            for (int32_t i = 0; sourceCount > i; i++) {
+                Instance* inst = source[i];
+                if (inst->active) arrput(frame->instanceList, inst);
             }
         }
 
@@ -2214,6 +2389,7 @@ static const char* opcodeName(uint8_t opcode) {
         case OP_PUSHGLB: return "PushGlb";
         case OP_PUSHBLTN:return "PushBltn";
         case OP_CALL:    return "Call";
+        case OP_CALLV:   return "CallV";
         case OP_BREAK:   return "Break";
         default:         return "???";
     }
@@ -2348,15 +2524,22 @@ static void handleBreak(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
 #endif
 
 static RValue executeLoop(VMContext* ctx) {
-    while (ctx->codeEnd > ctx->ip) {
+    // codeEnd and bytecodeBase are invariant for the lifetime of this executeLoop call, so let's hoist them to avoid the compiler emitting code to
+    // reload the values at the end of every iteration.
+    const uint32_t codeEnd = ctx->codeEnd;
+    const uint8_t* const bytecodeBase = ctx->bytecodeBase;
+
+    while (codeEnd > ctx->ip) {
+#ifdef ENABLE_VM_PROFILER
         if (ctx->profiler != nullptr)
             Profiler_tickInstruction(ctx->profiler);
+#endif
         uint32_t instrAddr = ctx->ip;
-        uint32_t instr = BinaryUtils_readUint32(ctx->bytecodeBase + ctx->ip);
+        uint32_t instr = BinaryUtils_readUint32Aligned(bytecodeBase + ctx->ip);
         ctx->ip += 4;
 
         // extraData pointer (may not be used depending on opcode)
-        const uint8_t* extraData = ctx->bytecodeBase + ctx->ip;
+        const uint8_t* extraData = bytecodeBase + ctx->ip;
 
         // If instruction has extra data (bit 30 set), advance IP past it
         if (instrHasExtraData(instr)) {
@@ -2365,7 +2548,7 @@ static RValue executeLoop(VMContext* ctx) {
 
         uint8_t opcode = instrOpcode(instr);
 
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
         if (shlen(ctx->opcodesToBeTraced) > 0 && ctx->runner->frameCount >= ctx->traceBytecodeAfterFrame) {
             if (shgeti(ctx->opcodesToBeTraced, "*") != -1 || shgeti(ctx->opcodesToBeTraced, ctx->currentCodeName) != -1) {
                 char opcodeStr[32], operandStr[256] = "", commentStr[128] = "";
@@ -2458,6 +2641,11 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_CALL:
                 handleCall(ctx, instr, extraData);
                 break;
+#if IS_BC17_OR_HIGHER_ENABLED
+            case OP_CALLV:
+                handleCallV(ctx, instr);
+                break;
+#endif
 
             // Return
             case OP_RET: {
@@ -2518,8 +2706,10 @@ VMContext* VM_create(DataWin* dataWin) {
     // Validate that no code entry exceeds MAX_CODE_LOCALS (the VM uses stack-allocated arrays of this size)
     repeat(dataWin->code.count, i) {
         CodeEntry* entry = &dataWin->code.entries[i];
-        require(MAX_CODE_LOCALS > entry->localsCount);
+        requireMessageFormatted(MAX_CODE_LOCALS > entry->localsCount, "Code %s has too many locals!", entry->name);
     }
+
+    VMBuiltins_checkIfBuiltinVarTableIsSorted();
 
     // Pre-resolve built-in variable IDs (replaces runtime strcmp chains with O(1) switch dispatch)
     repeat(dataWin->vari.variableCount, i) {
@@ -2583,6 +2773,17 @@ VMContext* VM_create(DataWin* dataWin) {
         }
     }
 
+    // Build selfVarNameMap: varName -> varID for self/instance-scoped variables.
+    ctx->selfVarNameMap = nullptr;
+    forEach(Variable, v3, dataWin->vari.variables, dataWin->vari.variableCount) {
+        if (v3->varID >= 0 && (v3->instanceType == INSTANCE_SELF || 0 > v3->instanceType)) {
+            ptrdiff_t existing = shgeti(ctx->selfVarNameMap, (char*) v3->name);
+            if (0 > existing) {
+                shput(ctx->selfVarNameMap, (char*) v3->name, v3->varID);
+            }
+        }
+    }
+
     // Build funcName -> codeIndex hash map from SCPT chunk
     ctx->funcMap = nullptr;
     forEach(Script, s, dataWin->scpt.scripts, dataWin->scpt.count) {
@@ -2623,17 +2824,11 @@ VMContext* VM_create(DataWin* dataWin) {
     }
 
     // BC17+: build per-CodeLocals varID -> slot hmap so resolveLocalSlot is O(1)
+    // We NEED to do it with the "code.count" because YoYo Games in their infinite wisdom thought "what if... we just didn't include some local variables in the localVars map? heck, sometimes we can just NOT include any CodeLocals!"... fun!
     ctx->codeLocalsSlotMaps = nullptr;
-    if (dataWin->gen8.bytecodeVersion >= 17 && dataWin->func.codeLocalsCount > 0) {
-        ctx->codeLocalsSlotMaps = safeCalloc(dataWin->func.codeLocalsCount, sizeof(*ctx->codeLocalsSlotMaps));
-        repeat(dataWin->func.codeLocalsCount, clIdx) {
-            CodeLocals* cl = &dataWin->func.codeLocals[clIdx];
-            LocalSlotEntry* slotMap = nullptr;
-            repeat(cl->localVarCount, i) {
-                hmput(slotMap, (int32_t) cl->locals[i].varID, (uint32_t) i);
-            }
-            ctx->codeLocalsSlotMaps[clIdx] = slotMap;
-        }
+    if (dataWin->gen8.bytecodeVersion >= 17) {
+        ctx->codeLocalsSlotMaps = safeCalloc(dataWin->code.count, sizeof(*ctx->codeLocalsSlotMaps));
+        // For now we don't need to do anything, the localVars will be registered during runtime because we can't figure out how many locals a CODE has reliably
     }
 
     // Register built-in functions
@@ -2703,7 +2898,6 @@ void VM_reset(VMContext* ctx) {
     ctx->currentCodeName = nullptr;
     ctx->localVars = nullptr;
     ctx->localVarCount = 0;
-    ctx->currentCodeLocals = nullptr;
     ctx->currentCodeLocalsSlotMap = nullptr;
     ctx->actionRelativeFlag = false;
 
@@ -2714,36 +2908,21 @@ static CodeLocals* resolveCodeLocals(VMContext* ctx, const char* codeName) {
     return shget(ctx->codeLocalsMap, (char*) codeName);
 }
 
-// Sets currentCodeLocals and keeps currentCodeLocalsSlotMap in sync. Must be used everywhere currentCodeLocals is written so resolveLocalSlot always sees the matching varID -> slot map.
-static void setCurrentCodeLocals(VMContext* ctx, CodeLocals* codeLocals) {
-    ctx->currentCodeLocals = codeLocals;
-    if (codeLocals != nullptr && ctx->codeLocalsSlotMaps != nullptr) {
-        // codeLocals points into dataWin->func.codeLocals[]; same index selects the slot map.
-        ptrdiff_t codeLocalsIdx = codeLocals - ctx->dataWin->func.codeLocals;
-        ctx->currentCodeLocalsSlotMap = ctx->codeLocalsSlotMaps[codeLocalsIdx];
-    } else {
-        ctx->currentCodeLocalsSlotMap = nullptr;
+// Sets the currentCodeLocalsSlotMap for BC17+ games
+static void setCurrentCodeLocalsSlotMap(VMContext* ctx) {
+    if (IS_BC17_OR_HIGHER(ctx)) {
+        ctx->currentCodeLocalsSlotMap = ctx->codeLocalsSlotMaps[ctx->currentCodeIndex];
     }
 }
 
-static uint32_t computeLocalsCount(VMContext* ctx) {
-    // CodeLocals is the authoritative source for local variable count (not code->localsCount).
-    // Array-valued locals now live inline in localVars[] as RVALUE_ARRAY entries, no side map.
-    // The slot map may have grown beyond CodeLocals->localVarCount due to prior runs that encountered array-only locals missing from CodeLocals, so take the larger of the two.
-    //
-    // For some reason in GameMaker: Studio 2.3+ some code doesn't have code locals, why?
-    // If they don't have code locals, then we'll just use 0 anyway...
-    uint32_t localsCount = 0;
-    if (ctx->currentCodeLocals != nullptr) {
-        localsCount = ctx->currentCodeLocals->localVarCount;
-        if (ctx->currentCodeLocalsSlotMap != nullptr) {
-            uint32_t mapSize = (uint32_t) hmlen(ctx->currentCodeLocalsSlotMap);
-            if (mapSize > localsCount) localsCount = mapSize;
-        }
+static uint32_t computeLocalsCount(VMContext* ctx, CodeEntry* code) {
+    if (IS_BC16_OR_BELOW(ctx)) {
+        return code->localsCount;
+    } else {
+        // We can't trust localVarCount in GM:S 2.3+, so we will get our cached map
+        // It is NOT the "right" localsCount because it may increase during runtime, but for now, this shall do
+        return hmlen(ctx->codeLocalsSlotMaps[ctx->currentCodeIndex]);
     }
-    if (localsCount == 0) localsCount = 1;
-    requireMessage(MAX_CODE_LOCALS >= localsCount, "Code has too many locals!");
-    return localsCount;
 }
 
 RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
@@ -2756,10 +2935,9 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     ctx->currentCodeName = code->name;
     ctx->currentCodeIndex = codeIndex;
 
-    // Resolve CodeLocals for local variable slot mapping
-    setCurrentCodeLocals(ctx, resolveCodeLocals(ctx, code->name));
+    setCurrentCodeLocalsSlotMap(ctx);
 
-    uint32_t localsCount = computeLocalsCount(ctx);
+    uint32_t localsCount = computeLocalsCount(ctx, code);
     RValue localVars[MAX_CODE_LOCALS];
     ctx->localVars = localVars;
     ctx->localVarCount = localsCount;
@@ -2773,9 +2951,13 @@ RValue VM_executeCode(VMContext* ctx, int32_t codeIndex) {
     int32_t savedSavearefBalance = ctx->savearefBalance;
     ctx->savearefBalance = 0;
 
+#ifdef ENABLE_VM_PROFILER
     Profiler_enter(ctx->profiler, code->name);
+#endif
     RValue result = executeLoop(ctx);
+#ifdef ENABLE_VM_PROFILER
     Profiler_exit(ctx->profiler);
+#endif
 
     requireMessage(ctx->savearefBalance == 0, "SAVEAREF/RESTOREAREF imbalance at end of VM_executeCode (unpaired SAVEAREF)");
     ctx->savearefBalance = savedSavearefBalance;
@@ -2804,7 +2986,6 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
         .savedLocalsCount = ctx->localVarCount,
         .savedCodeName = ctx->currentCodeName,
         .savedSavearefBalance = ctx->savearefBalance,
-        .savedCodeLocals = ctx->currentCodeLocals,
         .savedCodeLocalsSlotMap = ctx->currentCodeLocalsSlotMap,
         .savedScriptArgs = ctx->scriptArgs,
         .savedScriptArgCount = ctx->scriptArgCount,
@@ -2820,9 +3001,10 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     ctx->codeEnd = code->length;
     ctx->currentCodeName = code->name;
     ctx->currentCodeIndex = codeIndex;
-    setCurrentCodeLocals(ctx, resolveCodeLocals(ctx, code->name));
 
-    uint32_t localsCount = computeLocalsCount(ctx);
+    setCurrentCodeLocalsSlotMap(ctx);
+
+    uint32_t localsCount = computeLocalsCount(ctx, code);
     // We use fixed-size arrays instead of VLAs because it seems that using multiple VLAs in a single function things get corrupted somehow?
     // So when you see this MAX_CODE_LOCALS and GML_MAX_ARGUMENTS, you can shake your fist in the air and say "damn you MIPS!!1"
     RValue localVars[MAX_CODE_LOCALS];
@@ -2859,9 +3041,13 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
     ctx->savearefBalance = 0;
 
     // Execute the callee
+#ifdef ENABLE_VM_PROFILER
     Profiler_enter(ctx->profiler, code->name);
+#endif
     RValue result = executeLoop(ctx);
+#ifdef ENABLE_VM_PROFILER
     Profiler_exit(ctx->profiler);
+#endif
 
     requireMessage(ctx->savearefBalance == 0, "SAVEAREF/RESTOREAREF imbalance at end of VM_callCodeIndex (unpaired SAVEAREF)");
 
@@ -2897,7 +3083,6 @@ RValue VM_callCodeIndex(VMContext* ctx, int32_t codeIndex, RValue* args, int32_t
 
     ctx->localVars = saved->savedLocals;
     ctx->localVarCount = saved->savedLocalsCount;
-    ctx->currentCodeLocals = saved->savedCodeLocals;
     ctx->currentCodeLocalsSlotMap = saved->savedCodeLocalsSlotMap;
     ctx->scriptArgs = saved->savedScriptArgs;
     ctx->scriptArgCount = saved->savedScriptArgCount;
@@ -3237,6 +3422,15 @@ static void formatInstruction(VMContext* ctx, const uint8_t* bytecodeBase, uint3
             break;
         }
 
+        // Dynamic call through variable/method reference (BC17+)
+        case OP_CALLV: {
+            int32_t argCount = instr & 0xFFFF;
+            snprintf(opcodeStr, opcodeSize, "CallV.v");
+            snprintf(operandStr, operandSize, "%d", argCount);
+            snprintf(commentStr, commentSize, "// pops: [func, instance, %d args] -> pushes: [result]", argCount);
+            break;
+        }
+
         // Duplicate stack items
         case OP_DUP: {
             uint8_t extra = (uint8_t) (instr & 0xFF);
@@ -3480,6 +3674,7 @@ void VM_free(VMContext* ctx) {
     // Free hash maps
     shfree(ctx->funcMap);
     shfree(ctx->globalVarNameMap);
+    shfree(ctx->selfVarNameMap);
     repeat(shlen(ctx->codeLocalsMap), i) {
         free(ctx->codeLocalsMap[i].key);
     }
@@ -3494,7 +3689,7 @@ void VM_free(VMContext* ctx) {
         free(ctx->loggedStubbedFuncs[i].key);
     }
     shfree(ctx->loggedStubbedFuncs);
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     shfree(ctx->varReadsToBeTraced);
     shfree(ctx->varWritesToBeTraced);
     shfree(ctx->functionCallsToBeTraced);
@@ -3523,9 +3718,9 @@ void VM_free(VMContext* ctx) {
     // Free V17+ static tracking
     free(ctx->staticInitialized);
 
-    // Free per-CodeLocals varID -> slot maps (BC17+ only; nullptr otherwise)
+    // Free per-code varID -> slot maps (BC17+ only; nullptr otherwise).
     if (ctx->codeLocalsSlotMaps != nullptr) {
-        repeat(ctx->dataWin->func.codeLocalsCount, i) {
+        repeat(ctx->dataWin->code.count, i) {
             hmfree(ctx->codeLocalsSlotMaps[i]);
         }
         free(ctx->codeLocalsSlotMaps);

@@ -46,6 +46,18 @@ target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(butterscotch PUBLIC vendor/stb/ds)
 
 if(PLATFORM STREQUAL "glfw")
+    # Butterscotch VM/interpreter profiler
+    option(ENABLE_VM_PROFILER "Enable Butterscotch VM/interpreter profiler" ON)
+    if(ENABLE_VM_PROFILER)
+        add_compile_definitions(ENABLE_VM_PROFILER)
+    endif()
+
+    # Butterscotch VM/interpreter tracing
+    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" ON)
+    if(ENABLE_VM_TRACING)
+        add_compile_definitions(ENABLE_VM_TRACING)
+    endif()
+
     # GLAD
     add_library(glad STATIC vendor/glad/src/glad.c)
     target_include_directories(glad PUBLIC vendor/glad/include)
@@ -66,20 +78,20 @@ if(PLATFORM STREQUAL "glfw")
         # Target Windows 7+ (avoids referencing newer APIs like MapViewOfFileNuma2 that MinGW import libs don't provide)
         # https://github.com/mirror/mingw-w64/blob/master/mingw-w64-headers/include/sdkddkver.h
         target_compile_definitions(butterscotch PRIVATE _WIN32_WINNT=0x0601 NTDDI_VERSION=0x06010000 WIN32_LEAN_AND_MEAN)
-        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m opengl32 gdi32 winmm)
+        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m opengl32 gdi32 winmm bz2)
         target_link_options(butterscotch PRIVATE -static)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Haiku")
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GLFW3 REQUIRED glfw3)
         target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
         target_link_directories(butterscotch PRIVATE ${GLFW3_LIBRARY_DIRS})
-        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread)
+        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread bz2)
     else()
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GLFW3 REQUIRED glfw3)
         target_include_directories(butterscotch PRIVATE ${GLFW3_INCLUDE_DIRS})
         target_link_directories(butterscotch PRIVATE ${GLFW3_LIBRARY_DIRS})
-        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl)
+        target_link_libraries(butterscotch ${GLFW3_LIBRARIES} glad m pthread dl bz2)
     endif()
 
     # Enable AddressSanitizer by default in Debug builds
@@ -98,19 +110,32 @@ elseif(PLATFORM STREQUAL "ps2")
     add_compile_definitions(USE_FLOAT_REALS)
     # By disabling Int64 support, we can fit the entire RValue struct in 8 bytes, improving performance and memory usage
     add_compile_definitions(NO_RVALUE_INT64)
-    # Disable Butterscotch VM/interpreter tracing checks
-    add_compile_definitions(DISABLE_VM_TRACING)
+
+    # Butterscotch VM/interpreter profiler
+    option(ENABLE_VM_PROFILER "Enable Butterscotch VM/interpreter profiler" OFF)
+    if(ENABLE_VM_PROFILER)
+        add_compile_definitions(ENABLE_VM_PROFILER)
+    endif()
+
+    # Butterscotch VM/interpreter tracing
+    option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" OFF)
+    if(ENABLE_VM_TRACING)
+        add_compile_definitions(ENABLE_VM_TRACING)
+    endif()
+
     # Platform identifier for PS2-specific code paths (e.g., scratchpad allocation)
     add_compile_definitions(PLATFORM_PS2)
-    # Disable the PS2 audio system
-    option(DISABLE_PS2_AUDIO "Disable the PS2 audio system" OFF)
-    if(DISABLE_PS2_AUDIO)
-        add_compile_definitions(DISABLE_PS2_AUDIO)
+    
+    # PS2 audio system
+    option(ENABLE_PS2_AUDIO "Enable the PS2 audio system" ON)
+    if(ENABLE_PS2_AUDIO)
+        add_compile_definitions(ENABLE_PS2_AUDIO)
+    else()
         list(REMOVE_ITEM PLATFORM_SOURCES ${CMAKE_SOURCE_DIR}/src/ps2/ps2_audio_system.c)
     endif()
     # Treat unsuffixed float constants as single-precision to avoid accidental
     # float->double promotions on platforms with no hardware double
-    add_compile_options(-fsingle-precision-constant)
+    target_compile_options(butterscotch PRIVATE -fsingle-precision-constant -Werror=double-promotion)
 
     if(PS2)
         # Compiling on the Docker container
@@ -161,7 +186,7 @@ elseif(PLATFORM STREQUAL "ps2")
             DEPENDS ${IRX_DIR}/ps2kbd.irx
             COMMENT "Embedding ps2kbd.irx"
         )
-        if(NOT DISABLE_PS2_AUDIO)
+        if(ENABLE_PS2_AUDIO)
             add_custom_command(
                 OUTPUT ${IRX_GEN_DIR}/freesd_irx.c
                 COMMAND $ENV{PS2SDK}/bin/bin2c ${IRX_DIR}/freesd.irx ${IRX_GEN_DIR}/freesd_irx.c freesd_irx
@@ -177,7 +202,7 @@ elseif(PLATFORM STREQUAL "ps2")
         endif()
 
         target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/sio2man_irx.c ${IRX_GEN_DIR}/mcman_irx.c ${IRX_GEN_DIR}/mcserv_irx.c ${IRX_GEN_DIR}/padman_irx.c ${IRX_GEN_DIR}/usbd_irx.c ${IRX_GEN_DIR}/ps2kbd_irx.c)
-        if(NOT DISABLE_PS2_AUDIO)
+        if(ENABLE_PS2_AUDIO)
             target_sources(butterscotch PRIVATE ${IRX_GEN_DIR}/freesd_irx.c ${IRX_GEN_DIR}/audsrv_irx.c)
         endif()
         target_include_directories(butterscotch PRIVATE ${IRX_GEN_DIR})

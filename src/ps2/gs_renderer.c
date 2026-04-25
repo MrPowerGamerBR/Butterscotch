@@ -880,7 +880,6 @@ static void gsDestroy(Renderer* renderer) {
 
 static void gsBeginFrame(Renderer* renderer, MAYBE_UNUSED int32_t gameW, MAYBE_UNUSED int32_t gameH, MAYBE_UNUSED int32_t windowW, MAYBE_UNUSED int32_t windowH) {
     GsRenderer* gs = (GsRenderer*) renderer;
-    gs->zCounter = 1;
     gs->frameCounter++;
     gs->evictedAtlasUsedInCurrentFrame = false;
 }
@@ -1028,11 +1027,10 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
         uint8_t a = alphaToGS(alpha);
         u64 fallbackColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
         if (hasRotation) {
-            gsKit_prim_quad(gs->gsGlobal, sx0, sy0, sx1, sy1, sx2, sy2, sx3, sy3, gs->zCounter, fallbackColor);
+            gsKit_prim_quad(gs->gsGlobal, sx0, sy0, sx1, sy1, sx2, sy2, sx3, sy3, 0, fallbackColor);
         } else {
-            gsKit_prim_sprite(gs->gsGlobal, sx0, sy0, sx3, sy3, gs->zCounter, fallbackColor);
+            gsKit_prim_sprite(gs->gsGlobal, sx0, sy0, sx3, sy3, 0, fallbackColor);
         }
-        gs->zCounter++;
         return;
     }
 
@@ -1065,13 +1063,12 @@ static void gsDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
             sx1, sy1, u1, v0, // top-right
             sx2, sy2, u0, v1, // bottom-left
             sx3, sy3, u1, v1, // bottom-right
-            gs->zCounter,
+            0,
             gsColor
-            );
+        );
     } else {
-        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx0, sy0, u0, v0, sx3, sy3, u1, v1, gs->zCounter, gsColor);
+        gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx0, sy0, u0, v0, sx3, sy3, u1, v1, 0, gsColor);
     }
-    gs->zCounter++;
 }
 
 static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
@@ -1105,16 +1102,18 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
         uint8_t g = BGR_G(color);
         uint8_t b = BGR_B(color);
         uint8_t a = alphaToGS(alpha);
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, GS_SETREG_RGBAQ(r, g, b, a, 0x00));
-        gs->zCounter++;
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, GS_SETREG_RGBAQ(r, g, b, a, 0x00));
         return;
     }
 
     AtlasTPAGEntry* atlasEntry = &gs->atlasTPAGEntries[tpagIndex];
+    TexturePageItem* tpag = &renderer->dataWin->tpag.items[tpagIndex];
 
-    // Intersect the requested source rect with the crop region
-    float cX = (float) atlasEntry->cropX;
-    float cY = (float) atlasEntry->cropY;
+    // srcOffX/srcOffY are in source-page space (Renderer_drawSpritePartExt subtracts tpag->targetX/Y to convert from GML sprite-bounding space).
+    // The preprocessor's cropX/cropY, however, are in sprite-bounding space (extractFromTPAG builds a boundingWidth x boundingHeight image with pixels offset by targetX/targetY, then cropTransparentBorders runs on that).
+    // Subtract targetX/targetY here so both sides of the intersection live in the same coordinate system.
+    float cX = (float) atlasEntry->cropX - (float) tpag->targetX;
+    float cY = (float) atlasEntry->cropY - (float) tpag->targetY;
     float cW = (float) atlasEntry->cropW;
     float cH = (float) atlasEntry->cropH;
 
@@ -1152,8 +1151,7 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     uint8_t a = alphaToGS(alpha);
     u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
-    gs->zCounter++;
+    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, 0, gsColor);
 }
 
 static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline) {
@@ -1175,17 +1173,12 @@ static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, fl
         // Draw 4 one-pixel-wide edges: top, bottom, left, right
         float pw = gs->scaleX; // one pixel width in screen coords
         float ph = gs->scaleY; // one pixel height in screen coords
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2 + pw, sy1 + ph, gs->zCounter, rectColor); // top
-        gs->zCounter++;
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy2, sx2 + pw, sy2 + ph, gs->zCounter, rectColor); // bottom
-        gs->zCounter++;
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1 + ph, sx1 + pw, sy2, gs->zCounter, rectColor); // left
-        gs->zCounter++;
-        gsKit_prim_sprite(gs->gsGlobal, sx2, sy1 + ph, sx2 + pw, sy2, gs->zCounter, rectColor); // right
-        gs->zCounter++;
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2 + pw, sy1 + ph, 0, rectColor); // top
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy2, sx2 + pw, sy2 + ph, 0, rectColor); // bottom
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1 + ph, sx1 + pw, sy2, 0, rectColor); // left
+        gsKit_prim_sprite(gs->gsGlobal, sx2, sy1 + ph, sx2 + pw, sy2, 0, rectColor); // right
     } else {
-        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, rectColor);
-        gs->zCounter++;
+        gsKit_prim_sprite(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, rectColor);
     }
 }
 
@@ -1203,8 +1196,7 @@ static void gsDrawLine(Renderer* renderer, float x1, float y1, float x2, float y
     float sy2 = (y2 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
 
     u64 lineColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
-    gsKit_prim_line(gs->gsGlobal, sx1, sy1, sx2, sy2, gs->zCounter, lineColor);
-    gs->zCounter++;
+    gsKit_prim_line(gs->gsGlobal, sx1, sy1, sx2, sy2, 0, lineColor);
 }
 
 // PS2 gsKit doesn't support per-vertex colors on lines, so we just use color1
@@ -1307,6 +1299,15 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
     // Scale vertex RGB from 0-255 to 0-128 so white (255) becomes 1.0x multiplier
     uint32_t color = renderer->drawColor;
     uint8_t a = alphaToGS(renderer->drawAlpha);
+    uint8_t r = BGR_R(color) >> 1;
+    uint8_t g = BGR_G(color) >> 1;
+    uint8_t b = BGR_B(color) >> 1;
+    u64 textColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
+
+    float screenScaleX = xscale * font->scaleX * gs->scaleX;
+    float screenScaleY = yscale * font->scaleY * gs->scaleY;
+    float screenBaseX = (x - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float screenBaseY = (y - (float) gs->viewY) * gs->scaleY + gs->offsetY;
 
     int32_t textLen = (int32_t) strlen(text);
 
@@ -1360,21 +1361,12 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
                     continue;
                 }
 
-                float glyphX = x + localX0 * xscale * font->scaleX;
-                float glyphY = y + localY0 * yscale * font->scaleY;
-                float glyphW = (float) glyph->sourceWidth * xscale * font->scaleX;
-                float glyphH = (float) glyph->sourceHeight * yscale * font->scaleY;
+                float sx1 = localX0 * screenScaleX + screenBaseX;
+                float sy1 = localY0 * screenScaleY + screenBaseY;
+                float sx2 = sx1 + (float) glyph->sourceWidth * screenScaleX;
+                float sy2 = sy1 + (float) glyph->sourceHeight * screenScaleY;
 
-                float sx1 = (glyphX - (float) gs->viewX) * gs->scaleX + gs->offsetX;
-                float sy1 = (glyphY - (float) gs->viewY) * gs->scaleY + gs->offsetY;
-                float sx2 = (glyphX + glyphW - (float) gs->viewX) * gs->scaleX + gs->offsetX;
-                float sy2 = (glyphY + glyphH - (float) gs->viewY) * gs->scaleY + gs->offsetY;
-
-                uint8_t r = BGR_R(color) >> 1;
-                uint8_t g = BGR_G(color) >> 1;
-                uint8_t b = BGR_B(color) >> 1;
-                u64 textColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
-                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1, sy1, u0, v0, sx2, sy2, u1, v1, gs->zCounter, textColor);
+                gsKit_prim_sprite_texture(gs->gsGlobal, &glyphTex, sx1, sy1, u0, v0, sx2, sy2, u1, v1, 0, textColor);
             }
 
             cursorX += (float) glyph->shift;
@@ -1387,8 +1379,6 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
                 cursorX += TextUtils_getKerningOffset(glyph, nextCh);
             }
         }
-
-        gs->zCounter++;
 
         // Next line
         cursorY += lineStride;
@@ -1413,6 +1403,11 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
 
     int32_t textLen = (int32_t) strlen(text);
     if(textLen == 0) return;
+
+    float screenScaleX = xscale * font->scaleX * gs->scaleX;
+    float screenScaleY = yscale * font->scaleY * gs->scaleY;
+    float screenBaseX = (x - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float screenBaseY = (y - (float) gs->viewY) * gs->scaleY + gs->offsetY;
 
     // Vertical alignment
     int32_t lineCount = TextUtils_countLines(text, textLen);
@@ -1452,6 +1447,29 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
         int32_t c3 = ((c4 & 0xff0000) + (right_delta_r & 0xff0000)) & 0xff0000;
             c3 |= ((c4 & 0xff00) + (right_delta_g >> 8) & 0xff00) & 0xff00;
             c3 |= ((c4 & 0xff) + (right_delta_b >> 16)) & 0xff;
+
+        // GS modulate mode: Output = Texture * Vertex / 128
+        // Scale vertex RGB from 0-255 to 0-128 so white (255) becomes 1.0x multiplier
+        uint8_t ga = alphaToGS(alpha);
+        uint8_t r1 = BGR_R(c1) >> 1;
+        uint8_t g1 = BGR_G(c1) >> 1;
+        uint8_t b1 = BGR_B(c1) >> 1;
+        u64 textColor1 = GS_SETREG_RGBAQ(r1, g1, b1, ga, 0x00);
+
+        uint8_t r2 = BGR_R(c2) >> 1;
+        uint8_t g2 = BGR_G(c2) >> 1;
+        uint8_t b2 = BGR_B(c2) >> 1;
+        u64 textColor2 = GS_SETREG_RGBAQ(r2, g2, b2, ga, 0x00);
+
+        uint8_t r3 = BGR_R(c3) >> 1;
+        uint8_t g3 = BGR_G(c3) >> 1;
+        uint8_t b3 = BGR_B(c3) >> 1;
+        u64 textColor3 = GS_SETREG_RGBAQ(r3, g3, b3, ga, 0x00);
+
+        uint8_t r4 = BGR_R(c4) >> 1;
+        uint8_t g4 = BGR_G(c4) >> 1;
+        uint8_t b4 = BGR_B(c4) >> 1;
+        u64 textColor4 = GS_SETREG_RGBAQ(r4, g4, b4, ga, 0x00);
 
         left_delta_r += left_r_dx;
         left_delta_g += left_g_dx;
@@ -1494,48 +1512,20 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
                     continue;
                 }
 
-                float glyphX = x + localX0 * xscale * font->scaleX;
-                float glyphY = y + localY0 * yscale * font->scaleY;
-                float glyphW = (float) glyph->sourceWidth * xscale * font->scaleX;
-                float glyphH = (float) glyph->sourceHeight * yscale * font->scaleY;
-
-                float sx1 = (glyphX - (float) gs->viewX) * gs->scaleX + gs->offsetX;
-                float sy1 = (glyphY - (float) gs->viewY) * gs->scaleY + gs->offsetY;
-                float sx2 = (glyphX + glyphW - (float) gs->viewX) * gs->scaleX + gs->offsetX;
-                float sy2 = (glyphY + glyphH - (float) gs->viewY) * gs->scaleY + gs->offsetY;
-
-                // GS modulate mode: Output = Texture * Vertex / 128
-                // Scale vertex RGB from 0-255 to 0-128 so white (255) becomes 1.0x multiplier
-                uint8_t ga = alphaToGS(alpha);
-                uint8_t r1 = BGR_R(c1) >> 1;
-                uint8_t g1 = BGR_G(c1) >> 1;
-                uint8_t b1 = BGR_B(c1) >> 1;
-                u64 textColor1 = GS_SETREG_RGBAQ(r1, g1, b1, ga, 0x00);
-
-                uint8_t r2 = BGR_R(c2) >> 1;
-                uint8_t g2 = BGR_G(c2) >> 1;
-                uint8_t b2 = BGR_B(c2) >> 1;
-                u64 textColor2 = GS_SETREG_RGBAQ(r2, g2, b2, ga, 0x00);
-
-                uint8_t r3 = BGR_R(c3) >> 1;
-                uint8_t g3 = BGR_G(c3) >> 1;
-                uint8_t b3 = BGR_B(c3) >> 1;
-                u64 textColor3 = GS_SETREG_RGBAQ(r3, g3, b3, ga, 0x00);
-
-                uint8_t r4 = BGR_R(c4) >> 1;
-                uint8_t g4 = BGR_G(c4) >> 1;
-                uint8_t b4 = BGR_B(c4) >> 1;
-                u64 textColor4 = GS_SETREG_RGBAQ(r4, g4, b4, ga, 0x00);
+                float sx1 = localX0 * screenScaleX + screenBaseX;
+                float sy1 = localY0 * screenScaleY + screenBaseY;
+                float sx2 = sx1 + (float) glyph->sourceWidth * screenScaleX;
+                float sy2 = sy1 + (float) glyph->sourceHeight * screenScaleY;
 
                 gsKit_prim_triangle_goraud_texture_3d(gs->gsGlobal, &glyphTex,
-                        sx1, sy1, gs->zCounter, u0, v0,
-                        sx2, sy1, gs->zCounter, u1, v0,
-                        sx2, sy2, gs->zCounter, u1, v1,
+                        sx1, sy1, 0, u0, v0,
+                        sx2, sy1, 0, u1, v0,
+                        sx2, sy2, 0, u1, v1,
                         textColor1, textColor2, textColor3);
                 gsKit_prim_triangle_goraud_texture_3d(gs->gsGlobal, &glyphTex,
-                    sx1, sy1, gs->zCounter, u0, v0,
-                    sx2, sy2, gs->zCounter, u1, v1,
-                    sx1, sy2, gs->zCounter, u0, v1,
+                    sx1, sy1, 0, u0, v0,
+                    sx2, sy2, 0, u1, v1,
+                    sx1, sy2, 0, u0, v1,
                     textColor1, textColor3, textColor4);
             }
 
@@ -1549,8 +1539,6 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
                 cursorX += TextUtils_getKerningOffset(glyph, nextCh);
             }
         }
-
-        gs->zCounter++;
 
         // Next line
         cursorY += lineStride;
@@ -1585,12 +1573,7 @@ static void gsDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
         float b = (float) BGR_B(renderer->drawColor);
 
         u64 triColor = GS_SETREG_RGBAQ(r, g, b, alphaToGS(renderer->drawAlpha), 0x00);
-        gsKit_prim_triangle_gouraud_3d(gs->gsGlobal, 
-            sx1, sy1, gs->zCounter,
-            sx2, sy2, gs->zCounter,
-            sx3, sy3, gs->zCounter,
-            triColor, triColor, triColor);
-        gs->zCounter++;
+        gsKit_prim_triangle_gouraud_3d(gs->gsGlobal, sx1, sy1, 0,sx2, sy2, 0,sx3, sy3, 0,triColor, triColor, triColor);
     }
 }
 
@@ -1657,8 +1640,7 @@ static void gsDrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float 
     uint8_t a = alphaToGS(alpha);
     u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
 
-    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, gs->zCounter, gsColor);
-    gs->zCounter++;
+    gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, 0, gsColor);
 }
 
 // ===[ Vtable ]===
@@ -1694,6 +1676,5 @@ Renderer* GsRenderer_create(GSGLOBAL* gsGlobal) {
     gs->gsGlobal = gsGlobal;
     gs->scaleX = 2.0f;
     gs->scaleY = 2.0f;
-    gs->zCounter = 1;
     return (Renderer*) gs;
 }

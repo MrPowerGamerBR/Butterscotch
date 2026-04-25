@@ -15,6 +15,7 @@
 #define INSTANCE_ALL       (-3)
 #define INSTANCE_NOONE     (-4)
 #define INSTANCE_GLOBAL    (-5)
+#define INSTANCE_BUILTIN   (-6)
 #define INSTANCE_LOCAL     (-7)
 #define INSTANCE_STACKTOP  (-9)
 #define INSTANCE_ARG       (-15)
@@ -70,6 +71,7 @@
 #define OP_POP      0x45
 #define OP_PUSHI    0x84
 #define OP_DUP      0x86
+#define OP_CALLV    0x99
 #define OP_RET      0x9C
 #define OP_EXIT     0x9D
 #define OP_POPZ     0x9E
@@ -126,7 +128,6 @@ typedef struct CallFrame {
     uint32_t savedLocalsCount;
     const char* savedCodeName;
     int32_t savedSavearefBalance;
-    CodeLocals* savedCodeLocals;
     LocalSlotEntry* savedCodeLocalsSlotMap;
     RValue* savedScriptArgs;
     int32_t savedScriptArgCount;
@@ -179,9 +180,8 @@ typedef struct VMContext {
     struct Instance* otherInstance; // "other" instance for collision events
     DataWin* dataWin;
     struct Runner* runner;
-    CodeLocals* currentCodeLocals;
     // BC17+: varID -> localVars slot lookup for the current code.
-    // Points into codeLocalsSlotMaps, parallel to currentCodeLocals. Stays in sync with it.
+    // See codeLocalsSlotMaps
     LocalSlotEntry* currentCodeLocalsSlotMap;
     FuncCallCache* funcCallCache;
     const char* currentCodeName;
@@ -220,12 +220,12 @@ typedef struct VMContext {
     struct { char* key; int32_t value; }* funcMap;
     // codeName -> CodeLocals* hash map (stb_ds)
     struct { char* key; CodeLocals* value; }* codeLocalsMap;
-    // BC17+: parallel to dataWin->func.codeLocals[]. Each element is a hmap keyed by the local's CodeLocals.locals[i].index (== its shared varID), mapping to the slot position i
-    // within that code's localVars array. Built once in VM_create and read O(1) at dispatch time.
-    // In BC17, a single GML local can surface as several VARI chunk entries that share varID, so we key by varID (not VARI chunk index) to unify them to a single slot.
+    // BC17+: A map of CODE indexes -> localVars slot lookup map
     LocalSlotEntry** codeLocalsSlotMaps;
     // varName -> varID hash map for global variables (stb_ds)
     struct { char* key; int32_t value; }* globalVarNameMap;
+    // varName -> varID hash map for self/instance-scoped variables (stb_ds).
+    struct { char* key; int32_t value; }* selfVarNameMap;
     // "codeName\tfuncName" -> true, for deduplicating unknown function warnings
     StringBooleanEntry* loggedUnknownFuncs;
     // "codeName\tfuncName" -> true, for deduplicating stubbed function warnings
@@ -234,7 +234,7 @@ typedef struct VMContext {
     struct { int32_t key; int32_t* value; }* crossRefMap;
     bool alwaysLogUnknownFunctions;
     bool alwaysLogStubbedFunctions;
-#ifndef DISABLE_VM_TRACING
+#ifdef ENABLE_VM_TRACING
     StringBooleanEntry* varReadsToBeTraced;
     StringBooleanEntry* varWritesToBeTraced;
     StringBooleanEntry* functionCallsToBeTraced;

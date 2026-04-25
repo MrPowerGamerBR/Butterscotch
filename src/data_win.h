@@ -214,6 +214,7 @@ typedef struct {
 
 typedef struct {
     uint32_t count;
+    uint32_t parsedCount; // number of sprites loaded from SPRT; slots >= parsedCount are runtime-allocated and own their `name`
     Sprite* sprites;
 } Sprt;
 
@@ -252,16 +253,16 @@ typedef struct {
 } PathPoint;
 
 typedef struct {
-    double x;
-    double y;
-    double speed;
-    double l; // cumulative arc length from start
+    float x;
+    float y;
+    float speed;
+    float l; // cumulative arc length from start
 } InternalPathPoint;
 
 typedef struct {
-    double x;
-    double y;
-    double speed;
+    float x;
+    float y;
+    float speed;
 } PathPositionResult;
 
 typedef struct {
@@ -273,7 +274,7 @@ typedef struct {
     PathPoint* points;
     uint32_t internalPointCount;
     InternalPathPoint* internalPoints;
-    double length; // total arc length
+    float length; // total arc length
 } GamePath;
 
 typedef struct {
@@ -364,6 +365,12 @@ typedef struct {
     float scaleX;
     float scaleY;
     int32_t ascenderOffset; // bytecodeVersion >= 17 only
+    uint32_t ascender;  // GMS 2022.2+ (0 when absent)
+    uint32_t sdfSpread; // GMS 2023.2 nonLTS+ (0 when absent)
+    uint32_t lineHeight; // GMS 2023.6+ (0 when absent)
+    bool hasAscender;
+    bool hasSDFSpread;
+    bool hasLineHeight;
     uint32_t glyphCount;
     FontGlyph* glyphs;
     uint32_t maxGlyphHeight; // Computed after glyph parse: max sourceHeight across glyphs; HTML5 runner uses this for line stride (see yyFont.TextHeight)
@@ -436,6 +443,7 @@ typedef struct {
     const char* name;
     int32_t spriteId;
     bool visible;
+    bool managed; // GMS 2022.5+
     bool solid;
     int32_t depth;
     bool persistent;
@@ -734,6 +742,10 @@ typedef struct {
 typedef struct {
     uint32_t scaled;
     uint32_t generatedMips; // GMS 2.0.6+: number of generated mipmaps (0 for GMS 1.x)
+    uint32_t textureBlockSize; // GMS 2022.3+: size of the texture block (0 for older versions)
+    int32_t textureWidth;  // GMS 2022.9+
+    int32_t textureHeight; // GMS 2022.9+
+    int32_t indexInGroup;  // GMS 2022.9+
     uint32_t blobOffset; // absolute file offset to PNG data
     uint32_t blobSize; // computed size of blob data
     uint8_t* blobData; // owned copy of PNG data
@@ -824,6 +836,8 @@ void DataWin_loadRoomPayload(DataWin* dw, int32_t roomIndex);
 void DataWin_freeRoomPayload(Room* room);
 int32_t DataWin_resolveTPAG(DataWin* dw, uint32_t offset);
 int32_t DataWin_resolveSPRT(DataWin* dw, uint32_t offset);
+// Finds a reusable dynamic Sprite slot (textureCount == 0) at or above `startIndex`, or appends a new one.
+uint32_t DataWin_allocSpriteSlot(DataWin* dw, uint32_t startIndex);
 // Compares the detected effective GMS version (not the raw GEN8 version) against a lower bound.
 // Returns true if the detected version >= (major, minor, release, build).
 //
@@ -832,4 +846,4 @@ bool DataWin_isVersionAtLeast(const DataWin* dw, uint32_t major, uint32_t minor,
 // Raises the detected effective version to at least (major, minor, release, build). No-op if the detected version is already >= the target.
 void DataWin_bumpVersionTo(DataWin* dw, uint32_t major, uint32_t minor, uint32_t release, uint32_t build);
 void GamePath_computeInternal(GamePath* path);
-PathPositionResult GamePath_getPosition(GamePath* path, double t);
+PathPositionResult GamePath_getPosition(GamePath* path, float t);

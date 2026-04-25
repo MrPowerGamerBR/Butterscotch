@@ -522,6 +522,30 @@ static void maSetTrackPosition(AudioSystem* audio, int32_t soundOrInstance, floa
     }
 }
 
+// Total length of a loaded sound. Works on both SOND index and active instance ids.
+// Uses miniaudio's ma_sound_get_length_in_seconds, which reads the decoded duration from the underlying data source (works for fully-decoded sounds AND streaming sounds).
+static float maGetSoundLength(AudioSystem* audio, int32_t soundOrInstance) {
+    MaAudioSystem* ma = (MaAudioSystem*) audio;
+
+    SoundInstance* match = nullptr;
+    if (soundOrInstance >= SOUND_INSTANCE_ID_BASE) {
+        match = findInstanceById(ma, soundOrInstance);
+    } else {
+        repeat(MAX_SOUND_INSTANCES, i) {
+            SoundInstance* inst = &ma->instances[i];
+            if (inst->active && inst->soundIndex == soundOrInstance) {
+                match = inst;
+                break;
+            }
+        }
+    }
+    if (match == nullptr) return 0.0f;
+
+    float seconds = 0.0f;
+    if (ma_sound_get_length_in_seconds(&match->maSound, &seconds) != MA_SUCCESS) return 0.0f;
+    return seconds;
+}
+
 static void maSetMasterGain(AudioSystem* audio, float gain) {
     MaAudioSystem* ma = (MaAudioSystem*) audio;
     ma_engine_set_volume(&ma->engine, gain);
@@ -633,6 +657,7 @@ static AudioSystemVtable maAudioSystemVtable = {
     .getSoundPitch = maGetSoundPitch,
     .getTrackPosition = maGetTrackPosition,
     .setTrackPosition = maSetTrackPosition,
+    .getSoundLength = maGetSoundLength,
     .setMasterGain = maSetMasterGain,
     .setChannelCount = maSetChannelCount,
     .groupLoad = maGroupLoad,

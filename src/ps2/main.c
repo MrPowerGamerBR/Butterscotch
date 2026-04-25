@@ -20,7 +20,7 @@
 #include "../data_win.h"
 #include "../json_reader.h"
 #include "ps2_file_system.h"
-#ifndef DISABLE_PS2_AUDIO
+#ifdef ENABLE_PS2_AUDIO
 #include "ps2_audio_system.h"
 #endif
 #include "gs_renderer.h"
@@ -47,17 +47,18 @@ extern unsigned char usbd_irx[];
 extern unsigned int size_usbd_irx;
 extern unsigned char ps2kbd_irx[];
 extern unsigned int size_ps2kbd_irx;
-#ifndef DISABLE_PS2_AUDIO
+#ifdef ENABLE_PS2_AUDIO
 extern unsigned char freesd_irx[];
 extern unsigned int size_freesd_irx;
 extern unsigned char audsrv_irx[];
 extern unsigned int size_audsrv_irx;
 #endif
 
-// The maximum memory of a normal PS2 console
-// Developer consoles may have more memory, but because ps2sdk does not have a way to know
-// how much memory the console really has, we will use this value instead
-static int MAX_MEMORY_BYTES = 33554432;
+// Total main RAM in bytes.
+static int MAX_MEMORY_BYTES = 0;
+
+// Heap ceiling: Captured once at startup (before any game allocations) and used as a stable denominator in the debug overlay.
+static int heapCeilingBytes = 0;
 
 // 256-byte aligned buffers for libpad (one per port)
 static char padBuf[2][256] __attribute__((aligned(64)));
@@ -358,7 +359,7 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
     void* heapTop = sbrk(0);
     int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
     char memText[48];
-    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", usedBytes / (1024.0f * 1024.0f), MAX_MEMORY_BYTES / (1024.0f * 1024.0f));
+    snprintf(memText, sizeof(memText), "Memory: %.1f/%.1f MB", (double) (usedBytes / (1024.0f * 1024.0f)), (double) (MAX_MEMORY_BYTES / (1024.0f * 1024.0f)));
     gsKit_fontm_print_scaled(gs, fontm, 320.0f, barY + barH + 30.0f, 1, 0.4f, gray, memText);
 
     // Record item counts for already-parsed chunks (callback fires before parsing, so we scan all counts each time and add any newly non-zero ones in the order they appear)
@@ -408,6 +409,15 @@ static void loadingScreenCallback(const char* chunkName, int chunkIndex, int tot
 int main(int argc, char* argv[]) {
     SifInitRpc(0);
     sbv_patch_enable_lmb();
+
+    // Ask the kernel how much main RAM we actually have.
+    MAX_MEMORY_BYTES = (int) GetMemorySize();
+
+    // Snapshot the heap ceiling BEFORE anything else allocates. sbrk(0) at this point is the heap frontier after newlib's baseline reservations; mallinfo.uordblks is what newlib has already handed out to startup code. Their sum (added to the sbrk runway) is the total bytes user code could ever cumulatively hold live.
+    {
+        struct mallinfo mi = mallinfo();
+        heapCeilingBytes = (MAX_MEMORY_BYTES - (int) (uintptr_t) sbrk(0)) + mi.uordblks;
+    }
 
     PS2Utils_extractDeviceKey(argv[0]);
 
@@ -502,7 +512,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-#ifndef DISABLE_PS2_AUDIO
+#ifdef ENABLE_PS2_AUDIO
     // ===[ Load Audio IOP Modules ]===
     ret = SifExecModuleBuffer(freesd_irx, size_freesd_irx, 0, nullptr, nullptr);
     if (0 > ret) {
@@ -575,7 +585,7 @@ int main(int argc, char* argv[]) {
             .parseGen8 = true,
             .parseOptn = true,
             .parseLang = true,
-            .parseExtn = true,
+            .parseExtn = false,
             .parseSond = true,
             .parseAgrp = true,
             .parseSprt = true,
@@ -605,11 +615,26 @@ int main(int argc, char* argv[]) {
     free(dataWinPath);
     shfree(eagerRooms);
 
+    bool bytecodeVersionSupported = false;
+#ifdef ENABLE_BC16
+    if (dataWin->gen8.bytecodeVersion == 15 || dataWin->gen8.bytecodeVersion == 16) bytecodeVersionSupported = true;
+#endif
+#ifdef ENABLE_BC17
+    if (dataWin->gen8.bytecodeVersion == 17) bytecodeVersionSupported = true;
+#endif
+
+    if (!bytecodeVersionSupported) {
+        char errorText[128];
+        snprintf(errorText, sizeof(errorText), "Unsupported bytecode version %u!", dataWin->gen8.bytecodeVersion);
+        drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, errorText, &loadingState);
+        while (true) {}
+    }
+
     {
         void* heapTop = sbrk(0);
         int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
         int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
-        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
+        printf("Memory after data.win parsing: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, (double) (usedBytes / 1024.0f), MAX_MEMORY_BYTES, (double) (MAX_MEMORY_BYTES / 1024.0f), freeBytes, (double) (freeBytes / 1024.0f));
     }
 
     FileSystem* fileSystem = Ps2FileSystem_create(configRoot, dataWin->gen8.displayName);
@@ -628,7 +653,7 @@ int main(int argc, char* argv[]) {
     Renderer* renderer = GsRenderer_create(gsGlobal);
 
     // ===[ Initialize Audio System ]===
-#ifndef DISABLE_PS2_AUDIO
+#ifdef ENABLE_PS2_AUDIO
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing audio...", &loadingState);
     Ps2AudioSystem* ps2Audio = Ps2AudioSystem_create();
     AudioSystem* audioSystem = (AudioSystem*) ps2Audio;
@@ -663,7 +688,7 @@ int main(int argc, char* argv[]) {
         void* heapTop = sbrk(0);
         int32_t usedBytes = (int32_t) (uintptr_t) heapTop;
         int32_t freeBytes = MAX_MEMORY_BYTES - usedBytes;
-        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, usedBytes / 1024.0f, MAX_MEMORY_BYTES, MAX_MEMORY_BYTES / 1024.0f, freeBytes, freeBytes / 1024.0f);
+        printf("Memory after VM and runner creation: used=%d bytes (%.1f KB), total=%d bytes (%.1f KB), free=%d bytes (%.1f KB)\n", usedBytes, (double) (usedBytes / 1024.0f), MAX_MEMORY_BYTES, (double) (MAX_MEMORY_BYTES / 1024.0f), freeBytes, (double) (freeBytes / 1024.0f));
     }
 
     drawStatusScreen(gsGlobal, gsFontM, dataWin->gen8.displayName, "Initializing first room...", &loadingState);
@@ -777,7 +802,9 @@ int main(int argc, char* argv[]) {
         // ===[ Game Logic ]===
         uint32_t roomSpeed = runner->currentRoom->speed;
 
+        u64 stepStartTime = GetTimerSystemTime();
         Runner_step(runner);
+        u64 stepEndTime = GetTimerSystemTime();
 
         gsKit_clear(gsGlobal, GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x80, 0x00));
 
@@ -793,24 +820,26 @@ int main(int argc, char* argv[]) {
         }
 
         // Render views
+        u64 drawStartTime = GetTimerSystemTime();
         Room* activeRoom = runner->currentRoom;
         bool anyViewRendered = false;
 
         bool viewsEnabled = (activeRoom->flags & 1) != 0;
 
         if (viewsEnabled) {
-            repeat(8, vi) {
-                if (!activeRoom->views[vi].enabled) continue;
+            repeat(MAX_VIEWS, vi) {
+                RuntimeView* view = &runner->views[vi];
+                if (!view->enabled) continue;
 
-                int32_t viewX = activeRoom->views[vi].viewX;
-                int32_t viewY = activeRoom->views[vi].viewY;
-                int32_t viewW = activeRoom->views[vi].viewWidth;
-                int32_t viewH = activeRoom->views[vi].viewHeight;
-                int32_t portX = activeRoom->views[vi].portX;
-                int32_t portY = activeRoom->views[vi].portY;
-                int32_t portW = activeRoom->views[vi].portWidth;
-                int32_t portH = activeRoom->views[vi].portHeight;
-                float viewAngle = runner->viewAngles[vi];
+                int32_t viewX = view->viewX;
+                int32_t viewY = view->viewY;
+                int32_t viewW = view->viewWidth;
+                int32_t viewH = view->viewHeight;
+                int32_t portX = view->portX;
+                int32_t portY = view->portY;
+                int32_t portW = view->portWidth;
+                int32_t portH = view->portHeight;
+                float viewAngle = view->viewAngle;
 
                 runner->viewCurrent = (int32_t) vi;
                 renderer->vtable->beginView(renderer, viewX, viewY, viewW, viewH, portX, portY, portW, portH, viewAngle);
@@ -842,6 +871,7 @@ int main(int argc, char* argv[]) {
             Runner_drawGUI(runner);
             renderer->vtable->endGUI(renderer);
         }
+        u64 drawEndTime = GetTimerSystemTime();
 
         runner->viewCurrent = 0;
 
@@ -851,24 +881,28 @@ int main(int argc, char* argv[]) {
         // This MUST be after Runner_draw because games CAN handle input in Draw events (e.g. Undertale's naming screen)
         RunnerKeyboard_beginFrame(runner->keyboard);
 
+        u64 audioStartTime = GetTimerSystemTime();
         // Update audio system (gain fading, stream to audsrv)
         float dt = 1.0f / (float) roomSpeed;
         if (0.0f > dt) dt = 0.0f;
         if (dt > 0.1f) dt = 0.1f;
         runner->audioSystem->vtable->update(runner->audioSystem, dt);
+        u64 audioEndTime = GetTimerSystemTime();
 
         u64 runnerEndTime = GetTimerSystemTime();
         u64 duration = runnerEndTime - frameStartTime;
+        u64 stepDuration = stepEndTime - stepStartTime;
+        u64 drawDuration = drawEndTime - drawStartTime;
+        u64 audioDuration = audioEndTime - audioStartTime;
         float tickTime = (float) duration / (float) (kBUSCLK / 1000);
+        float stepTime = (float) stepDuration / (float) (kBUSCLK / 1000);
+        float drawTime = (float) drawDuration / (float) (kBUSCLK / 1000);
+        float audioTime = (float) audioDuration / (float) (kBUSCLK / 1000);
 
         // ===[ Debug Overlay ]===
         if (debugOverlayState == 0 || debugOverlayState == 1) {
             u64 debugColor = GS_SETREG_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x00);
-            // sbrk(0) returns the actual heap frontier; true free = top of RAM - sbrk frontier
-            void* heapTop = sbrk(0);
-            int32_t freeBytes = MAX_MEMORY_BYTES - (int32_t) (uintptr_t) heapTop;
-
-            char debugText[256];
+            char debugText[512];
             uint32_t vramFreeBytes = GS_VRAM_SIZE - gsGlobal->CurrentPointer;
 
             // Count atlases loaded in VRAM and EE RAM cache
@@ -880,7 +914,11 @@ int main(int argc, char* argv[]) {
                 if (gsRenderer->eeCacheEntries[ai].atlasId >= 0) eeramAtlasCount++;
             }
 
-            snprintf(debugText, sizeof(debugText), "Tick: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s", tickTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "");
+            int freeBytes = heapCeilingBytes - mallinfo().uordblks;
+
+            const char* roomName = runner->currentRoom != nullptr && runner->currentRoom->name != nullptr ? runner->currentRoom->name : "?";
+
+            snprintf(debugText, sizeof(debugText), "Room: %s\nTick: %.2fms\nStep: %.2fms\nDraw: %.2fms\nAudio: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u)%s\nInstances: %d", roomName, (double) tickTime, (double) stepTime, (double) drawTime, (double) audioTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->evictedAtlasUsedInCurrentFrame ? " [THRASHING]" : "", (int) arrlen(runner->instances));
             gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.6f, debugColor, debugText);
 
             if (debugOverlayState == 1) {
@@ -894,8 +932,12 @@ int main(int argc, char* argv[]) {
                     Profiler_reset(vm->profiler);
                     profilerFramesInWindow = 0;
                 }
-                float profilerY = 10.0f + (15.6f * 5.0f) + 6.0f;
+                float profilerY = 10.0f + (15.6f * 10.0f) + 6.0f;
+#ifdef ENABLE_VM_PROFILER
                 const char* profilerDisplay = profilerOverlayText[0] != '\0' ? profilerOverlayText : "GML Profiler (collecting...)";
+#else
+                const char* profilerDisplay = "Butterscotch GML Profiler is disabled on this build :(";
+#endif
                 gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, profilerY, 10, 0.35f, debugColor, profilerDisplay);
             }
         }

@@ -48,3 +48,37 @@ static inline double BinaryUtils_readFloat64(const uint8_t* data) {
 static inline void BinaryUtils_writeUint32(uint8_t* data, uint32_t val) {
     memcpy(data, &val, 4);
 }
+
+// ===[ Aligned reads ]===
+// These trust the caller to supply a pointer with matching natural alignment.
+// Used on the VM dispatch hot path (bytecode instruction / operand fetch) where the bytecode buffer is guaranteed 4-byte aligned.
+
+static inline uint32_t BinaryUtils_readUint32Aligned(const uint8_t* data) {
+    uint32_t val;
+    memcpy(&val, __builtin_assume_aligned(data, 4), 4);
+    return val;
+}
+
+static inline int32_t BinaryUtils_readInt32Aligned(const uint8_t* data) {
+    return (int32_t) BinaryUtils_readUint32Aligned(data);
+}
+
+static inline int64_t BinaryUtils_readInt64Aligned(const uint8_t* data) {
+    // Note: GML bytecode places 8-byte extra-data at instruction + 4, so it is only 4-aligned.
+    int64_t val;
+    memcpy(&val, __builtin_assume_aligned(data, 4), 8);
+    return val;
+}
+
+static inline float BinaryUtils_readFloat32Aligned(const uint8_t* data) {
+    float val;
+    memcpy(&val, __builtin_assume_aligned(data, 4), 4);
+    return val;
+}
+
+static inline double BinaryUtils_readFloat64Aligned(const uint8_t* data) {
+    // Note: GML bytecode places 8-byte extra-data at instruction + 4, so it is only 4-aligned.
+    double val;
+    memcpy(&val, __builtin_assume_aligned(data, 4), 8);
+    return val;
+}

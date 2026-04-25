@@ -48,6 +48,11 @@ static float noopGetTrackPosition(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED 
 
 static void noopSetTrackPosition(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance, MAYBE_UNUSED float positionSeconds) {}
 
+// Return 1.0s (not 0) so GML code that divides by audio length doesn't hit division-by-zero.
+static float noopGetSoundLength(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t soundOrInstance) {
+    return 1.0f;
+}
+
 static void noopSetMasterGain(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED float gain) {}
 
 static void noopSetChannelCount(MAYBE_UNUSED AudioSystem* audio, MAYBE_UNUSED int32_t count) {}
@@ -84,6 +89,7 @@ static AudioSystemVtable noopVtable = {
     .getSoundPitch = noopGetSoundPitch,
     .getTrackPosition = noopGetTrackPosition,
     .setTrackPosition = noopSetTrackPosition,
+    .getSoundLength = noopGetSoundLength,
     .setMasterGain = noopSetMasterGain,
     .setChannelCount = noopSetChannelCount,
     .groupLoad = noopGroupLoad,

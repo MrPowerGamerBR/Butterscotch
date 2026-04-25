@@ -24,6 +24,14 @@ Butterscotch's goal is to be able to have Undertale v1.08 (GameMaker: Studio 1.4
 
 While our target is Undertale v1.08, that doesn't mean that other games CAN'T run in Butterscotch! Because Butterscotch is a runner and not a Undertale port/remake, you CAN run other GameMaker: Studio games with it and, as long as the game is compiled with GameMaker: Studio 1.4.1804 and they only use GML variables and functions that Butterscotch supports, it should work fine.
 
+Here are the Bytecode Versions that Butterscotch supports
+
+* Bytecode Version 15
+* Bytecode Version 16
+* Bytecode Version 17
+
+However, that doesn't mean that a game that uses a compatible version WILL run! The bytecode support is still a WIP, and Butterscotch may have quirks that the original GameMaker: Studio runner may not have.
+
 Of course, there are exceptions that break game compatibility altogether:
 
 * Games compiled with YYC, because they use native code instead of bytecode. 
@@ -41,7 +49,7 @@ Of course, there are exceptions that break game compatibility altogether:
 ## Community Ports
 
 * [Xbox 360 (Butterscotch-360)](https://github.com/ceilingtilefan/Butterscotch-360) by @ceilingtilefan
-  
+
 ## Building Butterscotch
 
 ```bash
@@ -88,7 +96,6 @@ The GLFW target has a lot of nifty CLI parameters that you can use to trace and 
 * `--playback-inputs`: Playbacks user inputs
 * `--os-type`: Allows changing the built-in `os_type` value. The default is Windows. Example: When running Undertale Xbox, you would need to set it to `--os-type xboxone`.
 * `--profiler`: Logs which GML scripts are the heaviest in terms of time and executed instructions.
-* `--debug`: Enable debug features
 
 ## Debug Features
 
@@ -118,7 +125,7 @@ Having a transpiler also have other disadvantages:
 
 ## Screenshots
 
-### Undertale (GLFW)
+### Undertale (GLFW) [Bytecode Version 16]
 
 <img width="160" height="120" alt="Image" src="https://github.com/user-attachments/assets/6651cc2e-0d6d-4354-b98d-081e84a981df" />
 <img width="160" height="120" alt="Image" src="https://github.com/user-attachments/assets/1d6edc51-2829-4f8f-b900-393f21a6655b" />
@@ -133,10 +140,24 @@ Having a transpiler also have other disadvantages:
 <img width="160" height="120" alt="Image" src="https://github.com/user-attachments/assets/e5c67781-0ffc-43c8-9c7d-333254eed704" />
 <img width="160" height="120" alt="Image" src="https://github.com/user-attachments/assets/93900e3c-79b5-4a05-bd6c-d68814e9e101" />
 
-### Undertale (PlayStation 2)
+### Undertale (PlayStation 2) [Bytecode Version 16]
 
 Here's a video :3 https://youtu.be/PuzBxe0VGtY
 
-### DELTARUNE (SURVEY_PROGRAM) (PlayStation 2)
+### DELTARUNE (SURVEY_PROGRAM) (PlayStation 2) [Bytecode Version 16]
 
 Here's a video :3 https://youtu.be/TLJtV2WnrmQ
+
+### DELTARUNE Chapter 2 (GLFW) [Bytecode Version 17]
+
+<img width="160" height="120" alt="image" src="https://github.com/user-attachments/assets/d0df9858-ad2b-4642-9f32-a542d1d942e0" />
+
+### DELTARUNE Chapter 3 (GLFW) [Bytecode Version 17]
+
+<img width="160" height="120" alt="image" src="https://github.com/user-attachments/assets/7b49d434-e66f-4ee3-bfe8-c0b4f45ceeb7" />
+<img width="160" height="120" alt="image" src="https://github.com/user-attachments/assets/afbe62ad-4706-4882-a9c9-6c239ed57c69" />
+<img width="160" height="120" alt="image" src="https://github.com/user-attachments/assets/d83c9f8c-e9b9-410e-8d3d-3663ede23fab" />
+
+### DELTARUNE Chapter Selector (GLFW) [Bytecode Version 17]
+
+<img width="160" height="120" alt="image" src="https://github.com/user-attachments/assets/b8a848df-fd1c-49b7-9602-e8020ac86d5d" />

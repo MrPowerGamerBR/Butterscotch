@@ -12,6 +12,7 @@
 #include "stb_image.h"
 #include "stb_ds.h"
 #include "utils.h"
+#include "image_decoder.h"
 
 // ===[ Vtable Implementations ]===
 
@@ -169,8 +170,9 @@ static bool ensureTextureLoaded(GLLegacyRenderer* gl, uint32_t pageId) {
     DataWin* dw = gl->base.dataWin;
     Texture* txtr = &dw->txtr.textures[pageId];
 
-    int w, h, channels;
-    uint8_t* pixels = stbi_load_from_memory(txtr->blobData, (int) txtr->blobSize, &w, &h, &channels, 4);
+    int w, h;
+    bool gm2022_5 = DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0);
+    uint8_t* pixels = ImageDecoder_decodeToRgba(txtr->blobData, (size_t) txtr->blobSize, gm2022_5, &w, &h);
     if (pixels == nullptr) {
         fprintf(stderr, "GL: Failed to decode TXTR page %u\n", pageId);
         return false;
@@ -186,7 +188,7 @@ static bool ensureTextureLoaded(GLLegacyRenderer* gl, uint32_t pageId) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    stbi_image_free(pixels);
+    free(pixels);
     fprintf(stderr, "GL: Loaded TXTR page %u (%dx%d)\n", pageId, w, h);
     return true;
 }
@@ -893,18 +895,6 @@ static uint32_t findOrAllocTpagSlot(DataWin* dw, uint32_t originalTpagCount) {
     return newIndex;
 }
 
-// Finds a free dynamic Sprite slot (textureCount == 0), or appends a new one.
-static uint32_t findOrAllocSpriteSlot(DataWin* dw, uint32_t originalSpriteCount) {
-    for (uint32_t i = originalSpriteCount; dw->sprt.count > i; i++) {
-        if (dw->sprt.sprites[i].textureCount == 0) return i;
-    }
-    uint32_t newIndex = dw->sprt.count;
-    dw->sprt.count++;
-    dw->sprt.sprites = safeRealloc(dw->sprt.sprites, dw->sprt.count * sizeof(Sprite));
-    memset(&dw->sprt.sprites[newIndex], 0, sizeof(Sprite));
-    return newIndex;
-}
-
 static int32_t glCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig) {
     GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -967,9 +957,9 @@ static int32_t glCreateSpriteFromSurface(Renderer* renderer, int32_t x, int32_t 
     uint32_t fakeOffset = DYNAMIC_TPAG_OFFSET_BASE + tpagIndex;
     hmput(dw->tpagOffsetMap, fakeOffset, (int32_t) tpagIndex);
 
-    uint32_t spriteIndex = findOrAllocSpriteSlot(dw, gl->originalSpriteCount);
+    uint32_t spriteIndex = DataWin_allocSpriteSlot(dw, gl->originalSpriteCount);
     Sprite* sprite = &dw->sprt.sprites[spriteIndex];
-    sprite->name = "dynamic_sprite";
+    // name was set by DataWin_allocSpriteSlot ("__newsprite<N>"); don't overwrite it here
     sprite->width = (uint32_t) w;
     sprite->height = (uint32_t) h;
     sprite->originX = xorig;
@@ -1019,9 +1009,11 @@ static void glDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
         }
     }
 
-    // Clear the sprite entry so it won't be drawn and can be reused
+    // Clear the sprite entry so it won't be drawn and can be reused. Preserve `name` across the memset: the slot is still in sprt.count and must keep a valid string for asset_get_index / name lookups.
     free(sprite->textureOffsets);
+    const char* keepName = sprite->name;
     memset(sprite, 0, sizeof(Sprite));
+    sprite->name = keepName;
 
     fprintf(stderr, "GL: Deleted sprite %d\n", spriteIndex);
 }

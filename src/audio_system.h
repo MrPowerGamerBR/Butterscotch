@@ -29,6 +29,9 @@ typedef struct {
     float (*getSoundPitch)(AudioSystem* audio, int32_t soundOrInstance);
     float (*getTrackPosition)(AudioSystem* audio, int32_t soundOrInstance);
     void (*setTrackPosition)(AudioSystem* audio, int32_t soundOrInstance, float positionSeconds);
+    // Total length of a sound in seconds. Accepts either a SOND index or an active sound instance id.
+    // Returns 0.0 if unknown (e.g. stream not yet loaded or invalid index).
+    float (*getSoundLength)(AudioSystem* audio, int32_t soundOrInstance);
     void (*setMasterGain)(AudioSystem* audio, float gain);
     void (*setChannelCount)(AudioSystem* audio, int32_t count);
     void (*groupLoad)(AudioSystem* audio, int32_t groupIndex);
