@@ -638,6 +638,7 @@ static void uploadAtlasToChunk(GsRenderer* gs, uint16_t atlasId, int32_t firstCh
         // Try to insert uncompressed data into EE cache
         eeCacheInsert(gs, atlasId, tempPixelData, uncompSize);
         atlasSource = "disk";
+        gs->diskLoadsThisFrame++;
 
         uploadData = eeCacheLookup(gs, atlasId);
         if (uploadData != nullptr) {
@@ -895,6 +896,7 @@ static void gsBeginFrame(Renderer* renderer, MAYBE_UNUSED int32_t gameW, MAYBE_U
     gs->evictedAtlasUsedInCurrentFrame = false;
     gs->uniqueAtlasesThisFrame = 0;
     gs->chunksNeededThisFrame = 0;
+    gs->diskLoadsThisFrame = 0;
 }
 
 static void gsEndFrame(MAYBE_UNUSED Renderer* renderer) {

@@ -117,6 +117,7 @@ typedef struct {
     bool evictedAtlasUsedInCurrentFrame; // Used for debugging, true if a atlas that was used on the current frame was evicted (VRAM thrashing)
     uint16_t uniqueAtlasesThisFrame;     // Number of distinct atlases touched this frame
     uint16_t chunksNeededThisFrame;      // Total VRAM chunks needed by all atlases touched this frame
+    uint16_t diskLoadsThisFrame;         // Number of atlas loads from TEXTURES.BIN this frame (EE cache misses)
 
     // EE RAM atlas cache (stores uncompressed atlas pixel data for zero-copy VRAM uploads)
     uint8_t* eeCache;                  // Contiguous buffer with uncompressed texture data

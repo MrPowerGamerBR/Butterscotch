@@ -918,7 +918,14 @@ int main(int argc, char* argv[]) {
 
             const char* roomName = runner->currentRoom != nullptr && runner->currentRoom->name != nullptr ? runner->currentRoom->name : "?";
 
-            snprintf(debugText, sizeof(debugText), "Room: %s\nTick: %.2fms\nStep: %.2fms\nDraw: %.2fms\nAudio: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u) [%u/%u]%s\nInstances: %d", roomName, (double) tickTime, (double) stepTime, (double) drawTime, (double) audioTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->chunksNeededThisFrame, gsRenderer->chunkCount, gsRenderer->chunksNeededThisFrame > gsRenderer->chunkCount ? " [THRASHING]" : "", (int) arrlen(runner->instances));
+            const char* thrashIndicator = "";
+            if (gsRenderer->chunksNeededThisFrame > gsRenderer->chunkCount) {
+                thrashIndicator = gsRenderer->diskLoadsThisFrame > 0 ? " [RAM+DISK THRASHING]" : " [RAM THRASHING]";
+            } else if (gsRenderer->diskLoadsThisFrame > 0) {
+                thrashIndicator = " [DISK LOAD]";
+            }
+
+            snprintf(debugText, sizeof(debugText), "Room: %s\nTick: %.2fms\nStep: %.2fms\nDraw: %.2fms\nAudio: %.2fms\nFree: %d bytes\nVRAM Free: %lu bytes\nRoom Speed: %u%s\nAtlas: (%u, %u, %u) [%u/%u]%s\nInstances: %d", roomName, (double) tickTime, (double) stepTime, (double) drawTime, (double) audioTime, freeBytes, (unsigned long) vramFreeBytes, roomSpeed, speedCapRemoved ? " [UNCAPPED]" : "", vramAtlasCount, eeramAtlasCount, gsRenderer->atlasCount, gsRenderer->chunksNeededThisFrame, gsRenderer->chunkCount, thrashIndicator, (int) arrlen(runner->instances));
             gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.6f, debugColor, debugText);
 
             if (debugOverlayState == 1) {
