@@ -1292,13 +1292,15 @@ static RValue builtinStringRepeat(MAYBE_UNUSED VMContext* ctx, RValue* args, int
 
 static RValue builtinStringCount(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeInt32(0);
-    char* str = RValue_toString(args[0]);
-    char* substr = RValue_toString(args[1]);
+    char* substr = RValue_toString(args[0]);
+    char* str = RValue_toString(args[1]);
     size_t strLen = strlen(str);
     size_t substrLen = strlen(substr);
     int32_t count = 0;
 
     if (substrLen > strLen) {
+        free(substr);
+        free(str);
         return RValue_makeInt32(0);
     }
 
@@ -1307,6 +1309,8 @@ static RValue builtinStringCount(MAYBE_UNUSED VMContext* ctx, RValue* args, int3
             count++;
     }
 
+    free(substr);
+    free(str);
     return RValue_makeInt32(count);
 }
 
@@ -1443,14 +1447,13 @@ static RValue builtinStringReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, in
         return RValue_makeOwnedString(str);
     }
 
-    int32_t newLen = strLen - needleLen + replacementLen + 1;
-    int32_t preEditLen = (int32_t) (appearance - str);
-    char *postString = str + preEditLen + needleLen;
-    int32_t postLen = strlen(postString);
-    char *outputString = safeMalloc(newLen);
-    strncpy(outputString, str, preEditLen);
-    strncpy(outputString + preEditLen, replacement, replacementLen);
-    strncpy(outputString + preEditLen + replacementLen, postString, postLen);
+    int32_t newLen = strLen - needleLen + replacementLen;
+    int32_t before = (int32_t) (appearance - str);
+    char *outputString = safeMalloc(newLen + 1);
+
+    strncpy(outputString, str, before);
+    strncpy(outputString + before, replacement, replacementLen);
+    strcpy(outputString + before + replacementLen, appearance + needleLen);
 
     free(str);
     free(needle);
