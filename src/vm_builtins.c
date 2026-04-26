@@ -1115,6 +1115,23 @@ static RValue builtinStringLength(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeInt32(len);
 }
 
+static RValue builtinStringByteLength(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeInt32(0);
+    // GML converts non-string arguments to string before measuring length
+    RValue value = args[0];
+    // Fast path: If the RValue is already a string, just return its length instead of creating a copy
+    if (value.type == RVALUE_STRING) {
+        if (value.string == nullptr)
+            return RValue_makeInt32(0);
+        int32_t byteLen = (int32_t) strlen(value.string);
+        return RValue_makeInt32(byteLen);
+    }
+    char* str = RValue_toString(value);
+    int32_t byteLen = (int32_t) strlen(str);
+    free(str);
+    return RValue_makeInt32(byteLen);
+}
+
 static RValue builtinReal(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
     return RValue_makeReal(RValue_toReal(args[0]));
@@ -7299,6 +7316,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // String functions
     VM_registerBuiltin(ctx, "string_length", builtinStringLength);
+    VM_registerBuiltin(ctx, "string_byte_length", builtinStringByteLength);
     VM_registerBuiltin(ctx, "string", builtinString);
     VM_registerBuiltin(ctx, "string_upper", builtinStringUpper);
     VM_registerBuiltin(ctx, "string_lower", builtinStringLower);
