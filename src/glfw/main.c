@@ -1,10 +1,12 @@
 #include "data_win.h"
 #include "glfw/gl_legacy_renderer.h"
+#include "runner_mouse.h"
 #include "vm.h"
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -486,6 +488,77 @@ void saveInputRecording() {
     }
 }
 
+// ===[ MOUSE INPUT ]===
+
+static int32_t glfwMouseButtonToGml(int glfwButton) {
+    switch (glfwButton) {
+        case GLFW_MOUSE_BUTTON_LEFT: return MB_LEFT;
+        case GLFW_MOUSE_BUTTON_RIGHT: return MB_RIGHT;
+        case GLFW_MOUSE_BUTTON_MIDDLE: return MB_MIDDLE;
+        default: return INT32_MIN; // Unknown
+    }
+}
+
+static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
+    Runner* runner = (Runner*) glfwGetWindowUserPointer(window);
+    int winWidth, winHeight;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+
+    if (winWidth <= 0 || winHeight <= 0 || runner->currentRoom == nullptr) return;
+    
+    // Map window pixel -> FBO pixel. The FBO is blit-stretched to fill the window.
+    int32_t gameW = runner->renderGameW > 0 ? runner->renderGameW : runner->currentRoom->width;
+    int32_t gameH = runner->renderGameH > 0 ? runner->renderGameH : runner->currentRoom->height;
+    double fboX = (xpos / winWidth) * gameW;
+    double fboY = (ypos / winHeight) * gameH;
+
+    // Find the view whose port rect contains the cursor; fall back to the first enabled view, then to a default (0,0,roomW,roomH) mapping when no views are enabled.
+    // Native runner rule (GR_Window_Views_Convert): count enabled views that render directly to screen (view_surface_id == -1).
+    // If any exist, map via the one whose port contains the cursor (or fall through to the last one tried).
+    // If ALL enabled views have a surface bound, use room-space mapping scaled by the window, since the game is manually compositing those surfaces onto the window.
+    bool viewsEnabled = (runner->currentRoom->flags & 1) != 0;
+    int32_t screenViewCount = 0;
+    RoomView* pickedView = nullptr;
+    RoomView* lastScreenView = nullptr;
+    if (viewsEnabled) {
+        repeat(8, vi) {
+            RoomView* v = &runner->currentRoom->views[vi];
+            if (!v->enabled || runner->viewSurfaceIds[vi] != -1) continue;
+            screenViewCount++;
+            lastScreenView = v;
+            if (fboX >= v->portX && fboX < v->portX + v->portWidth && fboY >= v->portY && fboY < v->portY + v->portHeight) {
+                pickedView = v;
+                break;
+            }
+        }
+        if (pickedView == nullptr) pickedView = lastScreenView;
+    }
+
+    if (pickedView != nullptr && pickedView->portWidth > 0 && pickedView->portHeight > 0) {
+        runner->mouse->mouseX = pickedView->viewX + (fboX - pickedView->portX) * ((double) pickedView->viewWidth / pickedView->portWidth);
+        runner->mouse->mouseY = pickedView->viewY + (fboY - pickedView->portY) * ((double) pickedView->viewHeight / pickedView->portHeight);
+    } else if (viewsEnabled && screenViewCount == 0) {
+        // No enabled view renders to screen (all redirect to surfaces). Mouse is in room space.
+        int32_t roomW = runner->currentRoom->width;
+        int32_t roomH = runner->currentRoom->height;
+        runner->mouse->mouseX = (xpos / winWidth) * roomW;
+        runner->mouse->mouseY = (ypos / winHeight) * roomH;
+    } else {
+        runner->mouse->mouseX = fboX;
+        runner->mouse->mouseY = fboY;
+    }
+}
+
+static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    (void)mods;
+    Runner* runner = (Runner*) glfwGetWindowUserPointer(window);
+    int32_t gmlButton = glfwMouseButtonToGml(button);
+    if (0 > gmlButton) return;
+    if (action == GLFW_PRESS) RunnerMouse_onButtonDown(runner->mouse, gmlButton);
+    else if (action == GLFW_RELEASE) RunnerMouse_onButtonUp(runner->mouse, gmlButton);
+}
+
+
 #ifndef _WIN32
 typedef struct { int key; struct sigaction value; } PreviousSignalActionEntry;
 static PreviousSignalActionEntry* previousSignalActions = nullptr;
@@ -724,6 +797,10 @@ int main(int argc, char* argv[]) {
     glfwSetKeyCallback(window, keyCallback);
     glfwSetCharCallback(window, characterCallback);
 
+    // Set up mouse input
+    glfwSetCursorPosCallback(window, cursorPositionCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+
 #ifndef _WIN32
     struct sigaction sa = { .sa_handler = onCrashSignal };
     sigemptyset(&sa.sa_mask);
@@ -744,6 +821,7 @@ int main(int argc, char* argv[]) {
     while (!glfwWindowShouldClose(window) && !runner->shouldExit) {
         // Clear last frame's pressed/released state, then poll new input events
         RunnerKeyboard_beginFrame(runner->keyboard);
+        RunnerMouse_beginFrame(runner->mouse);
         glfwPollEvents();
 
         // Process input recording/playback (must happen after glfwPollEvents, before Runner_step)
@@ -924,6 +1002,9 @@ int main(int argc, char* argv[]) {
                 displayScaleY = (float) gameH / (float) (maxBottom - minTop);
             }
         }
+
+        runner->renderGameW = gameW;
+        runner->renderGameH = gameH;
 
         renderer->vtable->beginFrame(renderer, gameW, gameH, fbWidth, fbHeight);
 
