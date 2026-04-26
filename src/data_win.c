@@ -924,10 +924,11 @@ static void parseOBJT(BinaryReader* reader, DataWin* dw) {
         int32_t vertexCount = BinaryReader_readInt32(reader);
         if (vertexCount >= 0) {
             // Skip friction + awake + kinematic (12 bytes) and physics vertices (8 bytes each).
-            uint32_t newLocation = reader->bufferPos + 12 * vertexCount * 8;
+            uint32_t skipCount = 12 + vertexCount * 8;
+            uint32_t newLocation = reader->bufferPos + skipCount;
             bool isOldFormat = false;
             if (newLocation < reader->bufferSize) {
-                BinaryReader_skip(reader, newLocation);
+                BinaryReader_skip(reader, skipCount);
                 uint32_t eventTypeCount = BinaryReader_readUint32(reader);
                 if (eventTypeCount == OBJT_EVENT_TYPE_COUNT) {
                     uint32_t firstSubEventPtr = BinaryReader_readUint32(reader);
