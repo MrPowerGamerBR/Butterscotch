@@ -5393,22 +5393,37 @@ static RValue builtinPlaceMeeting(VMContext* ctx, RValue* args, int32_t argCount
     InstanceBBox callerBBox = Collision_computeBBox(runner->dataWin, caller);
     bool found = false;
 
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
     if (callerBBox.valid) {
-        int32_t snapBase = Runner_pushInstancesForTarget(runner, target);
-        int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
-        for (int32_t i = snapBase; snapEnd > i; i++) {
-            Instance* other = runner->instanceSnapshots[i];
-            if (!other->active || other == caller) continue;
+        SpatialGridRange callerRange = SpatialGrid_computeCellRange(runner->spatialGrid, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom);
+        bool filterByObject = target >= 0 && 100000 > target;
+        bool filterByInstanceId = target >= 100000;
+        uint32_t queryId = ++runner->collisionQueryCounter;
 
-            InstanceBBox otherBBox = Collision_computeBBox(runner->dataWin, other);
-            if (!otherBBox.valid) continue;
+        for (int32_t gx = callerRange.minGridX; callerRange.maxGridX >= gx && !found; gx++) {
+            for (int32_t gy = callerRange.minGridY; callerRange.maxGridY >= gy && !found; gy++) {
+                Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
+                int32_t cellLen = (int32_t) arrlen(cell);
+                for (int32_t ci = 0; cellLen > ci; ci++) {
+                    Instance* other = cell[ci];
+                    if (!other->active || other == caller) continue;
+                    if (other->lastCollisionQueryId == queryId) continue;
+                    other->lastCollisionQueryId = queryId;
 
-            if (Collision_instancesOverlapPrecise(runner->dataWin, caller, other, callerBBox, otherBBox)) {
-                found = true;
-                break;
+                    if (filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, target)) continue;
+                    if (filterByInstanceId && other->instanceId != (uint32_t) target) continue;
+
+                    InstanceBBox otherBBox = Collision_computeBBox(runner->dataWin, other);
+                    if (!otherBBox.valid) continue;
+
+                    if (Collision_instancesOverlapPrecise(runner->dataWin, caller, other, callerBBox, otherBBox)) {
+                        found = true;
+                        break;
+                    }
+                }
             }
         }
-        Runner_popInstanceSnapshot(runner, snapBase);
     }
 
     // Restore original position

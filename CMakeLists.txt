@@ -58,6 +58,12 @@ if(PLATFORM STREQUAL "glfw")
         add_compile_definitions(ENABLE_VM_TRACING)
     endif()
 
+    # Spatial grid logs
+    option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" ON)
+    if(ENABLE_SPATIAL_GRID_LOGS)
+        add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
+    endif()
+
     # GLAD
     add_library(glad STATIC vendor/glad/src/glad.c)
     target_include_directories(glad PUBLIC vendor/glad/include)
@@ -121,6 +127,12 @@ elseif(PLATFORM STREQUAL "ps2")
     option(ENABLE_VM_TRACING "Enable Butterscotch VM/interpreter tracing checks" OFF)
     if(ENABLE_VM_TRACING)
         add_compile_definitions(ENABLE_VM_TRACING)
+    endif()
+
+    # Spatial grid logs
+    option(ENABLE_SPATIAL_GRID_LOGS "Enable Spatial Grid logs" OFF)
+    if(ENABLE_SPATIAL_GRID_LOGS)
+        add_compile_definitions(ENABLE_SPATIAL_GRID_LOGS)
     endif()
 
     # Platform identifier for PS2-specific code paths (e.g., scratchpad allocation)

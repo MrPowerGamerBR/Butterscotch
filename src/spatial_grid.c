@@ -15,7 +15,9 @@ SpatialGrid* SpatialGrid_create(uint32_t roomWidth, uint32_t roomHeight) {
     uint32_t gridWidth = (roomWidth / SPATIAL_GRID_CELL_SIZE) + 1;
     uint32_t gridHeight = (roomHeight / SPATIAL_GRID_CELL_SIZE) + 1;
 
+#ifdef ENABLE_SPATIAL_GRID_LOGS
     fprintf(stderr, "SpatialGrid: Grid size: %dx%d\n", gridWidth, gridHeight);
+#endif
     grid->gridWidth = gridWidth;
     grid->gridHeight = gridHeight;
 
@@ -52,7 +54,9 @@ void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
     bool requiresResync = arrlen(grid->dirtyInstances);
     if (!requiresResync) return;
 
+#ifdef ENABLE_SPATIAL_GRID_LOGS
     fprintf(stderr, "SpatialGrid: Syncing grid with %d dirty instances\n", arrlen(grid->dirtyInstances));
+#endif
 
     repeat(arrlen(grid->dirtyInstances), i) {
         int32_t instanceId = grid->dirtyInstances[i];
