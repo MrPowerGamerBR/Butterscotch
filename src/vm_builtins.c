@@ -1163,6 +1163,23 @@ static RValue builtinStringLength(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeInt32(len);
 }
 
+static RValue builtinStringByteLength(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeInt32(0);
+    // GML converts non-string arguments to string before measuring length
+    RValue value = args[0];
+    // Fast path: If the RValue is already a string, just return its length instead of creating a copy
+    if (value.type == RVALUE_STRING) {
+        if (value.string == nullptr)
+            return RValue_makeInt32(0);
+        int32_t byteLen = (int32_t) strlen(value.string);
+        return RValue_makeInt32(byteLen);
+    }
+    char* str = RValue_toString(value);
+    int32_t byteLen = (int32_t) strlen(str);
+    free(str);
+    return RValue_makeInt32(byteLen);
+}
+
 static RValue builtinReal(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
     return RValue_makeReal(RValue_toReal(args[0]));
@@ -1321,6 +1338,30 @@ static RValue builtinStringRepeat(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     return RValue_makeOwnedString(result);
 }
 
+static RValue builtinStringCount(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeInt32(0);
+    char* substr = RValue_toString(args[0]);
+    char* str = RValue_toString(args[1]);
+    size_t strLen = strlen(str);
+    size_t substrLen = strlen(substr);
+    int32_t count = 0;
+
+    if (substrLen > strLen) {
+        free(substr);
+        free(str);
+        return RValue_makeInt32(0);
+    }
+
+    repeat(strLen, i) {
+        if (strncmp(str + i, substr, substrLen) == 0)
+            count++;
+    }
+
+    free(substr);
+    free(str);
+    return RValue_makeInt32(count);
+}
+
 static RValue builtinOrd(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount || args[0].type != RVALUE_STRING || args[0].string == nullptr || args[0].string[0] == '\0') {
         return RValue_makeReal(0.0);
@@ -1430,6 +1471,43 @@ static RValue builtinStringInsert(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     free(str);
 
     return RValue_makeOwnedString(result);
+}
+
+static RValue builtinStringReplace(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
+    char* str = RValue_toString(args[0]);
+    char* needle = RValue_toString(args[1]);
+    int32_t strLen = (int32_t) strlen(str);
+    int32_t needleLen = (int32_t) strlen(needle);
+    if (0 == needleLen) {
+        free(needle);
+        return RValue_makeOwnedString(str);
+    }
+
+    char* replacement = RValue_toString(args[2]);
+    int32_t replacementLen = (int32_t) strlen(replacement);
+
+    // There can be only ONE.
+    char *appearance = strstr(str, needle);
+    if (!appearance) {
+        free(needle);
+        free(replacement);
+        return RValue_makeOwnedString(str);
+    }
+
+    int32_t newLen = strLen - needleLen + replacementLen;
+    int32_t before = (int32_t) (appearance - str);
+    char *outputString = safeMalloc(newLen + 1);
+
+    strncpy(outputString, str, before);
+    strncpy(outputString + before, replacement, replacementLen);
+    strcpy(outputString + before + replacementLen, appearance + needleLen);
+
+    free(str);
+    free(needle);
+    free(replacement);
+
+    return RValue_makeOwnedString(outputString);
 }
 
 static RValue builtinStringReplaceAll(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -7355,6 +7433,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // String functions
     VM_registerBuiltin(ctx, "string_length", builtinStringLength);
+    VM_registerBuiltin(ctx, "string_byte_length", builtinStringByteLength);
     VM_registerBuiltin(ctx, "string", builtinString);
     VM_registerBuiltin(ctx, "string_upper", builtinStringUpper);
     VM_registerBuiltin(ctx, "string_lower", builtinStringLower);
@@ -7363,8 +7442,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "string_char_at", builtinStringCharAt);
     VM_registerBuiltin(ctx, "string_delete", builtinStringDelete);
     VM_registerBuiltin(ctx, "string_insert", builtinStringInsert);
+    VM_registerBuiltin(ctx, "string_replace", builtinStringReplace);
     VM_registerBuiltin(ctx, "string_replace_all", builtinStringReplaceAll);
     VM_registerBuiltin(ctx, "string_repeat", builtinStringRepeat);
+    VM_registerBuiltin(ctx, "string_count", builtinStringCount);
     VM_registerBuiltin(ctx, "ord", builtinOrd);
     VM_registerBuiltin(ctx, "chr", builtinChr);
 
