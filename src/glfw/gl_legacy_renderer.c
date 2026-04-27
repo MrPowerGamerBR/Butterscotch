@@ -14,6 +14,30 @@
 #include "utils.h"
 #include "image_decoder.h"
 
+// ===[ Helpers ]===
+static void glApplyViewport(GLLegacyRenderer* gl, int32_t x, int32_t y, int32_t w, int32_t h) {
+    int32_t effW, effH;
+    if ((gl->gameW * gl->windowH) / gl->gameH < gl->windowW) {
+        effW = (gl->gameW * gl->windowH) / gl->gameH;
+        effH = gl->windowH;
+    } else {
+        effW = gl->windowW;
+        effH = (gl->gameH * gl->windowW) / gl->gameW;
+    }
+    float scale = (float)effW / (float)gl->gameW;
+    int32_t offsetX = (gl->windowW - effW) / 2;
+    int32_t offsetY = (gl->windowH - effH) / 2;
+
+    int32_t vpX = offsetX + (int32_t)(x * scale);
+    int32_t vpY = offsetY + (int32_t)((gl->gameH - y - h) * scale);
+    int32_t vpW = (int32_t)(w * scale);
+    int32_t vpH = (int32_t)(h * scale);
+
+    glViewport(vpX, vpY, vpW, vpH);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(vpX, vpY, vpW, vpH);
+}
+
 // ===[ Vtable Implementations ]===
 
 static void glInit(Renderer* renderer, DataWin* dataWin) {
@@ -78,12 +102,13 @@ static void glDestroy(Renderer* renderer) {
 static void glBeginFrame(Renderer* renderer, int32_t gameW, int32_t gameH, int32_t windowW, int32_t windowH) {
     GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
 
-    glBindTexture(GL_TEXTURE_2D, 0);
     gl->windowW = windowW;
     gl->windowH = windowH;
     gl->gameW = gameW;
     gl->gameH = gameH;
-
+    
+    glApplyViewport(gl, 0, 0, gameW, gameH);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_t viewW, int32_t viewH, int32_t portX, int32_t portY, int32_t portW, int32_t portH, float viewAngle) {
@@ -94,10 +119,7 @@ static void glBeginView(Renderer* renderer, int32_t viewX, int32_t viewY, int32_
     // Set viewport and scissor to the port rectangle within the FBO
     // FBO uses game resolution, port coordinates are in game space
     // OpenGL viewport Y is bottom-up, game Y is top-down
-    int32_t glPortY = gl->gameH - portY - portH;
-    glViewport(portX, glPortY, gl->windowW, gl->windowH);
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(portX, glPortY, gl->windowW, gl->windowH);
+    glApplyViewport(gl, portX, portY, portW, portH);
 
     // Build orthographic projection (Y-down for GML coordinate system)
     Matrix4f projection;
@@ -136,10 +158,7 @@ static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t p
 
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    int32_t glPortY = gl->gameH - portY - portH;
-    glViewport(portX, glPortY, portW, portH);
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(portX, glPortY, portW, portH);
+    glApplyViewport(gl, portX, portY, portW, portH);
 
     Matrix4f projection;
     Matrix4f_identity(&projection);
