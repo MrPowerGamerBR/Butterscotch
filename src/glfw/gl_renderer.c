@@ -523,11 +523,6 @@ static void glDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     gl->quadCount++;
 }
 
-
-
-//void (*drawSpritePos)(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha);
-
-
 static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -566,6 +561,8 @@ static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float originX
     float* verts = gl->vertexData + gl->quadCount * VERTICES_PER_QUAD * FLOATS_PER_VERTEX;
 
     //I dunno mann putting this offset to it makes Tenna appear correctly mostly but breaks other things?
+    //I personally believe that somehow the code for Tenna's animations isn't working properly
+    //If you see issues with other games that use this, PLEASE REMOVE THE OFFSET I PUT HERE.
     //yeah yeah I did just copy and paste similar functions and modify it but hey it worky! yay!
 
     // Vertex 0: top-left

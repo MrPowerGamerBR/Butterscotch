@@ -4324,7 +4324,6 @@ static RValue builtin_drawSpritePartExt(VMContext* ctx, RValue* args, MAYBE_UNUS
     return RValue_makeUndefined();
 }
 
-
 static RValue builtin_drawSpritePos(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
     if (runner->renderer == nullptr) return RValue_makeUndefined();
@@ -4349,12 +4348,6 @@ static RValue builtin_drawSpritePos(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 
     return RValue_makeUndefined();
 }
-
-
-
-
-
-
 
 
 static RValue builtin_drawRectangle(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
