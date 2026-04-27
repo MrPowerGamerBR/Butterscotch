@@ -1441,9 +1441,7 @@ static RValue builtinStringDigits(MAYBE_UNUSED VMContext* ctx, RValue* args, int
     
     int digitCount = 0;
     for (int i = 0; str[i] != '\0'; i++) {
-        if (isdigit(str[i])) {
-            result[digitCount++] = str[i];
-        }
+        if (isdigit(str[i])) result[digitCount++] = str[i];
     }
     
     free(str);
