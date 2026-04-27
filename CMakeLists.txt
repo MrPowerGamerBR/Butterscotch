@@ -45,10 +45,8 @@ target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # stb_ds
 target_include_directories(butterscotch PUBLIC vendor/stb/ds)
 
-if(PLATFORM STREQUAL "glfw")
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform/glfw.cmake)
-elseif(PLATFORM STREQUAL "ps2")
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform/ps2.cmake)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform/${PLATFORM}.cmake")
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform/${PLATFORM}.cmake)
 else()
     message(FATAL_ERROR "Unknown platform! ${PLATFORM}")
 endif()
