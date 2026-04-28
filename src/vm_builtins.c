@@ -1941,6 +1941,89 @@ static RValue builtinMatrixMultiply(MAYBE_UNUSED VMContext *ctx, RValue *args, i
     }
 }
 
+static RValue builtinMatrixBuildLookat(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
+    if (argCount < 9 || argCount > 10) return RValue_makeUndefined();
+    
+    GMLReal xFrom = RValue_toReal(args[0]);
+    GMLReal yFrom = RValue_toReal(args[1]);
+    GMLReal zFrom = RValue_toReal(args[2]);
+
+    GMLReal xTo = RValue_toReal(args[3]);
+    GMLReal yTo = RValue_toReal(args[4]);
+    GMLReal zTo = RValue_toReal(args[5]);
+
+    GMLReal xUp = RValue_toReal(args[6]);
+    GMLReal yUp = RValue_toReal(args[7]);
+    GMLReal zUp = RValue_toReal(args[8]);
+    GMLReal magUp = GMLReal_sqrt(xUp * xUp + yUp * yUp + zUp * zUp);
+    xUp /= magUp;
+    yUp /= magUp;
+    zUp /= magUp;
+
+    GMLReal xLook = xTo - xFrom;
+    GMLReal yLook = yTo - yFrom;
+    GMLReal zLook = zTo - zFrom;
+    GMLReal magLook = GMLReal_sqrt(xLook * xLook + yLook * yLook + zLook * zLook);
+    xLook /= magLook;
+    yLook /= magLook;
+    zLook /= magLook;
+
+    // normalised cross product between Up and Look
+    GMLReal xRight = yUp * zLook - zUp * yLook;
+    GMLReal yRight = zUp * xLook - xUp * zLook;
+    GMLReal zRight = xUp * yLook - yUp * xLook;
+    GMLReal magRight = GMLReal_sqrt(xRight * xRight + yRight * yRight + zRight * zRight);
+    xRight /= magRight;
+    yRight /= magRight;
+    zRight /= magRight;
+
+    // normalised cross product between Look and Right
+    xUp = yLook * zRight - zLook * yRight;
+    yUp = zLook * xRight - xLook * zRight;
+    zUp = xLook * yRight - yLook * xRight;
+    magUp = GMLReal_sqrt(xUp * xUp + yUp * yUp + zUp * zUp);
+    xUp /= magUp;
+    yUp /= magUp;
+    zUp /= magUp;
+
+    GMLReal x, y, z;
+    x = xFrom * xRight + yFrom * yRight + zFrom * zRight;
+    y = xFrom * xUp + yFrom * yUp + zFrom * zUp;
+    z = xFrom * xLook + yFrom * yLook + zFrom * zLook;
+
+    Matrix4f matrix;
+    Matrix4f_identity(&matrix);
+
+    matrix.m[Matrix_getIndex(0, 0)] = xRight;
+    matrix.m[Matrix_getIndex(0, 1)] = xUp;
+    matrix.m[Matrix_getIndex(0, 2)] = xLook;
+
+    matrix.m[Matrix_getIndex(1, 0)] = yRight;
+    matrix.m[Matrix_getIndex(1, 1)] = yUp;
+    matrix.m[Matrix_getIndex(1, 2)] = yLook;
+
+    matrix.m[Matrix_getIndex(2, 0)] = zRight;
+    matrix.m[Matrix_getIndex(2, 1)] = zUp;
+    matrix.m[Matrix_getIndex(2, 2)] = zLook;
+
+    matrix.m[Matrix_getIndex(3, 0)] = -x;
+    matrix.m[Matrix_getIndex(3, 1)] = -y;
+    matrix.m[Matrix_getIndex(3, 2)] = -z;
+
+    bool toPrevMatrix = argCount == 10;
+    GMLArray *destArray = toPrevMatrix ? args[9].array : nullptr;
+    if (toPrevMatrix && !rvalueIsMatrix(args[9])) return RValue_makeUndefined();
+    
+    if (toPrevMatrix) {
+        repeat (16, i) {
+            *GMLArray_slot(destArray, i) = RValue_makeReal(matrix.m[i]);
+        }
+        return RValue_makeArrayWeak(destArray);
+    } else {
+        return RValue_makeArray(matrixToGml(&matrix));
+    }
+}
+
 
 // ===[ RANDOM FUNCTIONS ]===
 
