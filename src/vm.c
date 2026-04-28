@@ -1050,11 +1050,6 @@ static RValue convertValue(RValue val, uint8_t targetType) {
     }
 }
 
-// ===[ Forward Declarations ]===
-
-static RValue executeLoop(VMContext* ctx);
-static void handleCall(VMContext* ctx, uint32_t instr, const uint8_t* extraData);
-
 // ===[ Opcode Handlers ]===
 
 static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData) {
