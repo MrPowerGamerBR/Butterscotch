@@ -347,8 +347,8 @@ static inline bool Runner_hasAnyObjectWithHandler(Runner* runner, int32_t type, 
 }
 
 void Runner_executeEventForAll(Runner* runner, int32_t eventType, int32_t eventSubtype) {
-    int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, eventType, eventSubtype);
     if (!Runner_hasAnyObjectWithHandler(runner, eventType, eventSubtype)) return;
+    int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, eventType, eventSubtype);
 
     // We always snapshot the iteration list before dispatching so instances spawned during this phase do NOT fire the current event.
     Instance** scratch = runner->eventDispatchInstances;
