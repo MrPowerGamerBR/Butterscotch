@@ -4073,7 +4073,7 @@ static RValue builtinWindowSetCaption(VMContext* ctx, MAYBE_UNUSED RValue* args,
 static RValue builtinWindowHasFocus(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
     // Always return true when not on GLFW
-    if (runner == NULL || runner->nativeWindow == NULL) {
+    if (runner == nullptr || runner->nativeWindow == nullptr) {
         return RValue_makeBool(true);
     }
 
