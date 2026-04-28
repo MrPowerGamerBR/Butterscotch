@@ -723,8 +723,9 @@ int main(int argc, char* argv[]) {
     uint16_t prevOverlayPadButtons = 0xFFFF;
     int profilerFramesInWindow = 0;
     static const int PROFILER_WINDOW_FRAMES = 60;
-    char profilerOverlayText[1024];
-    profilerOverlayText[0] = '\0';
+#ifdef ENABLE_VM_PROFILER
+    char profilerOverlayText[4096];
+#endif
     while (!runner->shouldExit) {
         u64 frameStartTime = GetTimerSystemTime();
         // ===[ Poll Controller (always poll every vsync) ]===
@@ -786,9 +787,11 @@ int main(int argc, char* argv[]) {
 
         if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)) {
             debugOverlayState = (debugOverlayState + 1) % 3;
+#ifdef ENABLE_VM_PROFILER
             Profiler_setEnabled(&vm->profiler, debugOverlayState == 1);
             profilerFramesInWindow = 0;
             profilerOverlayText[0] = '\0';
+#endif
         }
 
         // Reset global interact state because I HATE when I get stuck while moving through rooms
@@ -929,9 +932,12 @@ int main(int argc, char* argv[]) {
             gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, 10.0f, 10, 0.6f, debugColor, debugText);
 
             if (debugOverlayState == 1) {
+                float profilerY = 10.0f + (15.6f * 10.0f) + 6.0f;
+
+#ifdef ENABLE_VM_PROFILER
                 profilerFramesInWindow++;
                 if (profilerFramesInWindow >= PROFILER_WINDOW_FRAMES) {
-                    char* profilerReport = Profiler_createReport(vm->profiler, 8, profilerFramesInWindow);
+                    char* profilerReport = Profiler_createReport(vm->profiler, 25, profilerFramesInWindow);
                     if (profilerReport != nullptr) {
                         snprintf(profilerOverlayText, sizeof(profilerOverlayText), "%s", profilerReport);
                         free(profilerReport);
@@ -939,13 +945,11 @@ int main(int argc, char* argv[]) {
                     Profiler_reset(vm->profiler);
                     profilerFramesInWindow = 0;
                 }
-                float profilerY = 10.0f + (15.6f * 10.0f) + 6.0f;
-#ifdef ENABLE_VM_PROFILER
                 const char* profilerDisplay = profilerOverlayText[0] != '\0' ? profilerOverlayText : "GML Profiler (collecting...)";
-#else
-                const char* profilerDisplay = "Butterscotch GML Profiler is disabled on this build :(";
-#endif
                 gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, profilerY, 10, 0.35f, debugColor, profilerDisplay);
+#else
+                gsKit_fontm_print_scaled(gsGlobal, gsFontM, 10.0f, profilerY, 10, 0.35f, debugColor, "Butterscotch GML Profiler is disabled on this build :(");
+#endif
             }
         }
 
