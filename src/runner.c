@@ -344,7 +344,7 @@ static bool eventUsesBC17PerObjectDispatch(int32_t eventType) {
 
 void Runner_executeEventForAll(Runner* runner, int32_t eventType, int32_t eventSubtype) {
     int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, eventType, eventSubtype);
-    if (slot == 0) return;
+    if (slot == -1) return;
 
     // We always snapshot the iteration list before dispatching so instances spawned during this phase do NOT fire the current event.
     Instance** scratch = runner->eventDispatchInstances;
@@ -455,7 +455,7 @@ static int compareDrawableDepth(const void* a, const void* b) {
 
 static void fireDrawSubtype(Runner* runner, Drawable* drawables, int32_t drawableCount, int32_t subtype) {
     int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, eventType, eventSubtype);
-    if (slot == 0) return;
+    if (slot == -1) return;
 
     repeat(drawableCount, i) {
         Drawable* d = &drawables[i];
