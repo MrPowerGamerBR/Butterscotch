@@ -1,0 +1,14 @@
+#pragma once
+
+#include "common.h"
+#include "file_system.h"
+
+typedef struct {
+    FileSystem base;
+    char* basePath; // directory containing data.win, with trailing separator
+} Sdl2FileSystem;
+
+// Creates an Sdl2FileSystem from the path to the data.win file
+// The basePath is derived by stripping the filename from dataWinPath.
+Sdl2FileSystem* Sdl2FileSystem_create(const char* dataWinPath);
+void Sdl2FileSystem_destroy(Sdl2FileSystem* fs);
