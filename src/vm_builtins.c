@@ -4070,6 +4070,20 @@ static RValue builtinWindowSetCaption(VMContext* ctx, MAYBE_UNUSED RValue* args,
     return RValue_makeUndefined();
 }
 
+static RValue builtinWindowHasFocus(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    // Always return true when not on GLFW
+    if (runner == nullptr || runner->nativeWindow == nullptr) {
+        return RValue_makeBool(true);
+    }
+
+    if (runner->windowHasFocus) {
+        return RValue_makeBool(runner->windowHasFocus(runner->nativeWindow));
+    }
+
+    return RValue_makeBool(true);
+}
+
 // ===[ Game State Functions ]===
 static RValue builtinGameRestart(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     ctx->runner->pendingRoom = ROOM_RESTARTGAME;
@@ -4112,6 +4126,33 @@ static RValue builtinInstanceFind(VMContext* ctx, RValue* args, int32_t argCount
         if (!inst->active) continue;
         if (count == n) { resultId = inst->instanceId; break; }
         count++;
+    }
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return RValue_makeReal((GMLReal) resultId);
+}
+
+static RValue builtinInstanceNearest(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(INSTANCE_NOONE);
+    Runner* runner = (Runner*) ctx->runner;
+    GMLReal x = RValue_toReal(args[0]);
+    GMLReal y = RValue_toReal(args[1]);
+    GMLReal bestDistSq = 0.0;
+    int32_t objectIndex = RValue_toInt32(args[2]);
+    int32_t resultId = INSTANCE_NOONE;
+    int32_t snapBase = Runner_pushInstancesOfObject(runner, objectIndex);
+    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+    for (int32_t i = snapBase; snapEnd > i; i++) {
+        Instance* inst = runner->instanceSnapshots[i];
+        if (!inst->active) continue;
+
+        GMLReal dx = inst->x - x;
+        GMLReal dy = inst->y - y;
+        GMLReal distSq = dx * dx + dy * dy;
+
+        if (resultId == INSTANCE_NOONE || distSq < bestDistSq) {
+            resultId = inst->instanceId;
+            bestDistSq = distSq;
+        }
     }
     Runner_popInstanceSnapshot(runner, snapBase);
     return RValue_makeReal((GMLReal) resultId);
@@ -8053,6 +8094,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "window_center", builtin_window_center);
     VM_registerBuiltin(ctx, "window_get_width", builtinWindowGetWidth);
     VM_registerBuiltin(ctx, "window_get_height", builtinWindowGetHeight);
+    VM_registerBuiltin(ctx, "window_has_focus", builtinWindowHasFocus);
 
     // Game
     VM_registerBuiltin(ctx, "game_restart", builtinGameRestart);
@@ -8064,6 +8106,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "instance_exists", builtinInstanceExists);
     VM_registerBuiltin(ctx, "instance_number", builtinInstanceNumber);
     VM_registerBuiltin(ctx, "instance_find", builtinInstanceFind);
+    VM_registerBuiltin(ctx, "instance_nearest", builtinInstanceNearest);
     VM_registerBuiltin(ctx, "instance_destroy", builtinInstanceDestroy);
     if(!isGMS2) {
         VM_registerBuiltin(ctx, "instance_create", builtinInstanceCreate);
