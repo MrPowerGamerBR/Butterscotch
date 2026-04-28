@@ -8,15 +8,29 @@
 
 // ===[ Helpers ]===
 
+// Replaces all backslashes (\) with forward slashes (/) in a path string. (dealing with windows paths)
+static inline char* normalizePath(const char* path) {
+    if (path == nullptr) return nullptr;
+    char* normalized = safeStrdup(path);
+    for (int i = 0; normalized[i] != '\0'; i++) {
+        if (normalized[i] == '\\') {
+            normalized[i] = '/';
+        }
+    }
+    return normalized;
+}
+
 // The caller must make sure to free the returned string!
 static char* buildFullPath(GlfwFileSystem* fs, const char* relativePath) {
-    if (strstr(relativePath, fs->basePath) != nullptr) return safeStrdup(relativePath);
+    char* normalizedPath = normalizePath(relativePath);
+    if (strstr(normalizedPath, fs->basePath) != nullptr) return normalizedPath;
     size_t baseLen = strlen(fs->basePath);
-    size_t relLen = strlen(relativePath);
+    size_t relLen = strlen(normalizedPath);
     char* fullPath = safeMalloc(baseLen + relLen + 1);
     memcpy(fullPath, fs->basePath, baseLen);
-    memcpy(fullPath + baseLen, relativePath, relLen);
+    memcpy(fullPath + baseLen, normalizedPath, relLen);
     fullPath[baseLen + relLen] = '\0';
+    free(normalizedPath);
     return fullPath;
 }
 
