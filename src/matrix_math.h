@@ -1,5 +1,4 @@
 #pragma once
-
 #include "common.h"
 #include <math.h>
 #include <string.h>
@@ -15,6 +14,8 @@
 typedef struct {
     float m[16]; // m[col*4 + row]
 } Matrix4f;
+
+#define Matrix_getIndex(row,col) ((col)*4 + (row))
 
 // ===[ Identity / Copy ]===
 
@@ -149,4 +150,166 @@ static Matrix4f* Matrix4f_setTransform2D(Matrix4f* dest, float x, float y, float
 static void Matrix4f_transformPoint(const Matrix4f* mat, float x, float y, float* outX, float* outY) {
     *outX = mat->m[0] * x + mat->m[4] * y + mat->m[12];
     *outY = mat->m[1] * x + mat->m[5] * y + mat->m[13];
+}
+
+
+// Helper function for a 3x3 determinant. You SHOULDN'T be using this.
+static float Matrix3f_determinant(const Matrix4f *mat) {
+    return
+        + (mat->m[Matrix_getIndex(0,0)]*mat->m[Matrix_getIndex(1,1)]*mat->m[Matrix_getIndex(2,2)])
+        + (mat->m[Matrix_getIndex(0,1)]*mat->m[Matrix_getIndex(1,2)]*mat->m[Matrix_getIndex(2,0)])
+        + (mat->m[Matrix_getIndex(0,2)]*mat->m[Matrix_getIndex(1,0)]*mat->m[Matrix_getIndex(2,1)])
+
+        - (mat->m[Matrix_getIndex(0,2)]*mat->m[Matrix_getIndex(1,1)]*mat->m[Matrix_getIndex(2,0)])
+        - (mat->m[Matrix_getIndex(0,1)]*mat->m[Matrix_getIndex(1,0)]*mat->m[Matrix_getIndex(2,2)])
+        - (mat->m[Matrix_getIndex(0,0)]*mat->m[Matrix_getIndex(1,2)]*mat->m[Matrix_getIndex(2,1)]);
+
+}
+// Computes the determinant of a 4x4 matrix. 
+// I hope your math teacher taught you Leibniz's formula because I'm NOT gonna be explaining it AT ALL.
+static float Matrix4f_determinant(const Matrix4f *mat) {
+    float accumulator = 0;
+    Matrix4f col;
+    for (int x = 0, sign = 1; x < 4; x++, sign = -sign)
+    {
+        float term = sign * mat->m[Matrix_getIndex(0, x)];
+
+        // Collect our the intended sub-determinant.
+        for (int subXP = 0; subXP < 3; subXP++) {
+            for (int subYP = 0; subYP < 3; subYP++) {
+                int subX = subXP >= x ? subXP + 1 : subXP;
+                int subY = subYP + 1;
+                col.m[Matrix_getIndex(subYP, subXP)] = mat->m[Matrix_getIndex(subY, subX)];
+            }
+        }
+        accumulator += term * Matrix3f_determinant(&col);
+    }
+    return accumulator;
+}
+
+// Computes a matrix's inverse and returns true/false if it even exists
+static bool Matrix4f_inverse(Matrix4f *inv, const Matrix4f *mat) {
+    float determinant = Matrix4f_determinant(mat);
+    float invDeterminant;
+
+    // TODO: have an epsilon.
+    if (determinant == 0) {
+        return false;
+    }
+    float invDet = 1.f / determinant;
+
+    inv->m[0] = mat->m[5]  * mat->m[10] * mat->m[15] -
+             mat->m[5]  * mat->m[11] * mat->m[14] -
+             mat->m[9]  * mat->m[6]  * mat->m[15] +
+             mat->m[9]  * mat->m[7]  * mat->m[14] +
+             mat->m[13] * mat->m[6]  * mat->m[11] -
+             mat->m[13] * mat->m[7]  * mat->m[10];
+
+    inv->m[4] = -mat->m[4]  * mat->m[10] * mat->m[15] +
+              mat->m[4]  * mat->m[11] * mat->m[14] +
+              mat->m[8]  * mat->m[6]  * mat->m[15] -
+              mat->m[8]  * mat->m[7]  * mat->m[14] -
+              mat->m[12] * mat->m[6]  * mat->m[11] +
+              mat->m[12] * mat->m[7]  * mat->m[10];
+
+    inv->m[8] = mat->m[4]  * mat->m[9] * mat->m[15] -
+             mat->m[4]  * mat->m[11] * mat->m[13] -
+             mat->m[8]  * mat->m[5] * mat->m[15] +
+             mat->m[8]  * mat->m[7] * mat->m[13] +
+             mat->m[12] * mat->m[5] * mat->m[11] -
+             mat->m[12] * mat->m[7] * mat->m[9];
+
+    inv->m[12] = -mat->m[4]  * mat->m[9] * mat->m[14] +
+               mat->m[4]  * mat->m[10] * mat->m[13] +
+               mat->m[8]  * mat->m[5] * mat->m[14] -
+               mat->m[8]  * mat->m[6] * mat->m[13] -
+               mat->m[12] * mat->m[5] * mat->m[10] +
+               mat->m[12] * mat->m[6] * mat->m[9];
+
+    inv->m[1] = -mat->m[1]  * mat->m[10] * mat->m[15] +
+              mat->m[1]  * mat->m[11] * mat->m[14] +
+              mat->m[9]  * mat->m[2] * mat->m[15] -
+              mat->m[9]  * mat->m[3] * mat->m[14] -
+              mat->m[13] * mat->m[2] * mat->m[11] +
+              mat->m[13] * mat->m[3] * mat->m[10];
+
+    inv->m[5] = mat->m[0]  * mat->m[10] * mat->m[15] -
+             mat->m[0]  * mat->m[11] * mat->m[14] -
+             mat->m[8]  * mat->m[2] * mat->m[15] +
+             mat->m[8]  * mat->m[3] * mat->m[14] +
+             mat->m[12] * mat->m[2] * mat->m[11] -
+             mat->m[12] * mat->m[3] * mat->m[10];
+
+    inv->m[9] = -mat->m[0]  * mat->m[9] * mat->m[15] +
+              mat->m[0]  * mat->m[11] * mat->m[13] +
+              mat->m[8]  * mat->m[1] * mat->m[15] -
+              mat->m[8]  * mat->m[3] * mat->m[13] -
+              mat->m[12] * mat->m[1] * mat->m[11] +
+              mat->m[12] * mat->m[3] * mat->m[9];
+
+    inv->m[13] = mat->m[0]  * mat->m[9] * mat->m[14] -
+              mat->m[0]  * mat->m[10] * mat->m[13] -
+              mat->m[8]  * mat->m[1] * mat->m[14] +
+              mat->m[8]  * mat->m[2] * mat->m[13] +
+              mat->m[12] * mat->m[1] * mat->m[10] -
+              mat->m[12] * mat->m[2] * mat->m[9];
+
+    inv->m[2] = mat->m[1]  * mat->m[6] * mat->m[15] -
+             mat->m[1]  * mat->m[7] * mat->m[14] -
+             mat->m[5]  * mat->m[2] * mat->m[15] +
+             mat->m[5]  * mat->m[3] * mat->m[14] +
+             mat->m[13] * mat->m[2] * mat->m[7] -
+             mat->m[13] * mat->m[3] * mat->m[6];
+
+    inv->m[6] = -mat->m[0]  * mat->m[6] * mat->m[15] +
+              mat->m[0]  * mat->m[7] * mat->m[14] +
+              mat->m[4]  * mat->m[2] * mat->m[15] -
+              mat->m[4]  * mat->m[3] * mat->m[14] -
+              mat->m[12] * mat->m[2] * mat->m[7] +
+              mat->m[12] * mat->m[3] * mat->m[6];
+
+    inv->m[10] = mat->m[0]  * mat->m[5] * mat->m[15] -
+              mat->m[0]  * mat->m[7] * mat->m[13] -
+              mat->m[4]  * mat->m[1] * mat->m[15] +
+              mat->m[4]  * mat->m[3] * mat->m[13] +
+              mat->m[12] * mat->m[1] * mat->m[7] -
+              mat->m[12] * mat->m[3] * mat->m[5];
+
+    inv->m[14] = -mat->m[0]  * mat->m[5] * mat->m[14] +
+               mat->m[0]  * mat->m[6] * mat->m[13] +
+               mat->m[4]  * mat->m[1] * mat->m[14] -
+               mat->m[4]  * mat->m[2] * mat->m[13] -
+               mat->m[12] * mat->m[1] * mat->m[6] +
+               mat->m[12] * mat->m[2] * mat->m[5];
+
+    inv->m[3] = -mat->m[1] * mat->m[6] * mat->m[11] +
+              mat->m[1] * mat->m[7] * mat->m[10] +
+              mat->m[5] * mat->m[2] * mat->m[11] -
+              mat->m[5] * mat->m[3] * mat->m[10] -
+              mat->m[9] * mat->m[2] * mat->m[7] +
+              mat->m[9] * mat->m[3] * mat->m[6];
+
+    inv->m[7] = mat->m[0] * mat->m[6] * mat->m[11] -
+             mat->m[0] * mat->m[7] * mat->m[10] -
+             mat->m[4] * mat->m[2] * mat->m[11] +
+             mat->m[4] * mat->m[3] * mat->m[10] +
+             mat->m[8] * mat->m[2] * mat->m[7] -
+             mat->m[8] * mat->m[3] * mat->m[6];
+
+    inv->m[11] = -mat->m[0] * mat->m[5] * mat->m[11] +
+               mat->m[0] * mat->m[7] * mat->m[9] +
+               mat->m[4] * mat->m[1] * mat->m[11] -
+               mat->m[4] * mat->m[3] * mat->m[9] -
+               mat->m[8] * mat->m[1] * mat->m[7] +
+               mat->m[8] * mat->m[3] * mat->m[5];
+
+    inv->m[15] = mat->m[0] * mat->m[5] * mat->m[10] -
+              mat->m[0] * mat->m[6] * mat->m[9] -
+              mat->m[4] * mat->m[1] * mat->m[10] +
+              mat->m[4] * mat->m[2] * mat->m[9] +
+              mat->m[8] * mat->m[1] * mat->m[6] -
+              mat->m[8] * mat->m[2] * mat->m[5];
+
+    for (int i = 0; i < 16; i++) inv->m[i] *= invDet;
+    return true;
 }

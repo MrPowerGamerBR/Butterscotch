@@ -3,6 +3,7 @@
 #include "json_reader.h"
 #include "runner.h"
 #include "runner_gamepad.h"
+#include "matrix_math.h"
 #include "utils.h"
 
 #include <stdio.h>
@@ -1865,7 +1866,84 @@ static RValue builtinLengthdir_y(MAYBE_UNUSED VMContext* ctx, RValue* args, int3
     return RValue_makeReal(-len * GMLReal_sin(dir));
 }
 
+// ===[ MATRIX FUNCTIONS ]===
+
+static bool rvalueIsMatrix(RValue rv) {
+    if (rv.type != RVALUE_ARRAY) return false;
+    if (GMLArray_length1D(rv.array) != 16) return false;
+    repeat (16, i) {
+        RValueType type = GMLArray_slot(rv.array, i)->type;
+        if (type != RVALUE_REAL && type != RVALUE_INT32 && type != RVALUE_INT64)
+            return false;
+    }
+    return true;
+}
+static bool matrixFromGml(Matrix4f *mat, GMLArray *arr) {
+    if (GMLArray_length1D(arr) != 16) return false;
+    repeat (16, i) {
+        mat->m[i] = RValue_toReal(*GMLArray_slot(arr, i));
+    }
+    return true;
+}
+static GMLArray *matrixToGml(const Matrix4f *mat) {
+    GMLArray *out = GMLArray_create(4 * 4);
+    repeat (16, i) {
+        *GMLArray_slot(out, i) = RValue_makeReal(mat->m[i]);
+    }
+    return out;
+}
+static RValue builtinMatrixBuildIdentity(MAYBE_UNUSED VMContext *ctx, MAYBE_UNUSED RValue *args, MAYBE_UNUSED int32_t argCount) {
+    Matrix4f id;
+    return RValue_makeArray(matrixToGml(Matrix4f_identity(&id)));
+}
+static RValue builtinMatrixInverse(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
+    if (argCount < 1 || argCount > 2) return RValue_makeUndefined();
+    if (!rvalueIsMatrix(args[0])) return RValue_makeUndefined();
+
+    bool toPrevMatrix = argCount == 2;
+    GMLArray *destArray = toPrevMatrix ? args[1].array : nullptr;
+    if (toPrevMatrix && !rvalueIsMatrix(args[1])) return RValue_makeUndefined();
+    
+    Matrix4f source, inverse;
+    matrixFromGml(&source, args[0].array);
+    if (!Matrix4f_inverse(&inverse, &source)) {
+        return RValue_makeUndefined();
+    } else if (!toPrevMatrix) {
+        return RValue_makeArray(matrixToGml(&inverse));
+    } else {
+        repeat (16, i) {
+            *GMLArray_slot(destArray, i) = RValue_makeReal(inverse.m[i]);
+        }
+        return RValue_makeArrayWeak(destArray);
+    }
+}
+
+static RValue builtinMatrixMultiply(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
+    if (argCount < 2 || argCount > 3) return RValue_makeUndefined();
+    if (!rvalueIsMatrix(args[0]) || !rvalueIsMatrix(args[1])) return RValue_makeUndefined();
+
+    bool toPrevMatrix = argCount == 3;
+    GMLArray *destArray = toPrevMatrix ? args[2].array : nullptr;
+    if (toPrevMatrix && !rvalueIsMatrix(args[2])) return RValue_makeUndefined();
+
+    Matrix4f a, b, r;
+    matrixFromGml(&a, args[0].array);
+    matrixFromGml(&b, args[1].array);
+    Matrix4f_multiply(&r, &a, &b);
+    
+    if (!toPrevMatrix) {
+        return RValue_makeArray(matrixToGml(&r));
+    } else {
+        repeat (16, i) {
+            *GMLArray_slot(destArray, i) = RValue_makeReal(r.m[i]);
+        }
+        return RValue_makeArrayWeak(destArray);
+    }
+}
+
+
 // ===[ RANDOM FUNCTIONS ]===
+
 
 static RValue builtinRandom(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
@@ -7904,6 +7982,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "move_snap", builtinMoveSnap);
     VM_registerBuiltin(ctx, "lengthdir_x", builtinLengthdir_x);
     VM_registerBuiltin(ctx, "lengthdir_y", builtinLengthdir_y);
+
+    // Matrix/linear algebra
+    VM_registerBuiltin(ctx, "matrix_build_identity", builtinMatrixBuildIdentity);
+    VM_registerBuiltin(ctx, "matrix_inverse", builtinMatrixInverse);
+    VM_registerBuiltin(ctx, "matrix_multiply", builtinMatrixMultiply);
 
     // Random
     VM_registerBuiltin(ctx, "random", builtinRandom);
