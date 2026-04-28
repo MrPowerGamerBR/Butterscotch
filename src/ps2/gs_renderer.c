@@ -1815,6 +1815,12 @@ static void gsGpuSetBlendMode(Renderer* renderer, int32_t mode) {
             GS_SETREG_ALPHA(0, 2, 0, 1, 0),
         0);
     }
+    if(mode == bm_add)
+    {
+        gsKit_set_primalpha(gsGlobal,
+            GS_SETREG_ALPHA(0, 1, 0, 1, 0),
+        0);
+    }
 }
 
 static void gsGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor) {
@@ -1864,24 +1870,33 @@ static void gsGpuSetColorWriteEnable(Renderer* renderer, bool red, bool green, b
     if (blue == false) mask |= 0xff0000;
     if (alpha == false) mask |= 0xff000000;
 
-    u64 *p_data;
+	u64 *p_data;
 	u64 *p_store;
-	int qsize = 3;
 
-	p_data = p_store = (u64*)gsKit_heap_alloc(gsGlobal, qsize, (qsize * 16), GIF_AD);
+	p_data = p_store = (u64 *)gsGlobal->dma_misc;
 
-    *p_data++ = GS_SETREG_FRAME_1( gsGlobal->ScreenBuffer[gsGlobal->ActiveBuffer & 1] / 8192,
+	*p_data++ = GIF_TAG( 4, 1, 0, 0, GSKIT_GIF_FLG_PACKED, 1 );
+	*p_data++ = GIF_AD;
+
+	// Context 1
+
+	*p_data++ = GS_SETREG_SCISSOR_1( 0, gsGlobal->Width - 1, 0, gsGlobal->Height - 1 );
+	*p_data++ = GS_SCISSOR_1;
+
+	*p_data++ = GS_SETREG_FRAME_1( gsGlobal->ScreenBuffer[gsGlobal->ActiveBuffer & 1] / 8192,
                                  gsGlobal->Width / 64, gsGlobal->PSM, mask );
 	*p_data++ = GS_FRAME_1;
 
-    *p_data++ = GS_SETREG_FRAME_2( gsGlobal->ScreenBuffer[gsGlobal->ActiveBuffer & 1] / 8192,
+	// Context 2
+
+	*p_data++ = GS_SETREG_SCISSOR_1( 0, gsGlobal->Width - 1, 0, gsGlobal->Height - 1 );
+	*p_data++ = GS_SCISSOR_2;
+
+	*p_data++ = GS_SETREG_FRAME_1( gsGlobal->ScreenBuffer[gsGlobal->ActiveBuffer & 1] / 8192,
                                  gsGlobal->Width / 64, gsGlobal->PSM, mask );
 	*p_data++ = GS_FRAME_2;
 
-	*p_data++ = GIF_TAG_AD(qsize);
-	*p_data++ = GIF_AD;
-
-    dmaKit_wait_fast();
+	dmaKit_wait_fast();
 	dmaKit_send_ucab(DMA_CHANNEL_GIF, p_store, 5);
 }
 
