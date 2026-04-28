@@ -7904,6 +7904,7 @@ static RValue builtinAssetGetIndex(VMContext* ctx, RValue* args, int32_t argCoun
 
 static RValue builtin_Gpu_Set_BlendMode(VMContext* ctx, RValue* args, int32_t argCount) {
     int mode = RValue_toReal(args[0]);
+    printf("gpu_set_blendmode(%i);\n", mode);
     ctx->runner->renderer->vtable->gpuSetBlendMode(ctx->runner->renderer, mode);
     return RValue_makeUndefined();
 }
@@ -7911,6 +7912,7 @@ static RValue builtin_Gpu_Set_BlendMode(VMContext* ctx, RValue* args, int32_t ar
 static RValue builtin_Gpu_Set_BlendModeExt(VMContext* ctx, RValue* args, int32_t argCount) {
     int sfactor = RValue_toReal(args[0]);
     int dfactor = RValue_toReal(args[1]);
+    printf("gpu_set_blendmode_ext(%i, %i);\n", sfactor, dfactor);
     ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor);
     return RValue_makeUndefined();
 }
@@ -7940,20 +7942,6 @@ static RValue builtin_Gpu_Set_ColorWriteEnable(VMContext* ctx, RValue* args, int
         RValue_toBool(args[2]), 
         RValue_toBool(args[3])
     );
-    return RValue_makeUndefined();
-}
-
-#include <glad/glad.h>
-static RValue builtin_DrawClearAlpha(VMContext* ctx, RValue* args, int32_t argCount) {
-    int32_t c = RValue_toInt32(args[0]);
-    float alpha = RValue_toReal(args[1]);
-    glClearColor(
-        BGR_R(c)/255.0f, 
-        BGR_G(c)/255.0f, 
-        BGR_B(c)/255.0f, 
-        alpha
-    );
-    glClear(GL_COLOR_BUFFER_BIT);
     return RValue_makeUndefined();
 }
 
