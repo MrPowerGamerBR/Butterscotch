@@ -1941,6 +1941,32 @@ static RValue builtinMatrixMultiply(MAYBE_UNUSED VMContext *ctx, RValue *args, i
     }
 }
 
+static RValue builtinMatrixBuildProjectionOrtho(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
+    if (argCount < 4 || argCount > 5) return RValue_makeUndefined();
+    GMLReal width = RValue_toReal(args[0]);
+    GMLReal height = RValue_toReal(args[1]);
+    GMLReal near = RValue_toReal(args[2]);
+    GMLReal far = RValue_toReal(args[3]);
+
+    bool toPrevMatrix = argCount == 5;
+    GMLArray *destArray = toPrevMatrix ? args[4].array : nullptr;
+    if (toPrevMatrix && !rvalueIsMatrix(args[4])) return RValue_makeUndefined();
+
+    Matrix4f mat;
+
+    // I2 x Ortho(...) = Ortho(...), duh
+    Matrix4f_ortho(Matrix4f_identity(&mat), 0.0f, width, 0.0f, height, near, far);
+
+    if (!toPrevMatrix) {
+        return RValue_makeArray(matrixToGml(&mat));
+    } else {
+        repeat (16, i) {
+            *GMLArray_slot(destArray, i) = RValue_makeReal(mat.m[i]);
+        }
+        return RValue_makeArrayWeak(destArray);
+    }
+}
+
 static RValue builtinMatrixBuildLookat(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
     if (argCount < 9 || argCount > 10) return RValue_makeUndefined();
     
@@ -8070,6 +8096,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "matrix_build_identity", builtinMatrixBuildIdentity);
     VM_registerBuiltin(ctx, "matrix_inverse", builtinMatrixInverse);
     VM_registerBuiltin(ctx, "matrix_multiply", builtinMatrixMultiply);
+    VM_registerBuiltin(ctx, "matrix_build_lookat", builtinMatrixBuildLookat);
+    VM_registerBuiltin(ctx, "matrix_build_projection_ortho", builtinMatrixBuildProjectionOrtho);
 
     // Random
     VM_registerBuiltin(ctx, "random", builtinRandom);
