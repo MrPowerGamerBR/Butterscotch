@@ -454,7 +454,7 @@ static int compareDrawableDepth(const void* a, const void* b) {
 }
 
 static void fireDrawSubtype(Runner* runner, Drawable* drawables, int32_t drawableCount, int32_t subtype) {
-    int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, eventType, eventSubtype);
+    int32_t slot = EventSlotMap_lookup(&runner->eventSlotMap, EVENT_DRAW, subtype);
     if (slot == -1) return;
 
     repeat(drawableCount, i) {
