@@ -1945,8 +1945,8 @@ static RValue builtinMatrixBuildProjectionOrtho(MAYBE_UNUSED VMContext *ctx, RVa
     if (argCount < 4 || argCount > 5) return RValue_makeUndefined();
     GMLReal width = RValue_toReal(args[0]);
     GMLReal height = RValue_toReal(args[1]);
-    GMLReal near = RValue_toReal(args[2]);
-    GMLReal far = RValue_toReal(args[3]);
+    GMLReal znear = RValue_toReal(args[2]);
+    GMLReal zfar = RValue_toReal(args[3]);
 
     bool toPrevMatrix = argCount == 5;
     GMLArray *destArray = toPrevMatrix ? args[4].array : nullptr;
@@ -1955,7 +1955,7 @@ static RValue builtinMatrixBuildProjectionOrtho(MAYBE_UNUSED VMContext *ctx, RVa
     Matrix4f mat;
 
     // I2 x Ortho(...) = Ortho(...), duh
-    Matrix4f_ortho(Matrix4f_identity(&mat), 0.0f, width, 0.0f, height, near, far);
+    Matrix4f_ortho(Matrix4f_identity(&mat), 0.0f, width, 0.0f, height, znear, zfar);
 
     if (!toPrevMatrix) {
         return RValue_makeArray(matrixToGml(&mat));
