@@ -263,6 +263,46 @@ static void glDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
     glEnd();
 }
 
+static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
+    GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
+    DataWin* dw = renderer->dataWin;
+
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
+
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+    int16_t pageId = tpag->texturePageId;
+    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
+    if (!ensureTextureLoaded(gl, (uint32_t) pageId)) return;
+
+    GLuint texId = gl->glTextures[pageId];
+    int32_t texW = gl->textureWidths[pageId];
+    int32_t texH = gl->textureHeights[pageId];
+    glBindTexture(GL_TEXTURE_2D, texId);
+
+    float u0 = (float) tpag->sourceX / (float) texW;
+    float v0 = (float) tpag->sourceY / (float) texH;
+    float u1 = (float) (tpag->sourceX + tpag->sourceWidth) / (float) texW;
+    float v1 = (float) (tpag->sourceY + tpag->sourceHeight) / (float) texH;
+
+    glBegin(GL_QUADS);
+        glColor4f(1.0f, 1.0f, 1.0f, alpha);
+        glTexCoord2f(u0, v0);
+        glVertex2f(x1, y1);
+
+        glColor4f(1.0f, 1.0f, 1.0f, alpha);
+        glTexCoord2f(u1, v0);
+        glVertex2f(x2, y2);
+
+        glColor4f(1.0f, 1.0f, 1.0f, alpha);
+        glTexCoord2f(u1, v1);
+        glVertex2f(x3, y3);
+
+        glColor4f(1.0f, 1.0f, 1.0f, alpha);
+        glTexCoord2f(u0, v1);
+        glVertex2f(x4, y4);
+    glEnd();
+}
+
 static void glDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
     GLLegacyRenderer* gl = (GLLegacyRenderer*) renderer;
     DataWin* dw = renderer->dataWin;
@@ -1030,6 +1070,7 @@ static RendererVtable glVtable = {
     .beginGUI = glBeginGUI,
     .endGUI = glEndGUI,
     .drawSprite = glDrawSprite,
+    .drawSpritePos = glDrawSpritePos,
     .drawSpritePart = glDrawSpritePart,
     .drawRectangle = glDrawRectangle,
     .drawLine = glDrawLine,

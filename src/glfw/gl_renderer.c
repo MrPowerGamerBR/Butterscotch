@@ -404,29 +404,55 @@ static bool ensureTextureLoaded(GLRenderer* gl, uint32_t pageId) {
     return true;
 }
 
-static void glDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
-    GLRenderer* gl = (GLRenderer*) renderer;
-    DataWin* dw = renderer->dataWin;
-
-    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
-
+// Resolves a TPAG index to a loaded GL texture. Returns false if drawing should be skipped.
+static bool resolveSpriteTexture(GLRenderer* gl, int32_t tpagIndex, TexturePageItem** outTpag, GLuint* outTexId, int32_t* outTexW, int32_t* outTexH) {
+    DataWin* dw = gl->base.dataWin;
+    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return false;
     TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
     int16_t pageId = tpag->texturePageId;
-    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
-    if (!ensureTextureLoaded(gl, (uint32_t) pageId)) return;
+    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return false;
+    if (!ensureTextureLoaded(gl, (uint32_t) pageId)) return false;
+    *outTpag = tpag;
+    *outTexId = gl->glTextures[pageId];
+    *outTexW = gl->textureWidths[pageId];
+    *outTexH = gl->textureHeights[pageId];
+    return true;
+}
 
-    GLuint texId = gl->glTextures[pageId];
-    int32_t texW = gl->textureWidths[pageId];
-    int32_t texH = gl->textureHeights[pageId];
-
-    // Flush if texture changed or batch full
-    if (gl->quadCount > 0 && gl->currentTextureId != texId) {
-        flushBatch(gl);
-    }
-    if (gl->quadCount >= MAX_QUADS) {
-        flushBatch(gl);
-    }
+// Emits a single textured quad into the batch given 4 final screen-space corners (TL, TR, BR, BL), 4 UVs forming a rect (u0,v0)-(u1,v1), and a flat color/alpha.
+// Handles texture rebinding and batch flushing.
+static void emitTexturedQuad(GLRenderer* gl, GLuint texId, float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float u0, float v0, float u1, float v1, float r, float g, float b, float alpha) {
+    if (gl->quadCount > 0 && gl->currentTextureId != texId) flushBatch(gl);
+    if (gl->quadCount >= MAX_QUADS) flushBatch(gl);
     gl->currentTextureId = texId;
+
+    float* verts = gl->vertexData + gl->quadCount * VERTICES_PER_QUAD * FLOATS_PER_VERTEX;
+
+    // Vertex 0: top-left
+    verts[0] = x0; verts[1] = y0; verts[2] = u0; verts[3] = v0;
+    verts[4] = r;  verts[5] = g;  verts[6] = b;  verts[7] = alpha;
+
+    // Vertex 1: top-right
+    verts[8]  = x1; verts[9]  = y1; verts[10] = u1; verts[11] = v0;
+    verts[12] = r;  verts[13] = g;  verts[14] = b;  verts[15] = alpha;
+
+    // Vertex 2: bottom-right
+    verts[16] = x2; verts[17] = y2; verts[18] = u1; verts[19] = v1;
+    verts[20] = r;  verts[21] = g;  verts[22] = b;  verts[23] = alpha;
+
+    // Vertex 3: bottom-left
+    verts[24] = x3; verts[25] = y3; verts[26] = u0; verts[27] = v1;
+    verts[28] = r;  verts[29] = g;  verts[30] = b;  verts[31] = alpha;
+
+    gl->quadCount++;
+}
+
+static void glDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y, float originX, float originY, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    TexturePageItem* tpag;
+    GLuint texId;
+    int32_t texW, texH;
+    if (!resolveSpriteTexture(gl, tpagIndex, &tpag, &texId, &texW, &texH)) return;
 
     // Compute normalized UVs from TPAG source rect
     float u0 = (float) tpag->sourceX / (float) texW;
@@ -459,26 +485,7 @@ static void glDrawSprite(Renderer* renderer, int32_t tpagIndex, float x, float y
     float g = (float) BGR_G(color) / 255.0f;
     float b = (float) BGR_B(color) / 255.0f;
 
-    // Write 4 vertices into batch buffer
-    float* verts = gl->vertexData + gl->quadCount * VERTICES_PER_QUAD * FLOATS_PER_VERTEX;
-
-    // Vertex 0: top-left
-    verts[0] = x0; verts[1] = y0; verts[2] = u0; verts[3] = v0;
-    verts[4] = r;  verts[5] = g;  verts[6] = b;  verts[7] = alpha;
-
-    // Vertex 1: top-right
-    verts[8]  = x1; verts[9]  = y1; verts[10] = u1; verts[11] = v0;
-    verts[12] = r;  verts[13] = g;  verts[14] = b;  verts[15] = alpha;
-
-    // Vertex 2: bottom-right
-    verts[16] = x2; verts[17] = y2; verts[18] = u1; verts[19] = v1;
-    verts[20] = r;  verts[21] = g;  verts[22] = b;  verts[23] = alpha;
-
-    // Vertex 3: bottom-left
-    verts[24] = x3; verts[25] = y3; verts[26] = u0; verts[27] = v1;
-    verts[28] = r;  verts[29] = g;  verts[30] = b;  verts[31] = alpha;
-
-    gl->quadCount++;
+    emitTexturedQuad(gl, texId, x0, y0, x1, y1, x2, y2, x3, y3, u0, v0, u1, v1, r, g, b, alpha);
 }
 
 static void glDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, uint32_t color, float alpha) {
@@ -540,72 +547,20 @@ static void glDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     gl->quadCount++;
 }
 
-static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
+static void glDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    DataWin* dw = renderer->dataWin;
+    TexturePageItem* tpag;
+    GLuint texId;
+    int32_t texW, texH;
+    if (!resolveSpriteTexture(gl, tpagIndex, &tpag, &texId, &texW, &texH)) return;
 
-    if (0 > tpagIndex || dw->tpag.count <= (uint32_t) tpagIndex) return;
-
-    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
-    int16_t pageId = tpag->texturePageId;
-    if (0 > pageId || gl->textureCount <= (uint32_t) pageId) return;
-    if (!ensureTextureLoaded(gl, (uint32_t) pageId)) return;
-
-    GLuint texId = gl->glTextures[pageId];
-    int32_t texW = gl->textureWidths[pageId];
-    int32_t texH = gl->textureHeights[pageId];
-
-    // Flush if texture changed or batch full
-    if (gl->quadCount > 0 && gl->currentTextureId != texId) flushBatch(gl);
-    if (gl->quadCount >= MAX_QUADS) flushBatch(gl);
-    gl->currentTextureId = texId;
-
-    // Compute UVs for the sub-region within the atlas
-    // Compute normalized UVs from TPAG source rect
     float u0 = (float) tpag->sourceX / (float) texW;
     float v0 = (float) tpag->sourceY / (float) texH;
-    float u1 = (float) (tpag->sourceX + tpag->boundingWidth) / (float) texW;
-    float v1 = (float) (tpag->sourceY + tpag->boundingHeight) / (float) texH;
+    float u1 = (float) (tpag->sourceX + tpag->sourceWidth) / (float) texW;
+    float v1 = (float) (tpag->sourceY + tpag->sourceHeight) / (float) texH;
 
-    // Quad corners (no origin offset, no transform - draw_sprite_part ignores sprite origin)
-
-    // Convert BGR color to RGB floats
-    float r = 1.0f;
-    float g = 1.0f;
-    float b = 1.0f;
-
-    // Write 4 vertices into batch buffer
-    float* verts = gl->vertexData + gl->quadCount * VERTICES_PER_QUAD * FLOATS_PER_VERTEX;
-
-    //I dunno mann putting this offset to it makes Tenna appear correctly mostly but breaks other things?
-    //I personally believe that somehow the code for Tenna's animations isn't working properly
-    //If you see issues with other games that use this, PLEASE REMOVE THE OFFSET I PUT HERE.
-    //yeah yeah I did just copy and paste similar functions and modify it but hey it worky! yay!
-
-    // Vertex 0: top-left
-    verts[0] = x1-originX; verts[1] = y1-originY; verts[2] = u0; verts[3] = v0;
-    verts[4] = r;  verts[5] = g;  verts[6] = b;  verts[7] = alpha;
-
-    // Vertex 1: top-right
-    verts[8]  = x2-originX; verts[9]  = y2-originY; verts[10] = u1; verts[11] = v0;
-    verts[12] = r;  verts[13] = g;  verts[14] = b;  verts[15] = alpha;
-
-    // Vertex 2: bottom-right
-    verts[16] = x3-originX; verts[17] = y3-originY; verts[18] = u1; verts[19] = v1;
-    verts[20] = r;  verts[21] = g;  verts[22] = b;  verts[23] = alpha;
-
-    // Vertex 3: bottom-left
-    verts[24] = x4-originX; verts[25] = y4-originY; verts[26] = u0; verts[27] = v1;
-    verts[28] = r;  verts[29] = g;  verts[30] = b;  verts[31] = alpha;
-
-    gl->quadCount++;
+    emitTexturedQuad(gl, texId, x1, y1, x2, y2, x3, y3, x4, y4, u0, v0, u1, v1, 1.0f, 1.0f, 1.0f, alpha);
 }
-
-
-
-
-
-
 
 // Emits a single colored quad into the batch using the white pixel texture
 static void emitColoredQuad(GLRenderer* gl, float x0, float y0, float x1, float y1, float r, float g, float b, float a) {

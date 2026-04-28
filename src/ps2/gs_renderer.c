@@ -1294,6 +1294,60 @@ static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcO
     gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx1, sy1, u1, v1, sx2, sy2, u2, v2, 0, gsColor);
 }
 
+static void gsDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    DataWin* dw = renderer->dataWin;
+
+    if (0 > tpagIndex || (uint32_t) tpagIndex >= dw->tpag.count) return;
+
+    // Apply view transform. Z-pattern tristrip ordering: (0)=TL, (1)=TR, (2)=BL, (3)=BR.
+    float sx0 = (x1 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float sy0 = (y1 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+    float sx1 = (x2 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float sy1 = (y2 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+    float sx2 = (x4 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float sy2 = (y4 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+    float sx3 = (x3 - (float) gs->viewX) * gs->scaleX + gs->offsetX;
+    float sy3 = (y3 - (float) gs->viewY) * gs->scaleY + gs->offsetY;
+
+    float minSX = fminf(fminf(sx0, sx1), fminf(sx2, sx3));
+    float maxSX = fmaxf(fmaxf(sx0, sx1), fmaxf(sx2, sx3));
+    float minSY = fminf(fminf(sy0, sy1), fminf(sy2, sy3));
+    float maxSY = fmaxf(fmaxf(sy0, sy1), fmaxf(sy2, sy3));
+    if (maxSX < 0.0f || minSX > PS2_SCREEN_WIDTH || maxSY < 0.0f || minSY > PS2_SCREEN_HEIGHT) return;
+
+    GSTEXTURE tex;
+    if (!setupTextureForTPAG(gs, &tex, tpagIndex)) {
+        uint8_t a = alphaToGS(alpha);
+        u64 fallbackColor = GS_SETREG_RGBAQ(0xFF, 0xFF, 0xFF, a, 0x00);
+        gsKit_prim_quad(gs->gsGlobal, sx0, sy0, sx1, sy1, sx2, sy2, sx3, sy3, 0, fallbackColor);
+        return;
+    }
+
+    AtlasTPAGEntry* atlasEntry = &gs->atlasTPAGEntries[tpagIndex];
+
+    // Map the entire atlas entry (the trimmed source content in atlas texels) to the user's quad.
+    float u0 = (float) atlasEntry->atlasX;
+    float v0 = (float) atlasEntry->atlasY;
+    float u1 = u0 + (float) atlasEntry->width;
+    float v1 = v0 + (float) atlasEntry->height;
+
+    // GS modulate mode: Output = Texture * Vertex / 128
+    uint8_t a = alphaToGS(alpha);
+    u64 gsColor = GS_SETREG_RGBAQ(0x80, 0x80, 0x80, a, 0x00);
+
+    gsKit_prim_quad_texture(
+        gs->gsGlobal,
+        &tex,
+        sx0, sy0, u0, v0, // TL
+        sx1, sy1, u1, v0, // TR
+        sx2, sy2, u0, v1, // BL
+        sx3, sy3, u1, v1, // BR
+        0,
+        gsColor
+    );
+}
+
 static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline) {
     GsRenderer* gs = (GsRenderer*) renderer;
 
@@ -1812,6 +1866,7 @@ static RendererVtable gsVtable = {
     .beginGUI = gsBeginGUI,
     .endGUI = gsEndGUI,
     .drawSprite = gsDrawSprite,
+    .drawSpritePos = gsDrawSpritePos,
     .drawSpritePart = gsDrawSpritePart,
     .drawRectangle = gsDrawRectangle,
     .drawLine = gsDrawLine,
