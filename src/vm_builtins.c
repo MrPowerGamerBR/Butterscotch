@@ -4131,6 +4131,33 @@ static RValue builtinInstanceFind(VMContext* ctx, RValue* args, int32_t argCount
     return RValue_makeReal((GMLReal) resultId);
 }
 
+static RValue builtinInstanceNearest(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(INSTANCE_NOONE);
+    Runner* runner = (Runner*) ctx->runner;
+    GMLReal x = RValue_toReal(args[0]);
+    GMLReal y = RValue_toReal(args[1]);
+    GMLReal bestDistSq = 0.0;
+    int32_t objectIndex = RValue_toInt32(args[2]);
+    int32_t resultId = INSTANCE_NOONE;
+    int32_t snapBase = Runner_pushInstancesOfObject(runner, objectIndex);
+    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+    for (int32_t i = snapBase; snapEnd > i; i++) {
+        Instance* inst = runner->instanceSnapshots[i];
+        if (!inst->active) continue;
+
+        GMLReal dx = inst->x - x;
+        GMLReal dy = inst->y - y;
+        GMLReal distSq = dx * dx + dy * dy;
+
+        if (resultId == INSTANCE_NOONE || distSq < bestDistSq) {
+            resultId = inst->instanceId;
+            bestDistSq = distSq;
+        }
+    }
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return RValue_makeReal((GMLReal) resultId);
+}
+
 static RValue builtinInstanceExists(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeBool(false);
     Runner* runner = (Runner*) ctx->runner;
@@ -8079,6 +8106,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "instance_exists", builtinInstanceExists);
     VM_registerBuiltin(ctx, "instance_number", builtinInstanceNumber);
     VM_registerBuiltin(ctx, "instance_find", builtinInstanceFind);
+    VM_registerBuiltin(ctx, "instance_nearest", builtinInstanceNearest);
     VM_registerBuiltin(ctx, "instance_destroy", builtinInstanceDestroy);
     if(!isGMS2) {
         VM_registerBuiltin(ctx, "instance_create", builtinInstanceCreate);
