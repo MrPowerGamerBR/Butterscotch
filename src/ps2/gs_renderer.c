@@ -1801,6 +1801,70 @@ static void gsDeleteSprite(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t
     // No-op
 }
 
+// Kinda possible with gsKit_set_primalpha, 
+// as it just lets you set the value with GS_SETREG_ALPHA
+// However I am not big brained enough to emulate these
+// using the PS2 limitations
+static void gsGpuSetBlendMode(Renderer* renderer, int32_t mode) {
+    // TODO
+}
+
+static void gsGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor) {
+    // TODO
+}
+
+static void gsGpuSetBlendEnable(Renderer* renderer, bool enable) {
+    gsGlobal->PrimAlphaEnable = enable ? GS_SETTING_ON : GS_SETTING_OFF;
+}
+
+static void gsGpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    GSGLOBAL* gsGlobal = gs->gsGlobal;
+
+    gsKit_set_test(gsGlobal, enable ? GS_ATEST_ON : GS_ATEST_OFF);
+}
+
+static void gsGpuSetAlphaTestRef(Renderer* renderer, uint8_t ref) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    GSGLOBAL* gsGlobal = gs->gsGlobal;
+
+    gsGlobal->Test->ATST = 6;
+    gsGlobal->Test->AREF = ref;
+    gsGlobal->Test->AFAIL = 0;
+
+    // Doing this so the above values get set
+    gsKit_set_test(gsGlobal, gsGlobal->Test->ATE ? GS_ATEST_ON : GS_ATEST_OFF);
+}
+
+static void gsGpuSetColorWriteEnable(Renderer* renderer, bool red, bool green, bool blue, bool alpha) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    GSGLOBAL* gsGlobal = gs->gsGlobal;
+
+    unsigned int mask = 0;
+    if (r_enabled == false) mask |= 0xff;
+    if (g_enabled == false) mask |= 0xff00;
+    if (b_enabled == false) mask |= 0xff0000;
+    if (a_enabled == false) mask |= 0xff000000;
+
+    u64 *p_data;
+	u64 *p_store;
+	int qsize = 3;
+
+	p_data = p_store = (u64*)gsKit_heap_alloc(gsGlobal, qsize, (qsize * 16), GIF_AD);
+
+    *p_data++ = GS_SETREG_FRAME_1( sGlobal->ScreenBuffer[0] / 8192, gsGlobal->Width / 64, gsGlobal->PSM, mask );
+	*p_data++ = GS_FRAME_1;
+
+    *p_data++ = GS_SETREG_FRAME_2( gsGlobal->ScreenBuffer[0] / 8192, gsGlobal->Width / 64, gsGlobal->PSM, mask );
+	*p_data++ = GS_FRAME_2;
+
+	*p_data++ = GIF_TAG_AD(qsize);
+	*p_data++ = GIF_AD;
+
+    dmaKit_wait_fast();
+	dmaKit_send_ucab(DMA_CHANNEL_GIF, p_store, 5);
+}
+
 static void gsDrawTile(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY) {
     GsRenderer* gs = (GsRenderer*) renderer;
 
@@ -1877,6 +1941,12 @@ static RendererVtable gsVtable = {
     .flush = gsFlush,
     .createSpriteFromSurface = gsCreateSpriteFromSurface,
     .deleteSprite = gsDeleteSprite,
+    .gpuSetBlendMode = gsGpuSetBlendMode,
+    .gpuSetBlendModeExt = gsGpuSetBlendModeExt,
+    .gpuSetBlendEnable = gsGpuSetBlendEnable,
+    .gpuSetAlphaTestEnable = gsGpuSetAlphaTestEnable,
+    .gpuSetAlphaTestRef = gsGpuSetAlphaTestRef,
+    .gpuSetColorWriteEnable = gsGpuSetColorWriteEnable,
     .drawTile = gsDrawTile,
     .drawTiled = gsDrawTiled,
 };

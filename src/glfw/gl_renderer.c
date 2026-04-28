@@ -1287,6 +1287,119 @@ static void glDeleteSprite(Renderer* renderer, int32_t spriteIndex) {
     fprintf(stderr, "GL: Deleted sprite %d\n", spriteIndex);
 }
 
+static GLenum gmsBlendModeToGL(int mode) {
+    switch(mode) {    
+        case bm_zero: return GL_ZERO;
+        case bm_one: return GL_ONE;
+        case bm_src_color: return GL_SRC_COLOR;
+        case bm_inv_src_color: return GL_ONE_MINUS_SRC_COLOR;
+        case bm_src_alpha: return GL_SRC_ALPHA;
+        case bm_inv_src_alpha: return GL_ONE_MINUS_SRC_ALPHA;
+        case bm_dest_alpha: return GL_DST_ALPHA;
+        case bm_inv_dest_alpha: return GL_ONE_MINUS_DST_ALPHA;
+        case bm_dest_color: return GL_DST_COLOR;
+        case bm_inv_dest_color: return GL_ONE_MINUS_DST_COLOR;
+        case bm_src_alpha_sat: return GL_SRC_ALPHA_SATURATE;
+    }
+    return GL_ONE;
+}
+
+static GLenum gmsBlendModeToGLEquation(int mode) {
+    switch (mode) {
+            case bm_normal:
+                return GL_FUNC_ADD;
+            case bm_add:
+                return GL_FUNC_ADD;
+            case bm_subtract:
+                return GL_FUNC_ADD;
+            case bm_reverse_subtract:
+                return GL_FUNC_REVERSE_SUBTRACT;
+            case bm_min:
+                return GL_MIN;
+            case bm_max:
+                return GL_FUNC_ADD;
+            default:
+                return GL_FUNC_ADD;
+    }
+}
+
+static GLenum gmsBlendModeToGLSFactor(int mode) {
+    switch (mode) {
+            case bm_normal:
+                return GL_SRC_ALPHA;
+            case bm_add:
+                return GL_SRC_ALPHA;
+            case bm_subtract:
+                return GL_ZERO;
+            case bm_reverse_subtract:
+                return GL_SRC_ALPHA;
+            case bm_min:
+                return GL_ONE;
+            case bm_max:
+                return GL_SRC_ALPHA;
+            default:
+                return gmsBlendModeToGL(mode);
+    }
+}
+
+static GLenum gmsBlendModeToGLDFactor(int mode) {
+    switch (mode) {
+            case bm_normal:
+                return GL_ONE_MINUS_SRC_ALPHA;
+            case bm_add:
+                return GL_ONE;
+            case bm_subtract:
+                return GL_ONE_MINUS_SRC_COLOR;
+            case bm_reverse_subtract:
+                return GL_ONE;
+            case bm_min:
+                return GL_ONE;
+            case bm_max:
+                return GL_ONE_MINUS_SRC_COLOR;
+            default:
+                return gmsBlendModeToGL(mode);
+    }
+}
+
+static void glGpuSetBlendMode(Renderer* renderer, int32_t mode) {
+    flushBatch((GLRenderer*)renderer);
+    glBlendEquation(
+        gmsBlendModeToGLEquation(mode)
+    );
+    glBlendFunc(
+        gmsBlendModeToGLSFactor(mode), 
+        gmsBlendModeToGLDFactor(mode)
+    );
+}
+
+static void glGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor) {
+    flushBatch((GLRenderer*)renderer);
+    glBlendFunc(
+        gmsBlendModeToGLSFactor(sfactor), 
+        gmsBlendModeToGLDFactor(dfactor)
+    );
+}
+
+static void glGpuSetBlendEnable(Renderer* renderer, bool enable) {
+    flushBatch((GLRenderer*)renderer);
+    enable ? glEnable(GL_BLEND) : glDisable(GL_BLEND);
+}
+
+static void glGpuSetAlphaTestEnable(Renderer* renderer, bool enable) {
+    flushBatch((GLRenderer*)renderer);
+    enable ? glEnable(GL_ALPHA_TEST) : glDisable(GL_ALPHA_TEST);
+}
+
+static void glGpuSetAlphaTestRef(Renderer* renderer, uint8_t ref) {
+    flushBatch((GLRenderer*)renderer);
+    glAlphaFunc(GL_GREATER, ref/255.0f);
+}
+
+static void glGpuSetColorWriteEnable(Renderer* renderer, bool red, bool green, bool blue, bool alpha) {
+    flushBatch((GLRenderer*)renderer);
+    glColorMask(red, green, blue, alpha);
+}
+
 // ===[ Vtable ]===
 
 static RendererVtable glVtable = {
@@ -1310,6 +1423,12 @@ static RendererVtable glVtable = {
     .flush = glRendererFlush,
     .createSpriteFromSurface = glCreateSpriteFromSurface,
     .deleteSprite = glDeleteSprite,
+    .gpuSetBlendMode = glGpuSetBlendMode,
+    .gpuSetBlendModeExt = glGpuSetBlendModeExt,
+    .gpuSetBlendEnable = glGpuSetBlendEnable,
+    .gpuSetAlphaTestEnable = glGpuSetAlphaTestEnable,
+    .gpuSetAlphaTestRef = glGpuSetAlphaTestRef,
+    .gpuSetColorWriteEnable = glGpuSetColorWriteEnable,
     .drawTile = nullptr,
 };
 

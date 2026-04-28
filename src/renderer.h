@@ -7,6 +7,28 @@
 #include "data_win.h"
 #include "instance.h"
 
+// GameMaker Blend Modes
+#define bm_complex -1
+
+#define bm_normal 0
+#define bm_add 1
+#define bm_max 2
+#define bm_subtract 3
+#define bm_min 4
+#define bm_reverse_subtract 5
+
+#define bm_zero 1
+#define bm_one 2
+#define bm_src_color 3
+#define bm_inv_src_color 4
+#define bm_src_alpha 5
+#define bm_inv_src_alpha 6
+#define bm_dest_alpha 7
+#define bm_inv_dest_alpha 8
+#define bm_dest_color 9
+#define bm_inv_dest_color 10
+#define bm_src_alpha_sat 11
+
 // ===[ Renderer Vtable ]===
 
 typedef struct Renderer Renderer;
@@ -33,6 +55,12 @@ typedef struct {
     void (*flush)(Renderer* renderer);
     int32_t (*createSpriteFromSurface)(Renderer* renderer, int32_t x, int32_t y, int32_t w, int32_t h, bool removeback, bool smooth, int32_t xorig, int32_t yorig);
     void (*deleteSprite)(Renderer* renderer, int32_t spriteIndex);
+    void (*gpuSetBlendMode)(Renderer* renderer, int32_t mode);
+    void (*gpuSetBlendModeExt)(Renderer* renderer, int32_t sfactor, int32_t dfactor);
+    void (*gpuSetBlendEnable)(Renderer* renderer, bool enable);
+    void (*gpuSetAlphaTestEnable)(Renderer* renderer, bool enable);
+    void (*gpuSetAlphaTestRef)(Renderer* renderer, uint8_t ref);
+    void (*gpuSetColorWriteEnable)(Renderer* renderer, bool red, bool green, bool blue, bool alpha);
     // Optional: platform-specific tile rendering (nullptr = use default drawSpritePart path)
     void (*drawTile)(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY);
     // Optional: platform-specific tiled draw (nullptr = use default per-tile drawSprite loop).

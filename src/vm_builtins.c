@@ -5319,7 +5319,27 @@ static RValue builtin_drawTextExt(VMContext* ctx, RValue* args, MAYBE_UNUSED int
     return RValue_makeUndefined();
 }
 
-STUB_RETURN_UNDEFINED(draw_text_ext_transformed)
+static RValue builtin_drawTextExtTransformed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logSemiStubbedFunction(ctx, "draw_text_ext_transformed");
+
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    int32_t separation = RValue_toInt32(args[3]);
+    int32_t width = RValue_toInt32(args[4]);
+    float xscale = (float) RValue_toReal(args[5]);
+    float yscale = (float) RValue_toReal(args[6]);
+    float angle = (float) RValue_toReal(args[7]);
+
+    PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawText(runner->renderer, processedText.text, x, y, xscale, yscale, angle);
+    PreprocessedText_free(processedText);
+    free(str);
+    return RValue_makeUndefined();
+}
 
 static RValue builtin_drawTextColor(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = (Runner*) ctx->runner;
@@ -5363,8 +5383,53 @@ static RValue builtin_drawTextColorTransformed(VMContext* ctx, RValue* args, MAY
     free(str);
     return RValue_makeUndefined();
 }
-STUB_RETURN_UNDEFINED(draw_text_color_ext)
-STUB_RETURN_UNDEFINED(draw_text_color_ext_transformed)
+
+static RValue builtin_drawTextColorExt(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logSemiStubbedFunction(ctx, "draw_text_color_ext");
+
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    int32_t c1 = (float) RValue_toInt32(args[5]);
+    int32_t c2 = (float) RValue_toInt32(args[6]);
+    int32_t c3 = (float) RValue_toInt32(args[7]);
+    int32_t c4 = (float) RValue_toInt32(args[8]);
+    float alpha = (float) RValue_toReal(args[9]);
+
+    PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawTextColor(runner->renderer, processedText.text, x, y, 1.0f, 1.0f, 0.0f, c1, c2, c3, c4, alpha);
+    PreprocessedText_free(processedText);
+    free(str);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_drawTextColorExtTransformed(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    logSemiStubbedFunction(ctx, "draw_text_color_ext_transformed");
+
+    Runner* runner = (Runner*) ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x = (float) RValue_toReal(args[0]);
+    float y = (float) RValue_toReal(args[1]);
+    char* str = RValue_toString(args[2]);
+    float xscale = (float) RValue_toReal(args[5]);
+    float yscale = (float) RValue_toReal(args[6]);
+    float angle = (float) RValue_toReal(args[7]);
+    int32_t c1 = (float) RValue_toInt32(args[8]);
+    int32_t c2 = (float) RValue_toInt32(args[9]);
+    int32_t c3 = (float) RValue_toInt32(args[10]);
+    int32_t c4 = (float) RValue_toInt32(args[11]);
+    float alpha = (float) RValue_toReal(args[12]);
+
+    PreprocessedText processedText = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    runner->renderer->vtable->drawTextColor(runner->renderer, processedText.text, x, y, xscale, yscale, angle, c1, c2, c3, c4, alpha);
+    PreprocessedText_free(processedText);
+    free(str);
+    return RValue_makeUndefined();
+}
 
 STUB_RETURN_UNDEFINED(draw_surface)
 STUB_RETURN_UNDEFINED(draw_surface_ext)
@@ -7837,6 +7902,61 @@ static RValue builtinAssetGetIndex(VMContext* ctx, RValue* args, int32_t argCoun
     return RValue_makeReal(-1);
 }
 
+static RValue builtin_Gpu_Set_BlendMode(VMContext* ctx, RValue* args, int32_t argCount) {
+    int mode = RValue_toReal(args[0]);
+    ctx->runner->renderer->vtable->gpuSetBlendMode(ctx->runner->renderer, mode);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_Gpu_Set_BlendModeExt(VMContext* ctx, RValue* args, int32_t argCount) {
+    int sfactor = RValue_toReal(args[0]);
+    int dfactor = RValue_toReal(args[1]);
+    ctx->runner->renderer->vtable->gpuSetBlendModeExt(ctx->runner->renderer, sfactor, dfactor);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_Gpu_Set_BlendEnable(VMContext* ctx, RValue* args, int32_t argCount) {
+    bool enable = RValue_toBool(args[0]);
+    ctx->runner->renderer->vtable->gpuSetBlendEnable(ctx->runner->renderer, enable);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_Gpu_Set_AlphaTestEnable(VMContext* ctx, RValue* args, int32_t argCount) {
+    bool enable = RValue_toBool(args[0]);
+    ctx->runner->renderer->vtable->gpuSetAlphaTestEnable(ctx->runner->renderer, enable);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_Gpu_Set_AlphaTestRef(VMContext* ctx, RValue* args, int32_t argCount) {
+    ctx->runner->renderer->vtable->gpuSetAlphaTestRef(ctx->runner->renderer, RValue_toInt32(args[0]));
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_Gpu_Set_ColorWriteEnable(VMContext* ctx, RValue* args, int32_t argCount) {
+    ctx->runner->renderer->vtable->gpuSetColorWriteEnable(
+        ctx->runner->renderer, 
+        RValue_toBool(args[0]), 
+        RValue_toBool(args[1]), 
+        RValue_toBool(args[2]), 
+        RValue_toBool(args[3])
+    );
+    return RValue_makeUndefined();
+}
+
+#include <glad/glad.h>
+static RValue builtin_DrawClearAlpha(VMContext* ctx, RValue* args, int32_t argCount) {
+    int32_t c = RValue_toInt32(args[0]);
+    float alpha = RValue_toReal(args[1]);
+    glClearColor(
+        BGR_R(c)/255.0f, 
+        BGR_G(c)/255.0f, 
+        BGR_B(c)/255.0f, 
+        alpha
+    );
+    glClear(GL_COLOR_BUFFER_BIT);
+    return RValue_makeUndefined();
+}
+
 // ===[ REGISTRATION ]===
 
 void VMBuiltins_registerAll(VMContext* ctx) {
@@ -8175,15 +8295,15 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_text", builtin_drawText);
     VM_registerBuiltin(ctx, "draw_text_transformed", builtin_drawTextTransformed);
     VM_registerBuiltin(ctx, "draw_text_ext", builtin_drawTextExt);
-    VM_registerBuiltin(ctx, "draw_text_ext_transformed", builtin_draw_text_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_ext_transformed", builtin_drawTextExtTransformed);
     VM_registerBuiltin(ctx, "draw_text_color", builtin_drawTextColor);
     VM_registerBuiltin(ctx, "draw_text_color_transformed", builtin_drawTextColorTransformed);
-    VM_registerBuiltin(ctx, "draw_text_color_ext", builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_color_ext_transformed", builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_color_ext", builtin_drawTextColorExt);
+    VM_registerBuiltin(ctx, "draw_text_color_ext_transformed", builtin_drawTextColorExtTransformed);
     VM_registerBuiltin(ctx, "draw_text_colour", builtin_drawTextColor);
     VM_registerBuiltin(ctx, "draw_text_colour_transformed", builtin_drawTextColorTransformed);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext", builtin_draw_text_color_ext);
-    VM_registerBuiltin(ctx, "draw_text_colour_ext_transformed", builtin_draw_text_color_ext_transformed);
+    VM_registerBuiltin(ctx, "draw_text_colour_ext", builtin_drawTextColorExt);
+    VM_registerBuiltin(ctx, "draw_text_colour_ext_transformed", builtin_drawTextColorExtTransformed);
     VM_registerBuiltin(ctx, "draw_surface", builtin_draw_surface);
     VM_registerBuiltin(ctx, "draw_surface_ext", builtin_draw_surface_ext);
     if(!isGMS2) {
@@ -8367,5 +8487,11 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "font_add_sprite_ext", builtinFontAddSpriteExt);
     VM_registerBuiltin(ctx, "object_get_sprite", builtinObjectGetSprite);
     VM_registerBuiltin(ctx, "asset_get_index", builtinAssetGetIndex);
+    VM_registerBuiltin(ctx,"gpu_set_blendmode", builtin_Gpu_Set_BlendMode);
+    VM_registerBuiltin(ctx,"gpu_set_blendmode_ext", builtin_Gpu_Set_BlendModeExt);
+    VM_registerBuiltin(ctx,"gpu_set_blendenable", builtin_Gpu_Set_BlendEnable);
+    VM_registerBuiltin(ctx,"gpu_set_alphatestenable", builtin_Gpu_Set_AlphaTestEnable);
+    VM_registerBuiltin(ctx,"gpu_set_alphatestref", builtin_Gpu_Set_AlphaTestRef);
+    VM_registerBuiltin(ctx,"gpu_set_colorwriteenable", builtin_Gpu_Set_ColorWriteEnable);
 }
 
