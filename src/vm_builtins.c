@@ -4055,6 +4055,20 @@ static RValue builtinWindowGetHeight(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     return RValue_makeReal((GMLReal) ctx->dataWin->gen8.defaultWindowHeight);
 }
 
+static RValue builtinWindowHasFocus(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = (Runner*) ctx->runner;
+    // Always return true when not on GLFW
+    if (runner == NULL || runner->nativeWindow == NULL) {
+        return RValue_makeBool(true);
+    }
+
+    if (runner->windowHasFocus) {
+        return RValue_makeBool(runner->windowHasFocus(runner->nativeWindow));
+    }
+
+    return RValue_makeBool(true);
+}
+
 static RValue builtinWindowSetCaption(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     char* val = RValue_toString(args[0]);
     char windowTitle[256];
@@ -8053,6 +8067,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "window_center", builtin_window_center);
     VM_registerBuiltin(ctx, "window_get_width", builtinWindowGetWidth);
     VM_registerBuiltin(ctx, "window_get_height", builtinWindowGetHeight);
+    VM_registerBuiltin(ctx, "window_has_focus", builtinWindowHasFocus);
 
     // Game
     VM_registerBuiltin(ctx, "game_restart", builtinGameRestart);

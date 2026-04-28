@@ -476,6 +476,10 @@ static void setGlfwWindowTitle(void* window, const char* title) {
     glfwSetWindowTitle((GLFWwindow*) window, title);
 }
 
+static bool getGlfwWindowFocus(void* window) {
+    return glfwGetWindowAttrib((GLFWwindow*) window, GLFW_FOCUSED) != 0;
+}
+
 void saveInputRecording() {
     // Save input recording if active, then free
     if (globalInputRecording != nullptr) {
@@ -720,6 +724,7 @@ int main(int argc, char* argv[]) {
     runner->osType = args.osType;
     runner->nativeWindow = window;
     runner->setWindowTitle = setGlfwWindowTitle;
+    runner->windowHasFocus = getGlfwWindowFocus;
 
     // Set up input recording/playback (both can be active: playback then continue recording)
     if (args.playbackInputsPath != nullptr) {
