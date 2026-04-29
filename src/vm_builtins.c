@@ -3564,6 +3564,14 @@ static RValue builtinIniReadString(VMContext* ctx, RValue* args, int32_t argCoun
 
     const char* value = Ini_getString(runner->currentIni, section, key);
     if (value != nullptr) {
+        // Old versions of Butterscotch didn't write quoted INI values
+        // This can likely be removed in the future, as GMS never does this(?)
+        if (value[0] == '"' && value[strlen(value) - 1] == '"') {
+            size_t valueLen = strlen(value);
+            char* buffer = safeStrdup(value + 1);
+            buffer[valueLen - 2] = '\0';
+            return RValue_makeOwnedString(buffer);
+        }
         return RValue_makeOwnedString(safeStrdup(value));
     }
 
@@ -3571,6 +3579,8 @@ static RValue builtinIniReadString(VMContext* ctx, RValue* args, int32_t argCoun
     if (args[2].type == RVALUE_STRING && args[2].string != nullptr) {
         return RValue_makeOwnedString(safeStrdup(args[2].string));
     }
+
+    free(value);
     char* str = RValue_toString(args[2]);
     return RValue_makeOwnedString(str);
 }

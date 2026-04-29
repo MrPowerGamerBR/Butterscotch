@@ -59,6 +59,16 @@ static const char* skipWhitespace(const char* p) {
     return p;
 }
 
+static char* normalizeValue(char* value) {
+    TextUtils_trimTrailingWhitespace(value);
+    size_t length = strlen(value);
+    if (length >= 2 && value[0] == '"' && value[length - 1] == '"') {
+        value[length - 1] = '\0';
+        return safeStrdup(value + 1);
+    }
+    return safeStrdup(value);
+}
+
 // ===[ Lifecycle ]===
 
 IniFile* Ini_parse(const char* text) {
@@ -115,14 +125,15 @@ IniFile* Ini_parse(const char* text) {
                 char* value = equals + 1;
                 TextUtils_trimTrailingWhitespace(key);
                 value = (char*) skipWhitespace(value);
+                char* normalizedValue = normalizeValue(value);
 
                 // Check if key already exists - overwrite if so
                 int existingIndex = findKeyIndex(currentSection, key);
                 if (existingIndex >= 0) {
                     free(currentSection->values[existingIndex]);
-                    currentSection->values[existingIndex] = safeStrdup(value);
+                    currentSection->values[existingIndex] = normalizedValue;
                 } else {
-                    addKeyValue(currentSection, key, value);
+                    addKeyValue(currentSection, key, normalizedValue);
                 }
             }
             // Silently skip key=value lines outside any section (matching GML behavior)
@@ -301,8 +312,10 @@ char* Ini_serialize(const IniFile* ini, size_t initialCapacity) {
             memcpy(buffer + length, key, keyLen);
             length += keyLen;
             buffer[length++] = '=';
+            buffer[length++] = '"';
             memcpy(buffer + length, value, valueLen);
             length += valueLen;
+            buffer[length++] = '"';
             buffer[length++] = '\n';
         }
     }
