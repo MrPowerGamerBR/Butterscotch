@@ -1,4 +1,5 @@
 #include "binary_reader.h"
+#include "binary_utils.h"
 #include "utils.h"
 
 #include <stdlib.h>
@@ -49,45 +50,45 @@ uint8_t BinaryReader_readUint8(BinaryReader* reader) {
 }
 
 int16_t BinaryReader_readInt16(BinaryReader* reader) {
-    int16_t value;
-    readCheck(reader, &value, 2);
-    return value;
+    uint8_t bytes[2];
+    readCheck(reader, bytes, sizeof(bytes));
+    return (int16_t) BinaryUtils_readUint16(bytes);
 }
 
 uint16_t BinaryReader_readUint16(BinaryReader* reader) {
-    uint16_t value;
-    readCheck(reader, &value, 2);
-    return value;
+    uint8_t bytes[2];
+    readCheck(reader, bytes, sizeof(bytes));
+    return BinaryUtils_readUint16(bytes);
 }
 
 int32_t BinaryReader_readInt32(BinaryReader* reader) {
-    int32_t value;
-    readCheck(reader, &value, 4);
-    return value;
+    uint8_t bytes[4];
+    readCheck(reader, bytes, sizeof(bytes));
+    return (int32_t) BinaryUtils_readUint32(bytes);
 }
 
 uint32_t BinaryReader_readUint32(BinaryReader* reader) {
-    uint32_t value;
-    readCheck(reader, &value, 4);
-    return value;
+    uint8_t bytes[4];
+    readCheck(reader, bytes, sizeof(bytes));
+    return BinaryUtils_readUint32(bytes);
 }
 
 float BinaryReader_readFloat32(BinaryReader* reader) {
-    float value;
-    readCheck(reader, &value, 4);
-    return value;
+    uint8_t bytes[4];
+    readCheck(reader, bytes, sizeof(bytes));
+    return BinaryUtils_readFloat32(bytes);
 }
 
 uint64_t BinaryReader_readUint64(BinaryReader* reader) {
-    uint64_t value;
-    readCheck(reader, &value, 8);
-    return value;
+    uint8_t bytes[8];
+    readCheck(reader, bytes, sizeof(bytes));
+    return BinaryUtils_readUint64(bytes);
 }
 
 int64_t BinaryReader_readInt64(BinaryReader* reader) {
-    int64_t value;
-    readCheck(reader, &value, 8);
-    return value;
+    uint8_t bytes[8];
+    readCheck(reader, bytes, sizeof(bytes));
+    return (int64_t) BinaryUtils_readUint64(bytes);
 }
 
 bool BinaryReader_readBool32(BinaryReader* reader) {
