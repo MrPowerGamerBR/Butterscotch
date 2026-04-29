@@ -211,6 +211,15 @@ typedef struct {
     int32_t* tpagIndices;    // resolved TPAG indices (one per frame); -1 for unresolved
     uint32_t maskCount;       // number of collision masks (one per frame, or 0)
     uint8_t** masks;          // array of maskCount packed bit arrays (nullptr if none)
+    // Nine-slice (GMS2 sVersion >= 3). Present iff the sprite stored a non-zero nineSliceOffset.
+    bool nineSliceEnabled;
+    int32_t nsLeft;
+    int32_t nsTop;
+    int32_t nsRight;
+    int32_t nsBottom;
+    uint8_t nsTileModes[5];   // order: Left, Top, Right, Bottom, Center. 0=Stretch, 1=Repeat, 2=Mirror, 3=BlankRepeat, 4=Hide
+    bool nsWarnedUnsupportedMode; // log-once flag for Repeat/Mirror/BlankRepeat/Hide hits at draw time
+    bool nsWarnedUnsupportedTransform; // log-once flag for rotated/negative-scale nine-slice draws (we fall back to a plain scaled draw)
 } Sprite;
 
 typedef struct {

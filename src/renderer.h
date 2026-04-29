@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <math.h>
 
 #include "data_win.h"
@@ -105,9 +106,17 @@ static void Renderer_drawSprite(Renderer* renderer, int32_t spriteIndex, int32_t
     renderer->vtable->drawSprite(renderer, tpagIndex, x, y, (float) sprite->originX, (float) sprite->originY, 1.0f, 1.0f, 0.0f, 0xFFFFFF, renderer->drawAlpha);
 }
 
+// Forward declaration: defined further down once drawSpritePartExt is available.
+static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y, float w, float h, uint32_t color, float alpha);
+
 // Stretched: draw_sprite_stretched(sprite, subimg, x, y, w, h)
 static void Renderer_drawSpriteStretched(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y, float w, float h, uint32_t color, float alpha) {
     DataWin* dw = renderer->dataWin;
+    if (0 <= spriteIndex && (uint32_t) spriteIndex < dw->sprt.count && dw->sprt.sprites[spriteIndex].nineSliceEnabled) {
+        Renderer_drawSpriteNineSlice(renderer, spriteIndex, subimg, x, y, w, h, color, alpha);
+        return;
+    }
+
     int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
     if (0 > tpagIndex) return;
 
@@ -124,6 +133,25 @@ static void Renderer_drawSpriteExt(Renderer* renderer, int32_t spriteIndex, int3
     if (0 > tpagIndex) return;
 
     Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+
+    // Nine-slice activates only when the draw scales the sprite away from its native size. At scale 1 there is nothing to slice.
+    if (sprite->nineSliceEnabled && (xscale != 1.0f || yscale != 1.0f)) {
+        // Rotated or flipped (negative-scale) draws would need rotation-aware sub-quads, which the current drawSpritePart API can't express. Fall back to a plain scaled draw and warn once.
+        if (rot != 0.0f || 0.0f > xscale || 0.0f > yscale) {
+            if (!sprite->nsWarnedUnsupportedTransform) {
+                fprintf(stderr, "[nine-slice] sprite '%s': nine-slice with rotation or negative scale is not implemented (rot=%g, xscale=%g, yscale=%g), falling back to a plain scaled draw\n", sprite->name ? sprite->name : "<unnamed>", (double) rot, (double) xscale, (double) yscale);
+                sprite->nsWarnedUnsupportedTransform = true;
+            }
+        } else {
+            float w = (float) sprite->width * xscale;
+            float h = (float) sprite->height * yscale;
+            float tlX = x - (float) sprite->originX * xscale;
+            float tlY = y - (float) sprite->originY * yscale;
+            Renderer_drawSpriteNineSlice(renderer, spriteIndex, subimg, tlX, tlY, w, h, color, alpha);
+            return;
+        }
+    }
+
     renderer->vtable->drawSprite(renderer, tpagIndex, x, y, (float) sprite->originX, (float) sprite->originY, xscale, yscale, rot, color, alpha);
 }
 
@@ -206,6 +234,80 @@ static void Renderer_drawSpritePartExt(Renderer* renderer, int32_t spriteIndex, 
     if (0 >= width || 0 >= height) return;
 
     renderer->vtable->drawSpritePart(renderer, tpagIndex, left, top, width, height, x, y, xscale, yscale, color, alpha);
+}
+
+// Nine-slice draw into a target rect (x, y, w, h). Stretch tile mode is implemented; Repeat/Mirror/BlankRepeat/Hide
+// fall back to Stretch and log a warning the first time each sprite hits an unsupported mode.
+static const char* Renderer_nineSliceTileModeName(uint8_t mode) {
+    switch (mode) {
+        case 0: return "Stretch";
+        case 1: return "Repeat";
+        case 2: return "Mirror";
+        case 3: return "BlankRepeat";
+        case 4: return "Hide";
+        default: return "Unknown";
+    }
+}
+
+static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y, float w, float h, uint32_t color, float alpha) {
+    DataWin* dw = renderer->dataWin;
+    if (0 > spriteIndex || dw->sprt.count <= (uint32_t) spriteIndex) return;
+    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
+
+    int32_t L = sprite->nsLeft;
+    int32_t T = sprite->nsTop;
+    int32_t R = sprite->nsRight;
+    int32_t B = sprite->nsBottom;
+    int32_t sw = (int32_t) sprite->width;
+    int32_t sh = (int32_t) sprite->height;
+    int32_t srcCW = sw - L - R;
+    int32_t srcCH = sh - T - B;
+
+    // Degenerate slice (insets meet or overlap, or zero-size sprite): fall through to a plain stretch.
+    if (0 >= srcCW || 0 >= srcCH || 0 >= sw || 0 >= sh) {
+        int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
+        if (0 > tpagIndex) return;
+        TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+        renderer->vtable->drawSprite(renderer, tpagIndex, x, y, 0.0f, 0.0f, w / (float) tpag->boundingWidth, h / (float) tpag->boundingHeight, 0.0f, color, alpha);
+        return;
+    }
+
+    // Warn (once per sprite) if any tile mode is something we don't yet implement.
+    if (!sprite->nsWarnedUnsupportedMode) {
+        static const char* SLOT_NAMES[5] = { "Left", "Top", "Right", "Bottom", "Center" };
+        for (int i = 0; i < 5; i++) {
+            if (sprite->nsTileModes[i] != 0) {
+                fprintf(stderr, "[nine-slice] sprite '%s': %s tile mode '%s' is not implemented, falling back to Stretch\n", sprite->name ? sprite->name : "<unnamed>", SLOT_NAMES[i], Renderer_nineSliceTileModeName(sprite->nsTileModes[i]));
+                sprite->nsWarnedUnsupportedMode = true;
+            }
+        }
+    }
+
+    float dstCW = w - (float) (L + R);
+    float dstCH = h - (float) (T + B);
+    float xsCenter = (0 < dstCW) ? dstCW / (float) srcCW : 0.0f;
+    float ysCenter = (0 < dstCH) ? dstCH / (float) srcCH : 0.0f;
+
+    // Corners: drawn at native pixel size, anchored to the four corners of the target rect.
+    Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, 0,      0,      L, T, x,         y,         1.0f,     1.0f,     color, alpha);
+    Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, sw - R, 0,      R, T, x + w - R, y,         1.0f,     1.0f,     color, alpha);
+    Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, 0,      sh - B, L, B, x,         y + h - B, 1.0f,     1.0f,     color, alpha);
+    Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, sw - R, sh - B, R, B, x + w - R, y + h - B, 1.0f,     1.0f,     color, alpha);
+
+    // Edges: stretch only along the variable axis.
+    if (0 < dstCW) {
+        Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, 0,      srcCW, T, x + L, y,         xsCenter, 1.0f,     color, alpha);
+        Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, sh - B, srcCW, B, x + L, y + h - B, xsCenter, 1.0f,     color, alpha);
+    }
+    if (0 < dstCH) {
+        Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, 0,      T, L, srcCH, x,         y + T, 1.0f,     ysCenter, color, alpha);
+        Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, sw - R, T, R, srcCH, x + w - R, y + T, 1.0f,     ysCenter, color, alpha);
+    }
+
+    // Center: stretches on both axes.
+    if (0 < dstCW && 0 < dstCH) {
+        Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, T, srcCW, srcCH, x + L, y + T, xsCenter, ysCenter, color, alpha);
+    }
 }
 
 // Resolves a BGND index to its TPAG index.
