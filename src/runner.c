@@ -1562,6 +1562,123 @@ static void executeCollisionEvent(Runner* runner, Instance* self, Instance* othe
     vm->otherInstance = savedOtherInstance;
 }
 
+// ===[ Path Adaptation ]===
+// Advances path position and updates instance x/y (HTML5: yyInstance.js Adapt_Path, lines 2755-2881)
+// Returns true if end of path was reached (and pathSpeed != 0), to fire OTHER_END_OF_PATH event.
+static bool adaptPath(Runner* runner, Instance* inst) {
+    if (0 > inst->pathIndex) return false;
+
+    DataWin* dataWin = runner->dataWin;
+    if ((uint32_t) inst->pathIndex >= dataWin->path.count) return false;
+
+    GamePath* path = &dataWin->path.paths[inst->pathIndex];
+    if (0.0 >= path->length) return false;
+
+    bool atPathEnd = false;
+
+    GMLReal orient = inst->pathOrientation * M_PI / 180.0;
+
+    // Get current position's speed factor
+    PathPositionResult cur = GamePath_getPosition(path, inst->pathPosition);
+    GMLReal sp = cur.speed / (100.0 * inst->pathScale);
+
+    // Advance position (compute in higher precision, truncate to float on store - matches native runner)
+    inst->pathPosition = (float) (inst->pathPosition + inst->pathSpeed * sp / path->length);
+
+    // Handle end actions if position out of [0,1]
+    PathPositionResult pos0 = GamePath_getPosition(path, 0.0f);
+    if (inst->pathPosition >= 1.0f || 0.0f >= inst->pathPosition) {
+        atPathEnd = (inst->pathSpeed == 0.0f) ? false : true;
+
+        switch (inst->pathEndAction) {
+            // stop moving
+            case 0: {
+                if (inst->pathSpeed >= 0.0f) {
+                    if (inst->pathSpeed != 0.0f) {
+                        inst->pathPosition = 1.0f;
+                        inst->pathIndex = -1;
+                    }
+                } else {
+                    inst->pathPosition = 0.0f;
+                    inst->pathIndex = -1;
+                }
+                break;
+            }
+            // continue from start position (restart)
+            case 1: {
+                if (0.0f > inst->pathPosition) {
+                    inst->pathPosition += 1.0f;
+                } else {
+                    inst->pathPosition -= 1.0f;
+                }
+                break;
+            }
+            // continue from current position
+            case 2: {
+                PathPositionResult pos1 = GamePath_getPosition(path, 1.0f);
+                GMLReal xx = pos1.x - pos0.x;
+                GMLReal yy = pos1.y - pos0.y;
+                GMLReal xdif = inst->pathScale * (xx * GMLReal_cos(orient) + yy * GMLReal_sin(orient));
+                GMLReal ydif = inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
+
+                if (0.0f > inst->pathPosition) {
+                    inst->pathXStart -= (float) xdif;
+                    inst->pathYStart -= (float) ydif;
+                    inst->pathPosition += 1.0f;
+                } else {
+                    inst->pathXStart += (float) xdif;
+                    inst->pathYStart += (float) ydif;
+                    inst->pathPosition -= 1.0f;
+                }
+                break;
+            }
+            // reverse
+            case 3: {
+                if (0.0f > inst->pathPosition) {
+                    inst->pathPosition = -inst->pathPosition;
+                    inst->pathSpeed = (float) GMLReal_fabs(inst->pathSpeed);
+                } else {
+                    inst->pathPosition = 2.0f - inst->pathPosition;
+                    inst->pathSpeed = (float) -GMLReal_fabs(inst->pathSpeed);
+                }
+                break;
+            }
+            // default: stop
+            default: {
+                inst->pathPosition = 1.0f;
+                inst->pathIndex = -1;
+                break;
+            }
+        }
+    }
+
+    // Find the new position in the room
+    PathPositionResult newPos = GamePath_getPosition(path, inst->pathPosition);
+    GMLReal xx = newPos.x - pos0.x; // relative
+    GMLReal yy = newPos.y - pos0.y;
+
+    GMLReal newx = inst->pathXStart + inst->pathScale * (xx * GMLReal_cos(orient) + yy * GMLReal_sin(orient));
+    GMLReal newy = inst->pathYStart + inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
+
+    // Trick to set the direction: set hspeed/vspeed to delta, which updates direction
+    inst->hspeed = (float) (newx - inst->x);
+    inst->vspeed = (float) (newy - inst->y);
+    Instance_computeSpeedFromComponents(inst);
+
+    // Normal speed should not be used
+    inst->speed = 0.0f;
+    inst->hspeed = 0.0f;
+    inst->vspeed = 0.0f;
+
+    // Set the new position
+    inst->x = (float) newx;
+    inst->y = (float) newy;
+
+    SpatialGrid_markInstanceAsDirty(runner->spatialGrid, inst);
+
+    return atPathEnd;
+}
+
 static void dispatchCollisionEvents(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     // Iterate only the objects that have any collision event in their parent chain.
@@ -1630,12 +1747,15 @@ static void dispatchCollisionEvents(Runner* runner) {
                         if (!Collision_instancesOverlapPrecise(dataWin, self, other, bboxSelf, bboxOther)) continue;
                     }
 
-                    // Collision detected! If either instance is solid, restore both to xprevious/yprevious
-                    if (self->solid || other->solid) {
+                    // Collision detected! If either instance is solid, restore both to xprevious/yprevious.
+                    bool hadSolid = self->solid || other->solid;
+                    if (hadSolid) {
                         self->x = self->xprevious;
                         self->y = self->yprevious;
+                        if (self->pathIndex >= 0) self->pathPosition = self->pathPositionPrevious;
                         other->x = other->xprevious;
                         other->y = other->yprevious;
+                        if (other->pathIndex >= 0) other->pathPosition = other->pathPositionPrevious;
                         SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
                         SpatialGrid_markInstanceAsDirty(runner->spatialGrid, other);
                     }
@@ -1644,6 +1764,24 @@ static void dispatchCollisionEvents(Runner* runner) {
                     // And if it DOES move via GML, the variable write handlers will set it to dirty
 
                     executeCollisionEvent(runner, self, other, targetObjIndex);
+
+                    // Native parity for solids: collision event can alter path state, so run one
+                    // post-event path adaptation and apply its hspeed/vspeed step.
+                    if (hadSolid && self->active && other->active) {
+                        adaptPath(runner, self);
+                        adaptPath(runner, other);
+                        if (self->hspeed != 0.0f || self->vspeed != 0.0f) {
+                            self->x += self->hspeed;
+                            self->y += self->vspeed;
+                            SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
+                        }
+                        if (other->hspeed != 0.0f || other->vspeed != 0.0f) {
+                            other->x += other->hspeed;
+                            other->y += other->vspeed;
+                            SpatialGrid_markInstanceAsDirty(runner->spatialGrid, other);
+                        }
+                    }
+
                     // The collision event may have moved our instance, so we'll need to regenerate our self attributes!
                     selfDirty = true;
                 }
@@ -1766,123 +1904,6 @@ static void dispatchOutsideRoomEvents(Runner* runner) {
 
         arrsetlen(runner->instanceSnapshots, snapshotBase);
     }
-}
-
-// ===[ Path Adaptation ]===
-// Advances path position and updates instance x/y (HTML5: yyInstance.js Adapt_Path, lines 2755-2881)
-// Returns true if end of path was reached (and pathSpeed != 0), to fire OTHER_END_OF_PATH event.
-static bool adaptPath(Runner* runner, Instance* inst) {
-    if (0 > inst->pathIndex) return false;
-
-    DataWin* dataWin = runner->dataWin;
-    if ((uint32_t) inst->pathIndex >= dataWin->path.count) return false;
-
-    GamePath* path = &dataWin->path.paths[inst->pathIndex];
-    if (0.0 >= path->length) return false;
-
-    bool atPathEnd = false;
-
-    GMLReal orient = inst->pathOrientation * M_PI / 180.0;
-
-    // Get current position's speed factor
-    PathPositionResult cur = GamePath_getPosition(path, inst->pathPosition);
-    GMLReal sp = cur.speed / (100.0 * inst->pathScale);
-
-    // Advance position (compute in higher precision, truncate to float on store - matches native runner)
-    inst->pathPosition = (float) (inst->pathPosition + inst->pathSpeed * sp / path->length);
-
-    // Handle end actions if position out of [0,1]
-    PathPositionResult pos0 = GamePath_getPosition(path, 0.0f);
-    if (inst->pathPosition >= 1.0f || 0.0f >= inst->pathPosition) {
-        atPathEnd = (inst->pathSpeed == 0.0f) ? false : true;
-
-        switch (inst->pathEndAction) {
-            // stop moving
-            case 0: {
-                if (inst->pathSpeed >= 0.0f) {
-                    if (inst->pathSpeed != 0.0f) {
-                        inst->pathPosition = 1.0f;
-                        inst->pathIndex = -1;
-                    }
-                } else {
-                    inst->pathPosition = 0.0f;
-                    inst->pathIndex = -1;
-                }
-                break;
-            }
-            // continue from start position (restart)
-            case 1: {
-                if (0.0f > inst->pathPosition) {
-                    inst->pathPosition += 1.0f;
-                } else {
-                    inst->pathPosition -= 1.0f;
-                }
-                break;
-            }
-            // continue from current position
-            case 2: {
-                PathPositionResult pos1 = GamePath_getPosition(path, 1.0f);
-                GMLReal xx = pos1.x - pos0.x;
-                GMLReal yy = pos1.y - pos0.y;
-                GMLReal xdif = inst->pathScale * (xx * GMLReal_cos(orient) + yy * GMLReal_sin(orient));
-                GMLReal ydif = inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
-
-                if (0.0f > inst->pathPosition) {
-                    inst->pathXStart -= (float) xdif;
-                    inst->pathYStart -= (float) ydif;
-                    inst->pathPosition += 1.0f;
-                } else {
-                    inst->pathXStart += (float) xdif;
-                    inst->pathYStart += (float) ydif;
-                    inst->pathPosition -= 1.0f;
-                }
-                break;
-            }
-            // reverse
-            case 3: {
-                if (0.0f > inst->pathPosition) {
-                    inst->pathPosition = -inst->pathPosition;
-                    inst->pathSpeed = (float) GMLReal_fabs(inst->pathSpeed);
-                } else {
-                    inst->pathPosition = 2.0f - inst->pathPosition;
-                    inst->pathSpeed = (float) -GMLReal_fabs(inst->pathSpeed);
-                }
-                break;
-            }
-            // default: stop
-            default: {
-                inst->pathPosition = 1.0f;
-                inst->pathIndex = -1;
-                break;
-            }
-        }
-    }
-
-    // Find the new position in the room
-    PathPositionResult newPos = GamePath_getPosition(path, inst->pathPosition);
-    GMLReal xx = newPos.x - pos0.x; // relative
-    GMLReal yy = newPos.y - pos0.y;
-
-    GMLReal newx = inst->pathXStart + inst->pathScale * (xx * GMLReal_cos(orient) + yy * GMLReal_sin(orient));
-    GMLReal newy = inst->pathYStart + inst->pathScale * (yy * GMLReal_cos(orient) - xx * GMLReal_sin(orient));
-
-    // Trick to set the direction: set hspeed/vspeed to delta, which updates direction
-    inst->hspeed = (float) (newx - inst->x);
-    inst->vspeed = (float) (newy - inst->y);
-    Instance_computeSpeedFromComponents(inst);
-
-    // Normal speed should not be used
-    inst->speed = 0.0f;
-    inst->hspeed = 0.0f;
-    inst->vspeed = 0.0f;
-
-    // Set the new position
-    inst->x = (float) newx;
-    inst->y = (float) newy;
-
-    SpatialGrid_markInstanceAsDirty(runner->spatialGrid, inst);
-
-    return atPathEnd;
 }
 
 static void persistRoomState(Runner* runner, int32_t roomIndex) {
