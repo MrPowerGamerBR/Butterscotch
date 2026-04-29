@@ -3021,20 +3021,38 @@ static RValue executeLoop(VMContext* ctx) {
             case OP_CMP: {
                 RValue* slotA = &ctx->stack.slots[ctx->stack.top - 2];
                 RValue* slotB = &ctx->stack.slots[ctx->stack.top - 1];
+                uint8_t typeA = slotA->type;
+                uint8_t typeB = slotB->type;
 
-                // Inline fast path for INT32/INT32 because ~60% of all Cmps were INT32/INT32 during real workloads
-                if (slotA->type == RVALUE_INT32 && slotB->type == RVALUE_INT32) {
-                    int32_t a = slotA->int32;
-                    int32_t b = slotB->int32;
+                // Inline numeric fast path
+                bool aNumeric = (typeA == RVALUE_INT32 || typeA == RVALUE_REAL);
+                bool bNumeric = (typeB == RVALUE_INT32 || typeB == RVALUE_REAL);
+                if (aNumeric && bNumeric) {
                     bool result;
-                    switch (instrCmpKind(instr)) {
-                        case CMP_LT:  result = b > a;  break;
-                        case CMP_LTE: result = b >= a; break;
-                        case CMP_EQ:  result = a == b; break;
-                        case CMP_NEQ: result = a != b; break;
-                        case CMP_GTE: result = a >= b; break;
-                        case CMP_GT:  result = a > b;  break;
-                        default:      result = false;  break;
+                    if (typeA == RVALUE_INT32 && typeB == RVALUE_INT32) {
+                        int32_t a = slotA->int32;
+                        int32_t b = slotB->int32;
+                        switch (instrCmpKind(instr)) {
+                            case CMP_LT:  result = b > a;  break;
+                            case CMP_LTE: result = b >= a; break;
+                            case CMP_EQ:  result = a == b; break;
+                            case CMP_NEQ: result = a != b; break;
+                            case CMP_GTE: result = a >= b; break;
+                            case CMP_GT:  result = a > b;  break;
+                            default:      result = false;  break;
+                        }
+                    } else {
+                        GMLReal a = (typeA == RVALUE_REAL) ? slotA->real : (GMLReal) slotA->int32;
+                        GMLReal b = (typeB == RVALUE_REAL) ? slotB->real : (GMLReal) slotB->int32;
+                        switch (instrCmpKind(instr)) {
+                            case CMP_LT:  result = b > a;  break;
+                            case CMP_LTE: result = b >= a; break;
+                            case CMP_EQ:  result = a == b; break;
+                            case CMP_NEQ: result = a != b; break;
+                            case CMP_GTE: result = a >= b; break;
+                            case CMP_GT:  result = a > b;  break;
+                            default:      result = false;  break;
+                        }
                     }
                     slotA->int32 = result ? 1 : 0;
                     slotA->type = RVALUE_BOOL;
