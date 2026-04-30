@@ -218,8 +218,6 @@ typedef struct {
     int32_t nsRight;
     int32_t nsBottom;
     uint8_t nsTileModes[5];   // order: Left, Top, Right, Bottom, Center. 0=Stretch, 1=Repeat, 2=Mirror, 3=BlankRepeat, 4=Hide
-    bool nsWarnedUnsupportedMode; // log-once flag for Repeat/Mirror/BlankRepeat/Hide hits at draw time
-    bool nsWarnedUnsupportedTransform; // log-once flag for rotated/negative-scale nine-slice draws (we fall back to a plain scaled draw)
 } Sprite;
 
 typedef struct {

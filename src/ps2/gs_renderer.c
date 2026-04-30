@@ -1211,6 +1211,83 @@ static void gsDrawTiled(Renderer* renderer, int32_t tpagIndex, float originX, fl
     }
 }
 
+static void gsDrawTiledPart(Renderer* renderer, int32_t tpagIndex, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, float dstX, float dstY, float dstW, float dstH, uint32_t color, float alpha) {
+    GsRenderer* gs = (GsRenderer*) renderer;
+    DataWin* dw = renderer->dataWin;
+    if (0 > tpagIndex || (uint32_t) tpagIndex >= dw->tpag.count) return;
+
+    GSTEXTURE tex;
+    if (!setupTextureForTPAG(gs, &tex, tpagIndex)) return;
+
+    AtlasTPAGEntry* atlasEntry = &gs->atlasTPAGEntries[tpagIndex];
+    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
+
+    // Crop coords in source-page space (matching gsDrawSpritePart's coordinate system).
+    float cX = (float) atlasEntry->cropX - (float) tpag->targetX;
+    float cY = (float) atlasEntry->cropY - (float) tpag->targetY;
+    float cW = (float) atlasEntry->cropW;
+    float cH = (float) atlasEntry->cropH;
+    float ratioX = cW > 0.0f ? (float) atlasEntry->width  / cW : 1.0f;
+    float ratioY = cH > 0.0f ? (float) atlasEntry->height / cH : 1.0f;
+
+    uint8_t r, g, b;
+    if (color == 0xFFFFFFu) { r = g = b = 0x80; } else { r = BGR_R(color) >> 1; g = BGR_G(color) >> 1; b = BGR_B(color) >> 1; }
+    uint8_t a = alphaToGS(alpha);
+    u64 gsColor = GS_SETREG_RGBAQ(r, g, b, a, 0x00);
+
+    float viewBaseX = -(float) gs->viewX;
+    float viewBaseY = -(float) gs->viewY;
+    float viewScaleX = gs->scaleX;
+    float viewScaleY = gs->scaleY;
+    float viewOffX = gs->offsetX;
+    float viewOffY = gs->offsetY;
+
+    int32_t tilesY = (int32_t)(dstH / (float) srcH) + 2;
+    int32_t tilesX = (int32_t)(dstW / (float) srcW) + 2;
+
+    repeat(tilesY, iy) {
+        float rowDstY = dstY + (float) iy * (float) srcH;
+        if (rowDstY >= dstY + dstH) break;
+        int32_t rowSrcH = srcH < (int32_t)((dstY + dstH) - rowDstY) ? srcH : (int32_t)((dstY + dstH) - rowDstY);
+
+        float intY1 = cY > (float) srcY ? cY : (float) srcY;
+        float intY2 = (cY + cH) < (float)(srcY + rowSrcH) ? (cY + cH) : (float)(srcY + rowSrcH);
+        if (intY1 >= intY2) continue;
+        float clipOffY = intY1 - (float) srcY;
+        float visH = intY2 - intY1;
+        float v0 = (float) atlasEntry->atlasY + (intY1 - cY) * ratioY;
+        float v1 = v0 + visH * ratioY;
+
+        float sy0 = (rowDstY + clipOffY + viewBaseY) * viewScaleY + viewOffY;
+        float sy1 = sy0 + visH * viewScaleY;
+        float minSY = sy0 < sy1 ? sy0 : sy1;
+        float maxSY = sy0 > sy1 ? sy0 : sy1;
+        if (0.0f > maxSY || minSY > PS2_SCREEN_HEIGHT) continue;
+
+        repeat(tilesX, ix) {
+            float colDstX = dstX + (float) ix * (float) srcW;
+            if (colDstX >= dstX + dstW) break;
+            int32_t colSrcW = srcW < (int32_t)((dstX + dstW) - colDstX) ? srcW : (int32_t)((dstX + dstW) - colDstX);
+
+            float intX1 = cX > (float) srcX ? cX : (float) srcX;
+            float intX2 = (cX + cW) < (float)(srcX + colSrcW) ? (cX + cW) : (float)(srcX + colSrcW);
+            if (intX1 >= intX2) continue;
+            float clipOffX = intX1 - (float) srcX;
+            float visW = intX2 - intX1;
+            float u0 = (float) atlasEntry->atlasX + (intX1 - cX) * ratioX;
+            float u1 = u0 + visW * ratioX;
+
+            float sx0 = (colDstX + clipOffX + viewBaseX) * viewScaleX + viewOffX;
+            float sx1 = sx0 + visW * viewScaleX;
+            float minSX = sx0 < sx1 ? sx0 : sx1;
+            float maxSX = sx0 > sx1 ? sx0 : sx1;
+            if (0.0f > maxSX || minSX > PS2_SCREEN_WIDTH) continue;
+
+            gsKit_prim_sprite_texture(gs->gsGlobal, &tex, sx0, sy0, u0, v0, sx1, sy1, u1, v1, 0, gsColor);
+        }
+    }
+}
+
 static void gsDrawSpritePart(Renderer* renderer, int32_t tpagIndex, int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH, float x, float y, float xscale, float yscale, float angleDeg, float pivotX, float pivotY, uint32_t color, float alpha) {
     GsRenderer* gs = (GsRenderer*) renderer;
 
@@ -1921,6 +1998,7 @@ static RendererVtable gsVtable = {
     .gpuSetColorWriteEnable = gsGpuSetColorWriteEnable,
     .drawTile = gsDrawTile,
     .drawTiled = gsDrawTiled,
+    .drawTiledPart = gsDrawTiledPart,
 };
 
 // ===[ Public API ]===
