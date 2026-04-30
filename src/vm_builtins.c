@@ -2301,6 +2301,87 @@ static RValue builtinVariableInstanceExists(VMContext* ctx, RValue* args, int32_
     return RValue_makeBool(false);
 }
 
+// ===[ VARIABLE_STRUCTS ]===
+
+static RValue builtinVariableStructGet(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount || args[1].type != RVALUE_STRING) return RValue_makeUndefined();
+    int32_t id = RValue_toInt32(args[0]);
+    const char* name = args[1].string;
+
+    Runner* runner = (Runner*) ctx->runner;
+
+    if (id >= 100000) {
+        Instance* inst = hmget(runner->instancesById, id);
+        if (inst != nullptr && inst->active && inst->objectIndex == -1) return variableInstanceGetOn(ctx, inst, name);
+        return RValue_makeUndefined();
+    }
+
+    // Object index: return value from first matching active instance. Pop the snapshot on every return path so we don't strand a chunk in the arena.
+    int32_t snapBase = Runner_pushInstancesOfObject(runner, id);
+    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+    for (int32_t i = snapBase; snapEnd > i; i++) {
+        Instance* inst = runner->instanceSnapshots[i];
+        if (inst->active && inst->objectIndex == -1) {
+            Runner_popInstanceSnapshot(runner, snapBase);
+            return variableInstanceGetOn(ctx, inst, name);
+        }
+    }
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return RValue_makeUndefined();
+}
+
+static RValue builtinVariableStructSet(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount || args[1].type != RVALUE_STRING) return RValue_makeUndefined();
+    int32_t id = RValue_toInt32(args[0]);
+    const char* name = args[1].string;
+    RValue val = args[2];
+
+    Runner* runner = (Runner*) ctx->runner;
+
+    if (id >= 100000) {
+        // Specific instance ID
+        Instance* inst = hmget(runner->instancesById, id);
+        if (inst != nullptr && inst->active && inst->objectIndex == -1) variableInstanceSetOn(ctx, inst, name, val);
+        return RValue_makeUndefined();
+    }
+
+    // Object index: set on all active instances matching (including descendants). The setter can run user code, so iterate a snapshot.
+    int32_t snapBase = Runner_pushInstancesOfObject(runner, id);
+    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+    for (int32_t i = snapBase; snapEnd > i; i++) {
+        Instance* inst = runner->instanceSnapshots[i];
+        if (inst->active && inst->objectIndex == -1) variableInstanceSetOn(ctx, inst, name, val);
+    }
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return RValue_makeUndefined();
+}
+
+static RValue builtinVariableStructExists(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount || args[1].type != RVALUE_STRING) return RValue_makeBool(false);
+    int32_t id = RValue_toInt32(args[0]);
+    const char* name = args[1].string;
+
+    Runner* runner = (Runner*) ctx->runner;
+
+    if (id >= 100000) {
+        Instance* inst = hmget(runner->instancesById, id);
+        if (inst != nullptr && inst->active && inst->objectIndex == -1) return RValue_makeBool(variableInstanceExistsOn(ctx, inst, name));
+        return RValue_makeBool(false);
+    }
+
+    int32_t snapBase = Runner_pushInstancesOfObject(runner, id);
+    int32_t snapEnd  = (int32_t) arrlen(runner->instanceSnapshots);
+    for (int32_t i = snapBase; snapEnd > i; i++) {
+        Instance* inst = runner->instanceSnapshots[i];
+        if (inst->active && inst->objectIndex == -1) {
+            Runner_popInstanceSnapshot(runner, snapBase);
+            return RValue_makeBool(variableInstanceExistsOn(ctx, inst, name));
+        }
+    }
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return RValue_makeBool(false);
+}
+
 // ===[ METHOD ]===
 
 #if IS_BC17_OR_HIGHER_ENABLED
@@ -8105,6 +8186,9 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "variable_instance_set", builtinVariableInstanceSet);
     VM_registerBuiltin(ctx, "variable_instance_get", builtinVariableInstanceGet);
     VM_registerBuiltin(ctx, "variable_instance_exists", builtinVariableInstanceExists);
+    VM_registerBuiltin(ctx, "variable_struct_set", builtinVariableStructSet);
+    VM_registerBuiltin(ctx, "variable_struct_get", builtinVariableStructGet);
+    VM_registerBuiltin(ctx, "variable_struct_exists", builtinVariableStructExists);
 
     // Script
     VM_registerBuiltin(ctx, "script_execute", builtinScriptExecute);
