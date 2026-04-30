@@ -450,6 +450,11 @@ static int compareDrawableDepth(const void* a, const void* b) {
         if (db->tileIndex > da->tileIndex) return -1;
         if (da->tileIndex > db->tileIndex) return 1;
     }
+    // At same depth, newer instances (higher instanceId) draw FIRST (behind), older draw LAST (front).
+    if (da->type == DRAWABLE_INSTANCE && db->type == DRAWABLE_INSTANCE) {
+        if (db->instance->instanceId > da->instance->instanceId) return 1;
+        if (da->instance->instanceId > db->instance->instanceId) return -1;
+    }
     return 0;
 }
 
