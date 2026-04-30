@@ -5949,7 +5949,7 @@ static RValue builtinPlaceMeeting(VMContext* ctx, RValue* args, int32_t argCount
             for (int32_t gy = callerRange.minGridY; callerRange.maxGridY >= gy && !found; gy++) {
                 Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
                 int32_t cellLen = (int32_t) arrlen(cell);
-                for (int32_t ci = 0; cellLen > ci; ci++) {
+                repeat(cellLen, ci) {
                     Instance* other = cell[ci];
                     if (!other->active || other == caller) continue;
                     if (other->lastCollisionQueryId == queryId) continue;
@@ -6305,7 +6305,7 @@ static RValue builtinInstancePlace(VMContext* ctx, RValue* args, int32_t argCoun
             for (int32_t gy = callerRange.minGridY; callerRange.maxGridY >= gy && resultId == INSTANCE_NOONE; gy++) {
                 Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
                 int32_t cellLen = (int32_t) arrlen(cell);
-                for (int32_t ci = 0; cellLen > ci; ci++) {
+                repeat(cellLen, ci) {
                     Instance* other = cell[ci];
                     if (!other->active || other == caller) continue;
                     if (other->lastCollisionQueryId == queryId) continue;
@@ -6359,6 +6359,52 @@ static RValue builtinInstancePosition(VMContext* ctx, RValue* args, int32_t argC
     Runner_popInstanceSnapshot(runner, snapBase);
 
     return RValue_makeReal((GMLReal) resultId);
+}
+
+// position_meeting(x, y, obj) - returns true if point (x, y) is inside any instance of obj.
+static RValue builtinPositionMeeting(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeBool(false);
+
+    Runner* runner = (Runner*) ctx->runner;
+    GMLReal px = RValue_toReal(args[0]);
+    GMLReal py = RValue_toReal(args[1]);
+    int32_t target = RValue_toInt32(args[2]);
+
+    bool found = false;
+    bool filterByObject = target >= 0 && 100000 > target;
+    bool filterByInstanceId = target >= 100000;
+
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
+    SpatialGridRange range = SpatialGrid_computeCellRange(runner->spatialGrid, px, py, px, py);
+    uint32_t queryId = ++runner->collisionQueryCounter;
+
+    for (int32_t gx = range.minGridX; range.maxGridX >= gx && !found; gx++) {
+        for (int32_t gy = range.minGridY; range.maxGridY >= gy && !found; gy++) {
+            Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
+            int32_t cellLen = (int32_t) arrlen(cell);
+            repeat(cellLen, ci) {
+                Instance* other = cell[ci];
+                // Keep in mind that we DO NOT skip "self"
+                if (!other->active) continue;
+                if (other->lastCollisionQueryId == queryId) continue;
+                other->lastCollisionQueryId = queryId;
+
+                if (filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, target)) continue;
+                if (filterByInstanceId && other->instanceId != (uint32_t) target) continue;
+
+                InstanceBBox bbox = Collision_computeBBox(ctx->dataWin, other);
+                if (!bbox.valid) continue;
+
+                if (bbox.left > px || px >= bbox.right || bbox.top > py || py >= bbox.bottom) continue;
+
+                found = true;
+                break;
+            }
+        }
+    }
+
+    return RValue_makeBool(found);
 }
 
 // Misc stubs
@@ -8357,6 +8403,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "collision_point", builtinCollisionPoint);
     VM_registerBuiltin(ctx, "instance_place", builtinInstancePlace);
     VM_registerBuiltin(ctx, "instance_position", builtinInstancePosition);
+    VM_registerBuiltin(ctx, "position_meeting", builtinPositionMeeting);
     VM_registerBuiltin(ctx, "place_free", builtinPlaceFree);
     VM_registerBuiltin(ctx, "place_empty", builtinPlaceEmpty);
 
