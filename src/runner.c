@@ -849,7 +849,7 @@ static Instance* createAndInitInstance(Runner* runner, int32_t instanceId, int32
     inst->depth = objDef->depth;
     inst->maskIndex = objDef->textureMaskId;
 
-    hmput(runner->instancesToId, instanceId, inst);
+    hmput(runner->instanceById, instanceId, inst);
     arrput(runner->instances, inst);
     Runner_addInstanceToObjectLists(runner, inst);
     runner->drawableListStructureDirty = true;
@@ -889,7 +889,7 @@ static Instance** takePersistentInstances(Runner* runner) {
             }
 #endif
 
-            hmdel(runner->instancesToId, inst->instanceId);
+            hmdel(runner->instanceById, inst->instanceId);
             Instance_free(inst);
         }
     }
@@ -1171,7 +1171,7 @@ static void cleanupState(Runner* runner) {
 
     // Free all instances
     repeat(arrlen(runner->instances), i) {
-        hmdel(runner->instancesToId, runner->instances[i]->instanceId);
+        hmdel(runner->instanceById, runner->instances[i]->instanceId);
         Instance_free(runner->instances[i]);
     }
     arrfree(runner->instances);
@@ -1186,7 +1186,7 @@ static void cleanupState(Runner* runner) {
             SavedRoomState* state = &runner->savedRoomStates[i];
             int32_t savedCount = (int32_t) arrlen(state->instances);
             repeat(savedCount, j) {
-                hmdel(runner->instancesToId, state->instances[j]->instanceId);
+                hmdel(runner->instanceById, state->instances[j]->instanceId);
                 Instance_free(state->instances[j]);
             }
             arrfree(state->instances);
@@ -1200,15 +1200,15 @@ static void cleanupState(Runner* runner) {
     // Free struct instances (created via @@NewGMLObject@@). Anything still here at shutdown is leaked refs or a reference cycle - bulk free regardless of refCount.
     repeat(arrlen(runner->structInstances), i) {
         Instance* s = runner->structInstances[i];
-        hmdel(runner->instancesToId, s->instanceId);
+        hmdel(runner->instanceById, s->instanceId);
         s->structRegistryIndex = -1;
         Instance_free(s);
     }
     arrfree(runner->structInstances);
     runner->structInstances = nullptr;
 
-    hmfree(runner->instancesToId);
-    runner->instancesToId = nullptr;
+    hmfree(runner->instanceById);
+    runner->instanceById = nullptr;
     hmfree(runner->tileLayerMap);
     runner->tileLayerMap = nullptr;
     freeRuntimeLayersArray(&runner->runtimeLayers);
@@ -1490,7 +1490,7 @@ static void Runner_sweepDeadStructs(Runner* runner) {
         require(s->refCount == 1);
 
         // Remove from runner->instancesToId so future findInstanceByTarget(id) returns nullptr.
-        hmdel(runner->instancesToId, s->instanceId);
+        hmdel(runner->instanceById, s->instanceId);
 
         // O(1) swap-remove from structInstances, keeping structRegistryIndex in sync.
         int32_t lastIdx = (int32_t) arrlen(runner->structInstances) - 1;
@@ -1516,7 +1516,7 @@ void Runner_cleanupDestroyedInstances(Runner* runner) {
             runner->instances[writeIdx++] = inst;
         } else {
             Runner_removeInstanceFromObjectLists(runner, inst);
-            hmdel(runner->instancesToId, inst->instanceId);
+            hmdel(runner->instanceById, inst->instanceId);
             Instance_free(inst);
             // Cached drawables hold raw Instance* that we just freed; force a rebuild before the next draw.
             runner->drawableListStructureDirty = true;
@@ -1946,7 +1946,7 @@ static void persistRoomState(Runner* runner, int32_t roomIndex) {
     // Free any previously saved instances (from an earlier visit)
     int32_t prevSavedCount = (int32_t) arrlen(state->instances);
     repeat(prevSavedCount, i) {
-        hmdel(runner->instancesToId, state->instances[i]->instanceId);
+        hmdel(runner->instanceById, state->instances[i]->instanceId);
         Instance_free(state->instances[i]);
     }
     arrfree(state->instances);
@@ -1965,7 +1965,7 @@ static void persistRoomState(Runner* runner, int32_t roomIndex) {
         } else if (inst->active) {
             arrput(state->instances, inst);
         } else {
-            hmdel(runner->instancesToId, inst->instanceId);
+            hmdel(runner->instanceById, inst->instanceId);
             Instance_free(inst);
         }
     }

@@ -7215,7 +7215,7 @@ static RValue builtinNewGMLObject(VMContext* ctx, RValue* args, int32_t argCount
     }
 
     Instance* structInst = Instance_create(runner->nextInstanceId++, -1, 0, 0);
-    hmput(runner->instancesToId, structInst->instanceId, structInst);
+    hmput(runner->instanceById, structInst->instanceId, structInst);
     structInst->structRegistryIndex = (int32_t) arrlen(runner->structInstances);
     arrput(runner->structInstances, structInst);
     // Two refs at birth: one for the registry's implicit ref (structInstances), one for the returned RValue.

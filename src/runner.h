@@ -342,7 +342,7 @@ typedef struct Runner {
     SavedRoomState* savedRoomStates; // array of size dataWin->room.count, for persistent room support
     int32_t viewCurrent; // index of the view currently being drawn (for view_current)
     struct { char* key; int value; }* disabledObjects; // stb_ds string hashmap, nullptr = no filtering
-    struct { int key; Instance* value; }* instancesToId;
+    struct { int key; Instance* value; }* instanceById;
     bool forceDrawDepth;
     // Depth-sorted unified list of all drawables (instances + tiles + runtime layers) for the current room.
     // Active/visible filtering happens at draw time, so toggling those flags does not invalidate the cache.
