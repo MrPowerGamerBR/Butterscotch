@@ -1535,8 +1535,13 @@ static void handleMulString(VMContext* ctx, RValue a, RValue b, uint8_t resultTy
 static void handleDiv(VMContext* ctx, uint32_t instr) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
+    uint8_t type1 = instrType1(instr);
+    uint8_t type2 = instrType2(instr);
     GMLReal divisor = RValue_toReal(b);
-    requireMessageFormatted(divisor != 0.0, "VM: [%s] DoDiv :: Divide by zero", ctx->currentCodeName);
+    // In GameMaker's native runner, ONLY integer/integer division throws a hard error on zero, float/variable types rely on IEEE 754 (produces NaN)
+    if ((type1 == GML_TYPE_INT32 || type1 == GML_TYPE_INT64) && (type2 == GML_TYPE_INT32 || type2 == GML_TYPE_INT64)) {
+        requireMessageFormatted(divisor != 0.0, "VM: [%s] DoDiv :: Divide by zero", ctx->currentCodeName);
+    }
     GMLReal result = RValue_toReal(a) / divisor;
     RValue_free(&a);
     RValue_free(&b);
@@ -1547,7 +1552,7 @@ static void handleRem(VMContext* ctx, uint32_t instr) {
     RValue b = stackPop(ctx);
     RValue a = stackPop(ctx);
     int32_t ib = RValue_toInt32(b);
-    requireMessageFormatted(ib != 0.0, "VM: [%s] DoRem :: Divide by zero", ctx->currentCodeName);
+    requireMessageFormatted(ib != 0, "VM: [%s] DoRem :: Divide by zero", ctx->currentCodeName);
     int32_t result = RValue_toInt32(a) % ib;
     RValue_free(&a);
     RValue_free(&b);
