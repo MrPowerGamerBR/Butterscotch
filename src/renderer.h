@@ -96,23 +96,13 @@ static int32_t Renderer_resolveTPAGIndex(DataWin* dataWin, int32_t spriteIndex, 
     return sprite->tpagIndices[frameIndex];
 }
 
-// Convenience: draw_sprite(sprite, subimg, x, y)
-static void Renderer_drawSprite(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y) {
-    DataWin* dw = renderer->dataWin;
-    int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
-    if (0 > tpagIndex) return;
-
-    Sprite* sprite = &dw->sprt.sprites[spriteIndex];
-    renderer->vtable->drawSprite(renderer, tpagIndex, x, y, (float) sprite->originX, (float) sprite->originY, 1.0f, 1.0f, 0.0f, 0xFFFFFF, renderer->drawAlpha);
-}
-
 // Forward declaration: defined further down once drawSpritePartExt is available.
 static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y, float w, float h, uint32_t color, float alpha);
 
 // Stretched: draw_sprite_stretched(sprite, subimg, x, y, w, h)
 static void Renderer_drawSpriteStretched(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y, float w, float h, uint32_t color, float alpha) {
     DataWin* dw = renderer->dataWin;
-    if (0 <= spriteIndex && (uint32_t) spriteIndex < dw->sprt.count && dw->sprt.sprites[spriteIndex].nineSliceEnabled) {
+    if (spriteIndex >= 0 && (uint32_t) spriteIndex < dw->sprt.count && dw->sprt.sprites[spriteIndex].nineSliceEnabled) {
         Renderer_drawSpriteNineSlice(renderer, spriteIndex, subimg, x, y, w, h, color, alpha);
         return;
     }
@@ -155,51 +145,17 @@ static void Renderer_drawSpriteExt(Renderer* renderer, int32_t spriteIndex, int3
     renderer->vtable->drawSprite(renderer, tpagIndex, x, y, (float) sprite->originX, (float) sprite->originY, xscale, yscale, rot, color, alpha);
 }
 
+// Convenience: draw_sprite(sprite, subimg, x, y)
+static void Renderer_drawSprite(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x, float y) {
+    Renderer_drawSpriteExt(renderer, spriteIndex, subimg, x, y, 1.0f, 1.0f, 0.0f, 0xFFFFFF, renderer->drawAlpha);
+}
 
 static void Renderer_drawSpritePos(Renderer* renderer, int32_t spriteIndex, int32_t subimg, float x1, float y1, float x2, float y2, float x3, float y3, float x4, float y4, float alpha) {
     DataWin* dw = renderer->dataWin;
     int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
     if (0 > tpagIndex) return;
-    if (renderer->vtable->drawSpritePos == nullptr) return;
 
     renderer->vtable->drawSpritePos(renderer, tpagIndex, x1, y1, x2, y2, x3, y3, x4, y4, alpha);
-}
-
-
-
-// Partial draw: draw_sprite_part(sprite, subimg, left, top, width, height, x, y)
-static void Renderer_drawSpritePart(Renderer* renderer, int32_t spriteIndex, int32_t subimg, int32_t left, int32_t top, int32_t width, int32_t height, float x, float y) {
-    DataWin* dw = renderer->dataWin;
-    int32_t tpagIndex = Renderer_resolveTPAGIndex(dw, spriteIndex, subimg);
-    if (0 > tpagIndex) return;
-
-    TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
-
-    // Clip region to TPAG bounds (matching HTML5 Graphics_DrawPart logic)
-    // left/top are in original sprite space; targetX/targetY is where cropped data starts
-    if (left < tpag->targetX) {
-        int32_t off = tpag->targetX - left;
-        x += (float) off;
-        width -= off;
-        left = 0;
-    } else {
-        left -= tpag->targetX;
-    }
-
-    if (top < tpag->targetY) {
-        int32_t off = tpag->targetY - top;
-        y += (float) off;
-        height -= off;
-        top = 0;
-    } else {
-        top -= tpag->targetY;
-    }
-
-    if (width > tpag->sourceWidth - left) width = tpag->sourceWidth - left;
-    if (height > tpag->sourceHeight - top) height = tpag->sourceHeight - top;
-    if (0 >= width || 0 >= height) return;
-
-    renderer->vtable->drawSpritePart(renderer, tpagIndex, left, top, width, height, x, y, 1.0f, 1.0f, 0xFFFFFF, renderer->drawAlpha);
 }
 
 // Draws part of a sprite with extended parameters (scale, color, alpha)
@@ -211,7 +167,7 @@ static void Renderer_drawSpritePartExt(Renderer* renderer, int32_t spriteIndex, 
     TexturePageItem* tpag = &dw->tpag.items[tpagIndex];
 
     // Clip region to TPAG bounds (same as Renderer_drawSpritePart)
-    if (left < tpag->targetX) {
+    if (tpag->targetX > left) {
         int32_t off = tpag->targetX - left;
         x += (float) off * xscale;
         width -= off;
@@ -220,7 +176,7 @@ static void Renderer_drawSpritePartExt(Renderer* renderer, int32_t spriteIndex, 
         left -= tpag->targetX;
     }
 
-    if (top < tpag->targetY) {
+    if (tpag->targetY > top) {
         int32_t off = tpag->targetY - top;
         y += (float) off * yscale;
         height -= off;
@@ -234,6 +190,11 @@ static void Renderer_drawSpritePartExt(Renderer* renderer, int32_t spriteIndex, 
     if (0 >= width || 0 >= height) return;
 
     renderer->vtable->drawSpritePart(renderer, tpagIndex, left, top, width, height, x, y, xscale, yscale, color, alpha);
+}
+
+// Partial draw: draw_sprite_part(sprite, subimg, left, top, width, height, x, y)
+static void Renderer_drawSpritePart(Renderer* renderer, int32_t spriteIndex, int32_t subimg, int32_t left, int32_t top, int32_t width, int32_t height, float x, float y) {
+    Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, left, top, width, height, x, y, 1.0f, 1.0f, 0xFFFFFF, renderer->drawAlpha);
 }
 
 // Nine-slice draw into a target rect (x, y, w, h). Stretch tile mode is implemented; Repeat/Mirror/BlankRepeat/Hide
@@ -275,7 +236,7 @@ static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex
     // Warn (once per sprite) if any tile mode is something we don't yet implement.
     if (!sprite->nsWarnedUnsupportedMode) {
         static const char* SLOT_NAMES[5] = { "Left", "Top", "Right", "Bottom", "Center" };
-        for (int i = 0; i < 5; i++) {
+        repeat(5, i) {
             if (sprite->nsTileModes[i] != 0) {
                 fprintf(stderr, "[nine-slice] sprite '%s': %s tile mode '%s' is not implemented, falling back to Stretch\n", sprite->name ? sprite->name : "<unnamed>", SLOT_NAMES[i], Renderer_nineSliceTileModeName(sprite->nsTileModes[i]));
                 sprite->nsWarnedUnsupportedMode = true;
@@ -285,8 +246,8 @@ static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex
 
     float dstCW = w - (float) (L + R);
     float dstCH = h - (float) (T + B);
-    float xsCenter = (0 < dstCW) ? dstCW / (float) srcCW : 0.0f;
-    float ysCenter = (0 < dstCH) ? dstCH / (float) srcCH : 0.0f;
+    float xsCenter = (dstCW > 0) ? dstCW / (float) srcCW : 0.0f;
+    float ysCenter = (dstCH > 0) ? dstCH / (float) srcCH : 0.0f;
 
     // Corners: drawn at native pixel size, anchored to the four corners of the target rect.
     Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, 0,      0,      L, T, x,         y,         1.0f,     1.0f,     color, alpha);
@@ -295,17 +256,17 @@ static void Renderer_drawSpriteNineSlice(Renderer* renderer, int32_t spriteIndex
     Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, sw - R, sh - B, R, B, x + w - R, y + h - B, 1.0f,     1.0f,     color, alpha);
 
     // Edges: stretch only along the variable axis.
-    if (0 < dstCW) {
+    if (dstCW > 0) {
         Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, 0,      srcCW, T, x + L, y,         xsCenter, 1.0f,     color, alpha);
         Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, sh - B, srcCW, B, x + L, y + h - B, xsCenter, 1.0f,     color, alpha);
     }
-    if (0 < dstCH) {
+    if (dstCH > 0) {
         Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, 0,      T, L, srcCH, x,         y + T, 1.0f,     ysCenter, color, alpha);
         Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, sw - R, T, R, srcCH, x + w - R, y + T, 1.0f,     ysCenter, color, alpha);
     }
 
     // Center: stretches on both axes.
-    if (0 < dstCW && 0 < dstCH) {
+    if (dstCW > 0 && dstCH > 0) {
         Renderer_drawSpritePartExt(renderer, spriteIndex, subimg, L, T, srcCW, srcCH, x + L, y + T, xsCenter, ysCenter, color, alpha);
     }
 }
@@ -326,15 +287,21 @@ static int32_t Renderer_resolveSpriteTPAGIndex(DataWin* dataWin, int32_t sprtInd
 
 // Resolves a SPRT or BGND index to a TPAG index
 static int32_t Renderer_resolveObjectTPAGIndex(DataWin* dataWin, RoomTile *tile) {
-    if(!tile->useSpriteDefinition)
+    if (!tile->useSpriteDefinition)
         return Renderer_resolveBackgroundTPAGIndex(dataWin, tile->backgroundDefinition);
     else
         return Renderer_resolveSpriteTPAGIndex(dataWin, tile->backgroundDefinition);
 }
 
-// Shared fallback for tiled draws.
-// Both Renderer_drawSpriteTiled and Renderer_drawBackgroundTiled call this when the platform doesn't expose a specialized vtable->drawTiled.
-static void Renderer_drawTiledFallback(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
+// Tiled draws.
+// This will use a specialized vtable->drawTiled implementation, but if it doesn't, it will fall back to "manual" tiled rendering.
+static void Renderer_drawTiled(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha) {
+    // Use the renderer's fast drawTiled path if it has one
+    if (renderer->vtable->drawTiled != nullptr) {
+        renderer->vtable->drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, tileX, tileY, roomW, roomH, color, alpha);
+        return;
+    }
+
     TexturePageItem* tpag = &renderer->dataWin->tpag.items[tpagIndex];
 
     float axScale = fabsf(xscale);
@@ -373,11 +340,7 @@ static void Renderer_drawBackgroundTiled(Renderer* renderer, int32_t tpagIndex, 
     DataWin* dw = renderer->dataWin;
     if (0 > tpagIndex || (uint32_t) tpagIndex >= dw->tpag.count) return;
 
-    if (renderer->vtable->drawTiled != nullptr) {
-        renderer->vtable->drawTiled(renderer, tpagIndex, 0.0f, 0.0f, bgX, bgY, 1.0f, 1.0f, tileX, tileY, roomW, roomH, 0xFFFFFFu, alpha);
-        return;
-    }
-    Renderer_drawTiledFallback(renderer, tpagIndex, 0.0f, 0.0f, bgX, bgY, 1.0f, 1.0f, tileX, tileY, roomW, roomH, 0xFFFFFFu, alpha);
+    Renderer_drawTiled(renderer, tpagIndex, 0.0f, 0.0f, bgX, bgY, 1.0f, 1.0f, tileX, tileY, roomW, roomH, 0xFFFFFFu, alpha);
 }
 
 // Draws a tiled sprite across the room
@@ -390,11 +353,7 @@ static void Renderer_drawSpriteTiled(Renderer* renderer, int32_t spriteIndex, in
     float originX = (float) sprite->originX;
     float originY = (float) sprite->originY;
 
-    if (renderer->vtable->drawTiled != nullptr) {
-        renderer->vtable->drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
-        return;
-    }
-    Renderer_drawTiledFallback(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
+    Renderer_drawTiled(renderer, tpagIndex, originX, originY, x, y, xscale, yscale, true, true, roomW, roomH, color, alpha);
 }
 
 // Default draw: draws instance's sprite using its image_* properties
