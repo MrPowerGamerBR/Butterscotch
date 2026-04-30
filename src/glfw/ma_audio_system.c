@@ -119,6 +119,14 @@ static void maDestroy(AudioSystem* audio) {
         }
     }
 
+    // Free loaded audio groups. The main data.win is owned by the caller, so skip index 0.
+    if (arrlen(ma->base.audioGroups) > 1) {
+        for (int32_t i = 1; i < (int32_t) arrlen(ma->base.audioGroups); i++) {
+            DataWin_free(ma->base.audioGroups[i]);
+        }
+    }
+    arrfree(ma->base.audioGroups);
+
     ma_engine_uninit(&ma->engine);
     free(ma);
 }
