@@ -15728,6 +15728,46 @@ static RValue builtin_path_exists(VMContext* ctx, RValue* args, int32_t argCount
     return RValue_makeBool(getPath(ctx->runner, RValue_toInt32(args[0])) != nullptr);
 }
 
+// draw_path(index, x, y, absolute) - draws a path outline using the current draw color/alpha
+static RValue builtin_draw_path(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    int32_t index = RValue_toInt32(args[0]);
+    GMLReal x = RValue_toReal(args[1]);
+    GMLReal y = RValue_toReal(args[2]);
+    bool absolute = RValue_toBool(args[3]);
+
+    GamePath* path = getPath(runner, index);
+    if (path == nullptr) return RValue_makeUndefined();
+
+    PathPositionResult origin = GamePath_getPosition(path, 0.0f);
+
+    float xoff = absolute ? 0.0f : x - origin.x;
+    float yoff = absolute ? 0.0f : y - origin.y;
+
+    if (runner->applyOffsetForPrimitives) {
+        xoff += 1.0f;
+        yoff += 1.0f;
+    }
+
+    int maxsteps = (int) roundf(path->length / 4.0f);
+    if (maxsteps <= 0) return RValue_makeUndefined();
+
+    PathPositionResult prev = GamePath_getPosition(path, 0.0f);
+    for (int i = 1; i <= maxsteps; i++) {
+        float t = (float) i / (float) maxsteps;
+        PathPositionResult cur = GamePath_getPosition(path, t);
+        runner->renderer->vtable->drawLine(runner->renderer,
+            xoff + prev.x, yoff + prev.y,
+            xoff + cur.x, yoff + cur.y,
+            1.0f, runner->renderer->drawColor, runner->renderer->drawAlpha);
+        prev = cur;
+    }
+
+    return RValue_makeUndefined();
+}
+
 // path_add() - create a new empty path, return its index
 static RValue builtin_path_add(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
@@ -19747,6 +19787,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_roundrect_color_ext", builtin_draw_roundrect_color_ext);
     VM_registerBuiltin(ctx, "draw_set_circle_precision", builtin_draw_set_circle_precision);
     VM_registerBuiltin(ctx, "draw_get_circle_precision", builtin_draw_get_circle_precision);
+    VM_registerBuiltin(ctx, "draw_path", builtin_draw_path);
     VM_registerBuiltin(ctx, "draw_set_colour", builtin_draw_set_colour);
     VM_registerBuiltin(ctx, "draw_get_colour", builtin_draw_get_colour);
     VM_registerBuiltin(ctx, "draw_get_color", builtin_draw_get_color);
