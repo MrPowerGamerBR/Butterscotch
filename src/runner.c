@@ -2337,6 +2337,16 @@ Runner* Runner_getCurrentRunner(void) {
     return g_currentRunner;
 }
 
+void Runner_setPaused(Runner* runner, bool paused) {
+    if (runner != nullptr) {
+        runner->paused = paused;
+    }
+}
+
+bool Runner_isPaused(Runner* runner) {
+    return runner != nullptr && runner->paused;
+}
+
 Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem, uint32_t randomSeed) {
     requireNotNull(dataWin);
     requireNotNull(vm);

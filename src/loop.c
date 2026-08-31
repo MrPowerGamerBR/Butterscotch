@@ -1030,8 +1030,7 @@ int loop(CommandLineArgs args, const char *argv0) {
                 }
             }
 
-            // Run the game step if the game is paused
-            bool shouldStep = true;
+            bool shouldStep = !runner->paused;
             if (runner->debugMode && debugPaused) {
                 shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O');
                 if (shouldStep) logDebug("Frame advance (frame %d)\n", runner->frameCount);
