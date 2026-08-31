@@ -11,6 +11,27 @@ extern "C" {
     int guiMainImpl(int argc, char* argv[]);
 }
 
+static QString chooseGameFile(QWidget* parent) {
+    QFileDialog dialog(parent,
+                       "Open a data.win or game.unx file",
+                       QDir::homePath(),
+                       "Game files (*.win *.unx);;All files (*)");
+    dialog.setWindowModality(Qt::WindowModal);
+    dialog.setFileMode(QFileDialog::ExistingFile);
+    dialog.setAcceptMode(QFileDialog::AcceptOpen);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return {};
+    }
+
+    const QStringList selectedFiles = dialog.selectedFiles();
+    if (selectedFiles.isEmpty()) {
+        return {};
+    }
+
+    return selectedFiles.constFirst();
+}
+
 static int launchGameFromPath(const QString& path) {
     QByteArray program = QByteArray("butterscotch");
     QByteArray gamePath = path.toUtf8();
@@ -30,12 +51,7 @@ int main(int argc, char* argv[]) {
     QAction* openAction = fileMenu->addAction("&Open data.win...");
 
     QObject::connect(openAction, &QAction::triggered, [&hostWindow]() {
-        QString selectedPath = QFileDialog::getOpenFileName(
-            &hostWindow,
-            "Open a data.win or game.unx file",
-            QDir::homePath(),
-            "Game files (*.win *.unx);;All files (*)"
-        );
+        QString selectedPath = chooseGameFile(&hostWindow);
 
         if (selectedPath.isEmpty()) {
             return;
@@ -49,12 +65,7 @@ int main(int argc, char* argv[]) {
 
     QTimer::singleShot(0, [&hostWindow, argc, argv]() {
         if (argc <= 1) {
-            QString selectedPath = QFileDialog::getOpenFileName(
-                &hostWindow,
-                "Open a data.win or game.unx file",
-                QDir::homePath(),
-                "Game files (*.win *.unx);;All files (*)"
-            );
+            QString selectedPath = chooseGameFile(&hostWindow);
 
             if (selectedPath.isEmpty()) {
                 QCoreApplication::exit(0);

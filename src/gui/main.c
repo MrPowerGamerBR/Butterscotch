@@ -557,11 +557,6 @@ int guiMainImpl(int argc, char* argv[]) {
 
     CommandLineArgs args;
     parseCommandLineArgs(&args, argc, argv);
-    if (args.dataWinPath == nullptr) {
-        freeCommandLineArgs(&args);
-        return 0;
-    }
-
     logColour = !args.disableLogColours;
     int ret = loop(args, argv[0]);
     freeCommandLineArgs(&args);
