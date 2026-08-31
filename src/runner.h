@@ -565,6 +565,19 @@ typedef struct {
 typedef struct { char* key; int32_t value; } AssetsByNameEntry;
 typedef struct { char* key; int value; } DisabledObjEntry;
 
+typedef struct {
+    char* name;
+    char* value;
+    int32_t instanceId;
+    int32_t objectIndex;
+    bool isArray;
+} RunnerVariableEntry;
+
+typedef struct {
+    RunnerVariableEntry* entries;
+    size_t count;
+} RunnerVariableSnapshot;
+
 struct Runner {
     DataWin* dataWin;
     VMContext* vmContext;
@@ -788,6 +801,11 @@ const char* Runner_getEventName(int32_t eventType, int32_t eventSubtype);
 void Runner_reset(Runner* runner);
 Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem, uint32_t randomSeed);
 void Runner_setGameArgs(Runner* runner, char** argv, int32_t argc);
+char* Runner_getLiveVariableString(Runner* runner, int32_t instanceId, const char* name);
+void Runner_snapshotGlobalVariables(Runner* runner, RunnerVariableSnapshot* out);
+void Runner_snapshotInstanceVariables(Runner* runner, int32_t instanceId, RunnerVariableSnapshot* out);
+void Runner_freeVariableSnapshot(RunnerVariableSnapshot* snapshot);
+Runner* Runner_getCurrentRunner(void);
 void Runner_initFirstRoom(Runner* runner);
 void Runner_step(Runner* runner);
 void Runner_handlePendingRoomChange(Runner* runner);
