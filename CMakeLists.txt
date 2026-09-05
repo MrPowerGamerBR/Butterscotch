@@ -429,7 +429,11 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "gui" OR PLATFORM STREQUAL "vita
 
     if(PLATFORM STREQUAL "gui")
         add_compile_definitions(USE_QT6_HOST_WINDOW)
-        target_sources(butterscotch PRIVATE src/gui/qt_host.cpp)
+        target_sources(butterscotch PRIVATE
+            src/gui/qt_host.cpp
+            src/gui/qt_log_tab.cpp
+            src/gui/qt_variables_tab.cpp
+        )
         target_link_libraries(butterscotch PRIVATE Qt6::Widgets)
     endif()
 
