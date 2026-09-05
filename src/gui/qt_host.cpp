@@ -1,6 +1,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDir>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -29,6 +30,8 @@ static QString g_processOutputBuffer;
 static bool g_variableSnapshotRequestPending = false;
 static bool g_variablesTabOpen = false;
 static QTimer* g_variableSnapshotTimeoutTimer = nullptr;
+static GamesTab* g_gamesTab = nullptr;
+static QDateTime g_gameStartedAt;
 
 static constexpr int kLiveVariableRefreshMode = 0;
 static constexpr int kEverySecondVariableRefreshMode = 1;
@@ -51,6 +54,10 @@ static void stopGameProcess() {
         return;
     }
 
+    if (g_gamesTab != nullptr && g_gameStartedAt.isValid()) {
+        g_gamesTab->addPlayedTime(g_lastGamePath, g_gameStartedAt.secsTo(QDateTime::currentDateTime()));
+        g_gameStartedAt = {};
+    }
     if (g_gameProcess->state() != QProcess::NotRunning) {
         g_gameProcess->terminate();
         if (!g_gameProcess->waitForFinished(1000)) {
@@ -110,8 +117,12 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
     variablesTab->setProcessRunning(false);
     g_gameProcess->setProcessChannelMode(QProcess::MergedChannels);
     QObject::connect(g_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                     [variablesTab](int exitCode, QProcess::ExitStatus status) {
+                     [variablesTab, path](int exitCode, QProcess::ExitStatus status) {
                          Q_UNUSED(status);
+                         if (g_gamesTab != nullptr && g_gameStartedAt.isValid()) {
+                             g_gamesTab->addPlayedTime(path, g_gameStartedAt.secsTo(QDateTime::currentDateTime()));
+                             g_gameStartedAt = {};
+                         }
                          variablesTab->setProcessRunning(false);
                          g_variableSnapshotRequestPending = false;
                          if (g_variableSnapshotTimeoutTimer != nullptr) {
@@ -151,7 +162,9 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
             }
         }
     });
-    QObject::connect(g_gameProcess, &QProcess::started, [variablesTab]() {
+    QObject::connect(g_gameProcess, &QProcess::started, [variablesTab, path]() {
+        g_gameStartedAt = QDateTime::currentDateTime();
+        g_gamesTab->recordGameStarted(path);
         variablesTab->setProcessRunning(true);
         QTimer::singleShot(150, [variablesTab]() {
             if (variablesTab->refreshModeSelector()->currentIndex() != kLiveVariableRefreshMode) {
@@ -228,6 +241,7 @@ int main(int argc, char* argv[]) {
     auto* gamesTab = new GamesTab([variablesTab, gameLog, tabs](const QString& path) {
         launchGameFromPathProcess(path, variablesTab, gameLog, tabs);
     }, &hostWindow);
+    g_gamesTab = gamesTab;
     tabs->addTab(gamesTab, "Games");
     tabs->addTab(gameLog, "Log");
     tabs->addTab(variablesTab, "Variables");
