@@ -4,6 +4,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QInputDialog>
+#include <QMenu>
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
@@ -63,6 +65,7 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
     gameTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     gameTable_->setSelectionMode(QAbstractItemView::SingleSelection);
     gameTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    gameTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     gameTable_->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     gameTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     gameTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -79,11 +82,37 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
     connect(gameTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         launchGame_(gameTable_->item(row, 0)->data(Qt::UserRole).toString());
     });
+    connect(gameTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
+        QTableWidgetItem* item = gameTable_->itemAt(position);
+        if (item == nullptr) {
+            return;
+        }
+
+        const int row = item->row();
+        gameTable_->selectRow(row);
+        QMenu menu(this);
+        QAction* renameAction = menu.addAction("Rename...");
+        QAction* removeAction = menu.addAction("Remove");
+        QAction* selectedAction = menu.exec(gameTable_->viewport()->mapToGlobal(position));
+        if (selectedAction == renameAction) {
+            QTableWidgetItem* titleItem = gameTable_->item(row, 0);
+            bool accepted = false;
+            const QString name = QInputDialog::getText(this, "Rename game", "Game name:",
+                                                       QLineEdit::Normal, titleItem->text(), &accepted);
+            if (accepted && !name.trimmed().isEmpty()) {
+                titleItem->setText(name);
+                saveGames();
+            }
+        } else if (selectedAction == removeAction) {
+            gameTable_->removeRow(row);
+            saveGames();
+        }
+    });
 
     loadGames();
 }
 
-void GamesTab::addGame(const QString& path, bool save) {
+void GamesTab::addGame(const QString& path, const QString& name, bool save) {
     if (path.isEmpty()) {
         return;
     }
@@ -96,7 +125,7 @@ void GamesTab::addGame(const QString& path, bool save) {
     }
 
     const QFileInfo gameFile(path);
-    const QString gameTitle = gameTitleFromDataWin(path);
+    const QString gameTitle = name.isEmpty() ? gameTitleFromDataWin(path) : name;
     const int row = gameTable_->rowCount();
     gameTable_->insertRow(row);
     auto* titleItem = new QTableWidgetItem(gameTitle.isEmpty() ? gameFile.completeBaseName() : gameTitle);
@@ -115,12 +144,18 @@ void GamesTab::addGame(const QString& path, bool save) {
 
 void GamesTab::loadGames() {
     QSettings settings;
+    bool needsSave = false;
     const int gameCount = settings.beginReadArray("games");
     for (int index = 0; index < gameCount; ++index) {
         settings.setArrayIndex(index);
-        addGame(settings.value("path").toString(), false);
+        const QString name = settings.value("name").toString();
+        needsSave |= name.isEmpty();
+        addGame(settings.value("path").toString(), name, false);
     }
     settings.endArray();
+    if (needsSave) {
+        saveGames();
+    }
 }
 
 void GamesTab::saveGames() const {
@@ -128,6 +163,7 @@ void GamesTab::saveGames() const {
     settings.beginWriteArray("games", gameTable_->rowCount());
     for (int row = 0; row < gameTable_->rowCount(); ++row) {
         settings.setArrayIndex(row);
+        settings.setValue("name", gameTable_->item(row, 0)->text());
         settings.setValue("path", gameTable_->item(row, 0)->data(Qt::UserRole).toString());
     }
     settings.endArray();

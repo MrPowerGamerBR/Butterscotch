@@ -12,7 +12,7 @@ public:
     explicit GamesTab(std::function<void(const QString&)> launchGame, QWidget* parent = nullptr);
 
 private:
-    void addGame(const QString& path, bool save = true);
+    void addGame(const QString& path, const QString& name = {}, bool save = true);
     void loadGames();
     void saveGames() const;
 
