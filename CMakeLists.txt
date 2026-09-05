@@ -182,6 +182,9 @@ else()
 endif()
 # Platform specific files builds
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
+if(PLATFORM STREQUAL "gui")
+    list(APPEND PLATFORM_SOURCES src/cli/command_line_args.c)
+endif()
 
 if(PLATFORM STREQUAL "android")
     add_library(butterscotch SHARED ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
