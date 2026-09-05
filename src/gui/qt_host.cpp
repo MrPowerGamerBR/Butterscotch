@@ -209,6 +209,8 @@ int main(int argc, char* argv[]) {
     }
 
     QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName("Butterscotch");
+    QCoreApplication::setApplicationName("Butterscotch");
 
     QWidget hostWindow;
     hostWindow.resize(960, 540);
