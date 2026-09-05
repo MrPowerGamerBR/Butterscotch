@@ -13,10 +13,12 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTableView>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -36,6 +38,7 @@ static QProcess* g_gameProcess = nullptr;
 static QString g_lastGamePath;
 static QString g_lastProcessSnapshot;
 static QString g_processOutputBuffer;
+static QString g_processErrorBuffer;
 static bool g_variableSnapshotRequestPending = false;
 static QTimer* g_variableSnapshotTimeoutTimer = nullptr;
 
@@ -70,6 +73,16 @@ static void stopGameProcess() {
     delete g_gameProcess;
     g_gameProcess = nullptr;
     g_variableSnapshotRequestPending = false;
+}
+
+static void appendGameLog(QPlainTextEdit* logOutput, const QString& text) {
+    if (logOutput == nullptr || text.isEmpty()) {
+        return;
+    }
+
+    logOutput->moveCursor(QTextCursor::End);
+    logOutput->insertPlainText(text);
+    logOutput->moveCursor(QTextCursor::End);
 }
 
 struct VariableTableRow {
@@ -245,7 +258,7 @@ static QString chooseGameFile(QWidget* parent) {
     return selectedFiles.constFirst();
 }
 
-static void launchGameFromPathProcess(const QString& path, QTableView* tableView = nullptr, LiveVariableTableModel* model = nullptr, QLineEdit* searchBox = nullptr, QComboBox* refreshModeSelector = nullptr) {
+static void launchGameFromPathProcess(const QString& path, QTableView* tableView = nullptr, LiveVariableTableModel* model = nullptr, QLineEdit* searchBox = nullptr, QComboBox* refreshModeSelector = nullptr, QPlainTextEdit* logOutput = nullptr) {
     if (path.isEmpty()) {
         return;
     }
@@ -257,7 +270,11 @@ static void launchGameFromPathProcess(const QString& path, QTableView* tableView
     g_gameProcess = new QProcess(QCoreApplication::instance());
     g_lastProcessSnapshot.clear();
     g_processOutputBuffer.clear();
+    g_processErrorBuffer.clear();
     g_variableSnapshotRequestPending = false;
+    if (logOutput != nullptr) {
+        logOutput->clear();
+    }
     g_gameProcess->setProcessChannelMode(QProcess::SeparateChannels);
     QObject::connect(g_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                      [](int exitCode, QProcess::ExitStatus status) {
@@ -270,7 +287,7 @@ static void launchGameFromPathProcess(const QString& path, QTableView* tableView
                              qWarning() << "Game process exited with code" << exitCode;
                          }
                      });
-    QObject::connect(g_gameProcess, &QProcess::readyReadStandardOutput, [tableView, model, searchBox]() {
+    QObject::connect(g_gameProcess, &QProcess::readyReadStandardOutput, [tableView, model, searchBox, logOutput]() {
         QByteArray data = g_gameProcess->readAllStandardOutput();
         if (data.isEmpty()) {
             return;
@@ -289,6 +306,7 @@ static void launchGameFromPathProcess(const QString& path, QTableView* tableView
                 line.chop(1);
             }
             if (!line.startsWith(QStringLiteral("BS_VARS_JSON "))) {
+                appendGameLog(logOutput, line + QStringLiteral("\n"));
                 continue;
             }
             const QString payload = line.mid(QStringLiteral("BS_VARS_JSON ").size());
@@ -306,6 +324,27 @@ static void launchGameFromPathProcess(const QString& path, QTableView* tableView
             } else {
                 refreshVariableTableState(tableView, model);
             }
+        }
+    });
+    QObject::connect(g_gameProcess, &QProcess::readyReadStandardError, [logOutput]() {
+        const QByteArray data = g_gameProcess->readAllStandardError();
+        if (data.isEmpty()) {
+            return;
+        }
+
+        g_processErrorBuffer += QString::fromUtf8(data);
+        while (true) {
+            const qsizetype newlineIndex = g_processErrorBuffer.indexOf('\n');
+            if (newlineIndex < 0) {
+                break;
+            }
+
+            QString line = g_processErrorBuffer.left(newlineIndex);
+            g_processErrorBuffer.remove(0, newlineIndex + 1);
+            if (line.endsWith('\r')) {
+                line.chop(1);
+            }
+            appendGameLog(logOutput, line + QStringLiteral("\n"));
         }
     });
     QObject::connect(g_gameProcess, &QProcess::started, [tableView, model, searchBox, refreshModeSelector]() {
@@ -401,6 +440,11 @@ int main(int argc, char* argv[]) {
     refreshModeSelector->addItem("Update every second");
     refreshModeSelector->addItem("Button only");
 
+    QPlainTextEdit* gameLog = new QPlainTextEdit(&hostWindow);
+    gameLog->setReadOnly(true);
+    gameLog->setLineWrapMode(QPlainTextEdit::NoWrap);
+    gameLog->setPlaceholderText("Game log output will appear here...");
+
     QTimer variableSnapshotTimer(&hostWindow);
     variableSnapshotTimer.setInterval(100);
 
@@ -431,10 +475,10 @@ int main(int argc, char* argv[]) {
     });
 
     QPushButton* refreshButton = new QPushButton("Refresh variables", &hostWindow);
-    QObject::connect(refreshButton, &QPushButton::clicked, [variableTable, variableModel, variableSearch, refreshModeSelector]() {
+    QObject::connect(refreshButton, &QPushButton::clicked, [variableTable, variableModel, variableSearch, refreshModeSelector, gameLog]() {
         if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
             if (!g_lastGamePath.isEmpty()) {
-                launchGameFromPathProcess(g_lastGamePath, variableTable, variableModel, variableSearch, refreshModeSelector);
+                launchGameFromPathProcess(g_lastGamePath, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog);
             }
         }
         requestVariableSnapshot();
@@ -467,23 +511,32 @@ int main(int argc, char* argv[]) {
     toolbarLayout->addWidget(refreshModeSelector);
     toolbarLayout->addWidget(refreshButton);
 
-    layout->addWidget(menuBar);
-    layout->addLayout(toolbarLayout);
-    layout->addWidget(variableTable);
+    QWidget* variablesTab = new QWidget(&hostWindow);
+    QVBoxLayout* variablesLayout = new QVBoxLayout(variablesTab);
+    variablesLayout->addLayout(toolbarLayout);
+    variablesLayout->addWidget(variableTable);
 
-    QObject::connect(openAction, &QAction::triggered, [&hostWindow, variableTable, variableModel, variableSearch, refreshModeSelector]() {
+    QTabWidget* tabs = new QTabWidget(&hostWindow);
+    tabs->addTab(gameLog, "Log");
+    tabs->addTab(variablesTab, "Variables");
+    tabs->setCurrentWidget(gameLog);
+
+    layout->addWidget(menuBar);
+    layout->addWidget(tabs);
+
+    QObject::connect(openAction, &QAction::triggered, [&hostWindow, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog]() {
         QString selectedPath = chooseGameFile(&hostWindow);
         if (selectedPath.isEmpty()) {
             return;
         }
 
         g_lastGamePath = selectedPath;
-        launchGameFromPathProcess(selectedPath, variableTable, variableModel, variableSearch, refreshModeSelector);
+        launchGameFromPathProcess(selectedPath, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog);
     });
 
     hostWindow.show();
 
-    QTimer::singleShot(0, [&hostWindow, argc, argv, variableTable, variableModel, variableSearch, refreshModeSelector]() {
+    QTimer::singleShot(0, [&hostWindow, argc, argv, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog]() {
         if (argc <= 1) {
             QString selectedPath = chooseGameFile(&hostWindow);
             if (selectedPath.isEmpty()) {
@@ -492,14 +545,14 @@ int main(int argc, char* argv[]) {
             }
 
             g_lastGamePath = selectedPath;
-            launchGameFromPathProcess(selectedPath, variableTable, variableModel, variableSearch, refreshModeSelector);
+            launchGameFromPathProcess(selectedPath, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog);
             return;
         }
 
         QString launchPath = QString::fromLocal8Bit(argv[1]);
         g_lastGamePath = launchPath;
         populateLiveVariablesTable(variableTable, variableModel);
-        launchGameFromPathProcess(launchPath, variableTable, variableModel, variableSearch, refreshModeSelector);
+        launchGameFromPathProcess(launchPath, variableTable, variableModel, variableSearch, refreshModeSelector, gameLog);
     });
 
     return app.exec();
