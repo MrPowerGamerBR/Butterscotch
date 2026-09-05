@@ -25,7 +25,6 @@ extern "C" {
 static QProcess* g_gameProcess = nullptr;
 static QString g_lastGamePath;
 static QString g_processOutputBuffer;
-static QString g_processErrorBuffer;
 static bool g_variableSnapshotRequestPending = false;
 static bool g_variablesTabOpen = false;
 static QTimer* g_variableSnapshotTimeoutTimer = nullptr;
@@ -103,12 +102,11 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
 
     g_gameProcess = new QProcess(QCoreApplication::instance());
     g_processOutputBuffer.clear();
-    g_processErrorBuffer.clear();
     g_variableSnapshotRequestPending = false;
     logTab->clearLog();
     variablesTab->setSnapshot(QString());
     variablesTab->setProcessRunning(false);
-    g_gameProcess->setProcessChannelMode(QProcess::SeparateChannels);
+    g_gameProcess->setProcessChannelMode(QProcess::MergedChannels);
     QObject::connect(g_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                      [variablesTab](int exitCode, QProcess::ExitStatus status) {
                          Q_UNUSED(status);
@@ -149,27 +147,6 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
             if (g_variableSnapshotTimeoutTimer != nullptr) {
                 g_variableSnapshotTimeoutTimer->stop();
             }
-        }
-    });
-    QObject::connect(g_gameProcess, &QProcess::readyReadStandardError, [logTab]() {
-        const QByteArray data = g_gameProcess->readAllStandardError();
-        if (data.isEmpty()) {
-            return;
-        }
-
-        g_processErrorBuffer += QString::fromUtf8(data);
-        while (true) {
-            const qsizetype newlineIndex = g_processErrorBuffer.indexOf('\n');
-            if (newlineIndex < 0) {
-                break;
-            }
-
-            QString line = g_processErrorBuffer.left(newlineIndex);
-            g_processErrorBuffer.remove(0, newlineIndex + 1);
-            if (line.endsWith('\r')) {
-                line.chop(1);
-            }
-            logTab->appendText(line + QStringLiteral("\n"));
         }
     });
     QObject::connect(g_gameProcess, &QProcess::started, [variablesTab]() {

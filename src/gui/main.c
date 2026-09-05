@@ -577,6 +577,7 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
 }
 
 int guiMainImpl(int argc, char* argv[]) {
+    setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
     CommandLineArgs args;
