@@ -75,6 +75,7 @@ const GLuint *hostFramebuffer;
 
 #ifndef _WIN32
 #include <fcntl.h>
+#include <sys/select.h>
 #include <unistd.h>
 #else
 /* we define this ourselves because psapi.h isn't available in msvc 4.0 */
@@ -91,6 +92,64 @@ typedef struct {
     size_t PeakPagefileUsage;
 } BS_PROCESS_MEMORY_COUNTERS;
 #endif
+
+static bool hostVariableSnapshotRequested(void) {
+    static char commandBuffer[64];
+    static size_t commandLength = 0;
+    char input[64];
+    size_t inputLength = 0;
+
+#ifdef _WIN32
+    DWORD bytesAvailable = 0;
+    HANDLE inputHandle = GetStdHandle(STD_INPUT_HANDLE);
+    if (inputHandle == INVALID_HANDLE_VALUE || !PeekNamedPipe(inputHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr) || bytesAvailable == 0) {
+        return false;
+    }
+    DWORD bytesRead = 0;
+    if (!ReadFile(inputHandle, input, (DWORD)sizeof(input), &bytesRead, nullptr) || bytesRead == 0) {
+        return false;
+    }
+    inputLength = (size_t)bytesRead;
+#else
+    fd_set inputFds;
+    FD_ZERO(&inputFds);
+    FD_SET(STDIN_FILENO, &inputFds);
+    struct timeval timeout = {0, 0};
+    if (select(STDIN_FILENO + 1, &inputFds, nullptr, nullptr, &timeout) <= 0) {
+        return false;
+    }
+    ssize_t bytesRead = read(STDIN_FILENO, input, sizeof(input));
+    if (bytesRead <= 0) {
+        return false;
+    }
+    inputLength = (size_t)bytesRead;
+#endif
+
+    bool snapshotRequested = false;
+    for (size_t i = 0; i < inputLength; ++i) {
+        if (input[i] == '\n') {
+            commandBuffer[commandLength] = '\0';
+            if (strcmp(commandBuffer, "BS_REQUEST_VARS") == 0) {
+                snapshotRequested = true;
+            }
+            commandLength = 0;
+        } else if (commandLength + 1 < sizeof(commandBuffer)) {
+            commandBuffer[commandLength++] = input[i];
+        } else {
+            commandLength = 0;
+        }
+    }
+    return snapshotRequested;
+}
+
+static void dumpHostVariableSnapshot(Runner* runner) {
+    char* json = Runner_dumpGlobalVariablesJson(runner);
+    if (json != nullptr) {
+        fprintf(stdout, "BS_VARS_JSON %s\n", json);
+        fflush(stdout);
+        free(json);
+    }
+}
 
 static size_t get_used_memory(void) {
 #if defined(__linux__)
@@ -1021,6 +1080,10 @@ int loop(CommandLineArgs args, const char *argv0) {
                 continue;
             }
 
+            bool hostSnapshotRequested = args.hostVariableJson &&
+                args.hostVariableJsonOnDemand &&
+                hostVariableSnapshotRequested();
+
             // Debug key bindings
             if (runner->debugMode) {
                 // Pause
@@ -1311,6 +1374,13 @@ int loop(CommandLineArgs args, const char *argv0) {
                 if (runner->pendingRoom == -1)
                     platformSwapBuffers();
                 Runner_handlePendingRoomChange(runner);
+            }
+
+            bool shouldDumpHostVariables = args.hostVariableJson &&
+                (hostSnapshotRequested ||
+                 (!args.hostVariableJsonOnDemand && shouldStep && args.hostVariableJsonInterval > 0 && runner->frameCount % args.hostVariableJsonInterval == 0));
+            if (shouldDumpHostVariables) {
+                dumpHostVariableSnapshot(runner);
             }
 
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)) {

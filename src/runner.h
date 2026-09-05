@@ -804,6 +804,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
 void Runner_setGameArgs(Runner* runner, char** argv, int32_t argc);
 char* Runner_getLiveVariableString(Runner* runner, int32_t instanceId, const char* name);
 void Runner_snapshotGlobalVariables(Runner* runner, RunnerVariableSnapshot* out);
+char* Runner_dumpGlobalVariablesJson(Runner* runner);
 void Runner_snapshotInstanceVariables(Runner* runner, int32_t instanceId, RunnerVariableSnapshot* out);
 void Runner_setPaused(Runner* runner, bool paused);
 bool Runner_isPaused(Runner* runner);

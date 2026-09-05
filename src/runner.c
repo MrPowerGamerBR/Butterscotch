@@ -2578,6 +2578,31 @@ void Runner_snapshotGlobalVariables(Runner* runner, RunnerVariableSnapshot* out)
     Runner_snapshotMap(runner, &runner->vmContext->globalScopeInstance->selfVars, -1, STRUCT_OBJECT_INDEX, out);
 }
 
+char* Runner_dumpGlobalVariablesJson(Runner* runner) {
+    if (runner == nullptr || runner->vmContext == nullptr || runner->vmContext->globalScopeInstance == nullptr) {
+        return nullptr;
+    }
+
+    RunnerVariableSnapshot snapshot = {0};
+    Runner_snapshotGlobalVariables(runner, &snapshot);
+    JsonWriter w = JsonWriter_create();
+    JsonWriter_beginObject(&w);
+    JsonWriter_key(&w, "variables");
+    JsonWriter_beginArray(&w);
+    for (size_t i = 0; i < snapshot.count; ++i) {
+        JsonWriter_beginObject(&w);
+        JsonWriter_propertyString(&w, "name", snapshot.entries[i].name != nullptr ? snapshot.entries[i].name : "");
+        JsonWriter_propertyString(&w, "value", snapshot.entries[i].value != nullptr ? snapshot.entries[i].value : "undefined");
+        JsonWriter_endObject(&w);
+    }
+    JsonWriter_endArray(&w);
+    JsonWriter_endObject(&w);
+    char* json = JsonWriter_copyOutput(&w);
+    JsonWriter_free(&w);
+    Runner_freeVariableSnapshot(&snapshot);
+    return json;
+}
+
 void Runner_snapshotInstanceVariables(Runner* runner, int32_t instanceId, RunnerVariableSnapshot* out) {
     if (runner == nullptr || out == nullptr || runner->vmContext == nullptr) {
         return;

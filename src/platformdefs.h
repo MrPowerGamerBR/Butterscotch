@@ -70,6 +70,9 @@ typedef struct {
     FrameSetEntry* dumpFrames;
     FrameSetEntry* dumpJsonFrames;
     const char* dumpJsonFilePattern;
+    bool hostVariableJson;
+    bool hostVariableJsonOnDemand;
+    int hostVariableJsonInterval;
 #ifdef ENABLE_VM_TRACING
     StringBooleanEntry* varReadsToBeTraced;
     StringBooleanEntry* varWritesToBeTraced;
