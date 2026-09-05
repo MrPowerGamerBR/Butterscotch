@@ -92,12 +92,13 @@ static QString chooseGameFile(QWidget* parent) {
     return selectedFiles.constFirst();
 }
 
-static void launchGameFromPathProcess(const QString& path, VariablesTab* variablesTab, GameLogTab* logTab) {
+static void launchGameFromPathProcess(const QString& path, VariablesTab* variablesTab, GameLogTab* logTab, QTabWidget* tabs) {
     if (path.isEmpty()) {
         return;
     }
 
     g_lastGamePath = path;
+    tabs->setCurrentWidget(logTab);
 
     stopGameProcess();
 
@@ -221,10 +222,10 @@ int main(int argc, char* argv[]) {
 
     auto* variablesTab = new VariablesTab(&hostWindow);
     auto* gameLog = new GameLogTab(&hostWindow);
-    auto* gamesTab = new GamesTab([variablesTab, gameLog](const QString& path) {
-        launchGameFromPathProcess(path, variablesTab, gameLog);
-    }, &hostWindow);
     auto* tabs = new QTabWidget(&hostWindow);
+    auto* gamesTab = new GamesTab([variablesTab, gameLog, tabs](const QString& path) {
+        launchGameFromPathProcess(path, variablesTab, gameLog, tabs);
+    }, &hostWindow);
     tabs->addTab(gamesTab, "Games");
     tabs->addTab(gameLog, "Log");
     tabs->addTab(variablesTab, "Variables");
@@ -265,10 +266,10 @@ int main(int argc, char* argv[]) {
     });
 
     QPushButton* refreshButton = variablesTab->refreshButton();
-    QObject::connect(refreshButton, &QPushButton::clicked, [variablesTab, gameLog]() {
+    QObject::connect(refreshButton, &QPushButton::clicked, [variablesTab, gameLog, tabs]() {
         if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
             if (!g_lastGamePath.isEmpty()) {
-                launchGameFromPathProcess(g_lastGamePath, variablesTab, gameLog);
+                launchGameFromPathProcess(g_lastGamePath, variablesTab, gameLog, tabs);
             }
         }
         requestVariableSnapshot();
@@ -317,26 +318,26 @@ int main(int argc, char* argv[]) {
     layout->addWidget(menuBar);
     layout->addWidget(tabs);
 
-    QObject::connect(openAction, &QAction::triggered, [&hostWindow, variablesTab, gameLog]() {
+    QObject::connect(openAction, &QAction::triggered, [&hostWindow, variablesTab, gameLog, tabs]() {
         QString selectedPath = chooseGameFile(&hostWindow);
         if (selectedPath.isEmpty()) {
             return;
         }
 
         g_lastGamePath = selectedPath;
-        launchGameFromPathProcess(selectedPath, variablesTab, gameLog);
+        launchGameFromPathProcess(selectedPath, variablesTab, gameLog, tabs);
     });
 
     hostWindow.show();
 
-    QTimer::singleShot(0, [argc, argv, variablesTab, gameLog]() {
+    QTimer::singleShot(0, [argc, argv, variablesTab, gameLog, tabs]() {
         if (argc <= 1) {
             return;
         }
 
         QString launchPath = QString::fromLocal8Bit(argv[1]);
         g_lastGamePath = launchPath;
-        launchGameFromPathProcess(launchPath, variablesTab, gameLog);
+        launchGameFromPathProcess(launchPath, variablesTab, gameLog, tabs);
     });
 
     return app.exec();
