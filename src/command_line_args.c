@@ -297,6 +297,7 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
             }
             case 1006:
                 /* internal flag used by the Qt host to launch a child game process */
+                args->disableLogColours = false;
                 break;
             case 'L':
                 args->lazyTextures = true;

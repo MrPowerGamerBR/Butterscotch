@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QTextCharFormat>
 #include <QWidget>
 
 class QPlainTextEdit;
@@ -13,4 +14,5 @@ public:
 
 private:
     QPlainTextEdit* output_;
+    QTextCharFormat textFormat_;
 };
