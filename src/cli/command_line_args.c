@@ -544,6 +544,10 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
     }
 
     if (optind >= argc) {
+        if (allowMissingDataWinPath) {
+            return;
+        }
+
         const char* defaultDataWinPaths[4] = {"data.win", "assets/game.unx", "assets/game.droid", "../Resources/game.ios"}; // default WAD paths for Windows/Linux/Android/macOS
         static char resolvedPath[2048];
 
@@ -565,11 +569,8 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
                 break;
             }
         }
+        
         if (args->dataWinPath == nullptr) {
-            if (allowMissingDataWinPath) {
-                args->dataWinPath = nullptr;
-                return;
-            }
             printUsage(argv[0]);
             exit(1);
         }
