@@ -15,6 +15,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "qt_games_tab.h"
 #include "qt_log_tab.h"
 #include "qt_variables_tab.h"
 
@@ -220,10 +221,14 @@ int main(int argc, char* argv[]) {
 
     auto* variablesTab = new VariablesTab(&hostWindow);
     auto* gameLog = new GameLogTab(&hostWindow);
+    auto* gamesTab = new GamesTab([variablesTab, gameLog](const QString& path) {
+        launchGameFromPathProcess(path, variablesTab, gameLog);
+    }, &hostWindow);
     auto* tabs = new QTabWidget(&hostWindow);
+    tabs->addTab(gamesTab, "Games");
     tabs->addTab(gameLog, "Log");
     tabs->addTab(variablesTab, "Variables");
-    tabs->setCurrentWidget(gameLog);
+    tabs->setCurrentWidget(gamesTab);
     QTableView* variableTable = variablesTab->tableView();
     QComboBox* refreshModeSelector = variablesTab->refreshModeSelector();
 
@@ -324,16 +329,8 @@ int main(int argc, char* argv[]) {
 
     hostWindow.show();
 
-    QTimer::singleShot(0, [&hostWindow, argc, argv, variablesTab, gameLog]() {
+    QTimer::singleShot(0, [argc, argv, variablesTab, gameLog]() {
         if (argc <= 1) {
-            QString selectedPath = chooseGameFile(&hostWindow);
-            if (selectedPath.isEmpty()) {
-                QCoreApplication::exit(0);
-                return;
-            }
-
-            g_lastGamePath = selectedPath;
-            launchGameFromPathProcess(selectedPath, variablesTab, gameLog);
             return;
         }
 
