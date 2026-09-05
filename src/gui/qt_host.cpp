@@ -27,13 +27,14 @@ static QString g_lastGamePath;
 static QString g_processOutputBuffer;
 static QString g_processErrorBuffer;
 static bool g_variableSnapshotRequestPending = false;
+static bool g_variablesTabOpen = false;
 static QTimer* g_variableSnapshotTimeoutTimer = nullptr;
 
 static constexpr int kLiveVariableRefreshMode = 0;
 static constexpr int kEverySecondVariableRefreshMode = 1;
 
 static void requestVariableSnapshot() {
-    if (g_gameProcess == nullptr || g_gameProcess->state() != QProcess::Running || g_variableSnapshotRequestPending) {
+    if (!g_variablesTabOpen || g_gameProcess == nullptr || g_gameProcess->state() != QProcess::Running || g_variableSnapshotRequestPending) {
         return;
     }
 
@@ -242,6 +243,10 @@ int main(int argc, char* argv[]) {
 
     auto* variablesTab = new VariablesTab(&hostWindow);
     auto* gameLog = new GameLogTab(&hostWindow);
+    auto* tabs = new QTabWidget(&hostWindow);
+    tabs->addTab(gameLog, "Log");
+    tabs->addTab(variablesTab, "Variables");
+    tabs->setCurrentWidget(gameLog);
     QTableView* variableTable = variablesTab->tableView();
     QComboBox* refreshModeSelector = variablesTab->refreshModeSelector();
 
@@ -267,6 +272,9 @@ int main(int argc, char* argv[]) {
         variableSnapshotTimer.stop();
     });
     QObject::connect(variableTable->verticalScrollBar(), &QScrollBar::sliderReleased, [&variableSnapshotTimer, refreshModeSelector]() {
+        if (!g_variablesTabOpen) {
+            return;
+        }
         if (refreshModeSelector->currentIndex() == kLiveVariableRefreshMode) {
             variableSnapshotTimer.start(100);
         } else if (refreshModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
@@ -293,6 +301,10 @@ int main(int argc, char* argv[]) {
     });
     QObject::connect(refreshModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
                      [refreshModeSelector, &variableSnapshotTimer](int) {
+                         if (!g_variablesTabOpen) {
+                             variableSnapshotTimer.stop();
+                             return;
+                         }
                          if (refreshModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
                              variableSnapshotTimer.start(1000);
                          } else if (refreshModeSelector->currentIndex() == kLiveVariableRefreshMode) {
@@ -301,12 +313,24 @@ int main(int argc, char* argv[]) {
                              variableSnapshotTimer.stop();
                          }
                      });
-    variableSnapshotTimer.start();
+    QObject::connect(tabs, &QTabWidget::currentChanged, [tabs, variablesTab, refreshModeSelector, &variableSnapshotTimer](int) {
+        g_variablesTabOpen = tabs->currentWidget() == variablesTab;
+        if (!g_variablesTabOpen) {
+            variableSnapshotTimer.stop();
+            g_variableSnapshotRequestPending = false;
+            if (g_variableSnapshotTimeoutTimer != nullptr) {
+                g_variableSnapshotTimeoutTimer->stop();
+            }
+            return;
+        }
 
-    QTabWidget* tabs = new QTabWidget(&hostWindow);
-    tabs->addTab(gameLog, "Log");
-    tabs->addTab(variablesTab, "Variables");
-    tabs->setCurrentWidget(gameLog);
+        if (refreshModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+            variableSnapshotTimer.start(1000);
+        } else if (refreshModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+            variableSnapshotTimer.start(100);
+        }
+        requestVariableSnapshot();
+    });
 
     layout->addWidget(menuBar);
     layout->addWidget(tabs);
