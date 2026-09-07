@@ -6879,9 +6879,9 @@ static RValue builtin_mp_potential_settings(VMContext* ctx, RValue* args, MAYBE_
     GMLReal rotstep = RValue_toReal(args[1]);
     GMLReal ahead = RValue_toReal(args[2]);
     bool onspot = RValue_toBool(args[3]);
-    runner->mpPotMaxrot = (maxrot < 1.0) ? 1.0 : maxrot;
-    runner->mpPotStep = (rotstep < 1.0) ? 1.0 : rotstep;
-    runner->mpPotAhead = (ahead < 1.0) ? 1.0 : ahead;
+    runner->mpPotMaxrot = (maxrot < 1.0) ? (GMLReal)1.0 : maxrot;
+    runner->mpPotStep = (rotstep < 1.0) ? (GMLReal)1.0 : rotstep;
+    runner->mpPotAhead = (ahead < 1.0) ? (GMLReal)1.0 : ahead;
     runner->mpPotOnSpot = onspot;
     return RValue_makeReal(0.0);
 }
@@ -11865,7 +11865,7 @@ static void Color_RGBtoHSV(int32_t col, GMLReal* outH, GMLReal* outS, GMLReal* o
     if (b > v) v = b;
     GMLReal d = v - m;
 
-    GMLReal s = (v == 0.0) ? 0.0 : (d / v);
+    GMLReal s = (v == 0.0) ? (GMLReal)0.0 : (d / v);
     GMLReal h;
     if (s == 0.0)        h = 0.0;
     else if (r == v)     h = 60.0  * (g - b) / d;
@@ -12443,8 +12443,8 @@ static RValue builtin_collision_ellipse(VMContext* ctx, RValue* args, int32_t ar
 
     GMLReal cx = (x1 + x2) * 0.5;
     GMLReal cy = (y1 + y2) * 0.5;
-    GMLReal rxInv = degenerate ? 0.0 : 1.0 / ((x2 - x1) * 0.5);
-    GMLReal ryInv = degenerate ? 0.0 : 1.0 / ((y2 - y1) * 0.5);
+    GMLReal rxInv = degenerate ? (GMLReal)0.0 : 1.0 / ((x2 - x1) * 0.5);
+    GMLReal ryInv = degenerate ? (GMLReal)0.0 : 1.0 / ((y2 - y1) * 0.5);
 
     Instance* self = ctx->currentInstance;
 
@@ -12812,8 +12812,8 @@ static RValue builtin_collision_ellipse_list(VMContext* ctx, RValue* args, int32
 
     GMLReal cx = (x1 + x2) * 0.5;
     GMLReal cy = (y1 + y2) * 0.5;
-    GMLReal rxInv = degenerate ? 0.0 : 1.0 / ((x2 - x1) * 0.5);
-    GMLReal ryInv = degenerate ? 0.0 : 1.0 / ((y2 - y1) * 0.5);
+    GMLReal rxInv = degenerate ? (GMLReal)0.0 : 1.0 / ((x2 - x1) * 0.5);
+    GMLReal ryInv = degenerate ? (GMLReal)0.0 : 1.0 / ((y2 - y1) * 0.5);
 
     Instance* self = ctx->currentInstance;
 
@@ -18636,7 +18636,7 @@ static RValue builtin_part_particles_create_colour(VMContext* ctx, RValue* args,
 
 static RValue builtin_part_particles_count(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     ParticleSystem* system = Particles_systemGet(ctx->runner, RValue_toInt32(args[0]));
-    return RValue_makeReal((system == nullptr) ? 0.0 : (GMLReal) arrlen(system->particles));
+    return RValue_makeReal((system == nullptr) ? (GMLReal)0.0 : (GMLReal) arrlen(system->particles));
 }
 
 // Removes every live particle but leaves the emitters and settings in place.

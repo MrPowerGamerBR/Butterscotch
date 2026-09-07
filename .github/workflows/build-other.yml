@@ -91,3 +91,23 @@ jobs:
         with:
           name: butterscotch-android
           path: src/android/frontend/app/build/outputs/apk/debug/app-debug.apk
+
+  build-fixed-reals:
+    name: Build with fixed reals
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ccache libglfw3-dev
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-fixed-reals-${{ github.sha }}
+          restore-keys: |
+            ccache-fixed-reals-
+
+      - name: Build
+        run: make CC='ccache g++ -std=gnu++11 -Wall -Wvla -Werror' CFLAGS='-DUSE_FIXED_REALS' NO_COLOR=1 VERBOSE=1

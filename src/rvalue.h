@@ -323,6 +323,8 @@ static inline char* RValue_toString(RValue val, DataWin* dataWin) {
             if (isinf(r)) return safeStrdup(r < (GMLReal) 0 ? "-inf" : "inf");
 #ifdef USE_FLOAT_REALS
             const GMLReal INT_SAFE_BOUND = 9.2233715e18f; // largest float strictly < 2^63
+#elif defined(USE_FIXED_REALS)
+            const GMLReal INT_SAFE_BOUND = (GMLReal) (GMLReal::REALINT_MAX >> GMLReal::FRAC_BITS);
 #else
             const GMLReal INT_SAFE_BOUND = 9.2233720368547758e18;
 #endif
@@ -541,7 +543,7 @@ static inline GMLReal RValue_toReal(RValue val) {
 #if IS_WAD17_OR_HIGHER_ENABLED
         case RVALUE_METHOD: return 0.0;
 #endif
-        case RVALUE_STRUCT: return val.structInst != nullptr ? (GMLReal) Instance_getInstanceId(val.structInst) : 0.0;
+        case RVALUE_STRUCT: return val.structInst != nullptr ? (GMLReal) Instance_getInstanceId(val.structInst) : (GMLReal)0.0;
         case RVALUE_ASSETREF: return (GMLReal) val.int32;
         default:            return 0.0;
     }
