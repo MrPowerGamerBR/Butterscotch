@@ -5407,6 +5407,242 @@ static RValue builtin_ds_grid_resize(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     return RValue_makeUndefined();
 }
 
+static RValue jsonDecodeValue(VMContext* ctx, JsonValue* json);
+
+static uint8_t* dsHexDecode(const char* hex, int32_t* outLen) {
+    int32_t hexLen = (int32_t) strlen(hex);
+    if (2 > hexLen || (hexLen & 1) != 0) return nullptr;
+    int32_t byteLen = hexLen / 2;
+    uint8_t* bytes = (uint8_t *)safeMalloc((size_t) byteLen);
+    repeat(byteLen, i) {
+        int hi = dsHexNibble(hex[i * 2]);
+        int lo = dsHexNibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) { free(bytes); return nullptr; }
+        bytes[i] = (uint8_t) ((hi << 4) | lo);
+    }
+    *outLen = byteLen;
+    return bytes;
+}
+
+static RValue dsMapReadNative(VMContext* ctx, DsMapEntry** mapPtr, const char* hex) {
+    int32_t byteLen = 0;
+    uint8_t* bytes = dsHexDecode(hex, &byteLen);
+    if (bytes == nullptr) return RValue_makeBool(false);
+
+    DsReadStream s = {0};
+    s.data = bytes;
+    s.size = byteLen;
+    s.pos = 0;
+    s.error = false;
+
+    uint32_t magic = dsStreamReadU32(&s);
+    int32_t version;
+    if (magic == 402) version = 3;
+    else if (magic == 403) version = 0;
+    else { free(bytes); return RValue_makeBool(false); }
+
+    int32_t count = dsStreamReadS32(&s);
+    if (s.error || 0 > count) { free(bytes); return RValue_makeBool(false); }
+
+    {
+    ptrdiff_t len = shlen(*mapPtr);
+    repeat(len, i) {
+        RValue_free(&(*mapPtr)[i].value);
+        free((*mapPtr)[i].key);
+    }
+    }
+    shfree(*mapPtr);
+    *mapPtr = nullptr;
+
+    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
+    for (int32_t i = 0; count > i && !s.error; i++) {
+        RValue key = dsStreamReadValue(wadVersion, &s, version);
+        if (s.error) { RValue_free(&key); break; }
+        RValue val = dsStreamReadValue(wadVersion, &s, version);
+        if (s.error) { RValue_free(&key); RValue_free(&val); break; }
+
+        RValue addArgs[3];
+        addArgs[0] = RValue_makeInt32((int32_t) (mapPtr - ctx->runner->dsMapPool));
+        addArgs[1] = key;
+        addArgs[2] = val;
+        dsMapAddCommon(ctx, addArgs, 3, false, 0);
+        RValue_free(&key);
+        RValue_free(&val);
+    }
+
+    bool result = !s.error;
+    free(bytes);
+    return RValue_makeBool(result);
+}
+
+static RValue dsMapReadJson(VMContext* ctx, DsMapEntry** mapPtr, const char* json) {
+    JsonValue* parsed = JsonReader_parse(json);
+    if (parsed == nullptr) return RValue_makeBool(false);
+
+    ptrdiff_t len = shlen(*mapPtr);
+    repeat(len, i) {
+        RValue_free(&(*mapPtr)[i].value);
+        free((*mapPtr)[i].key);
+    }
+    shfree(*mapPtr);
+    *mapPtr = nullptr;
+
+    if (parsed->type == JSON_OBJECT) {
+        int objLen = JsonReader_objectLength(parsed);
+        repeat(objLen, i) {
+            const char* key = JsonReader_getJsonKeyByIndex(parsed, i);
+            JsonValue* valJson = JsonReader_getJsonValueByIndex(parsed, i);
+            RValue val = jsonDecodeValue(ctx, valJson);
+            RValue storedVal = RValue_makeIndependent(val);
+            RValue_free(&val);
+            shput(*mapPtr, safeStrdup(key), storedVal);
+        }
+    }
+
+    JsonReader_free(parsed);
+    return RValue_makeBool(true);
+}
+
+static RValue dsGridReadNative(VMContext* ctx, DsGrid* grid, const char* hex) {
+    int32_t byteLen = 0;
+    uint8_t* bytes = dsHexDecode(hex, &byteLen);
+    if (bytes == nullptr) return RValue_makeBool(false);
+
+    DsReadStream s = {0};
+    s.data = bytes;
+    s.size = byteLen;
+    s.pos = 0;
+    s.error = false;
+
+    uint32_t magic = dsStreamReadU32(&s);
+    int32_t version;
+    if (magic == 602) version = 3;
+    else if (magic == 603) version = 0;
+    else { free(bytes); return RValue_makeBool(false); }
+
+    int32_t width = dsStreamReadS32(&s);
+    int32_t height = dsStreamReadS32(&s);
+    if (s.error || 0 > width || 0 > height) { free(bytes); return RValue_makeBool(false); }
+
+    size_t count = (size_t) width * (size_t) height;
+    RValue* items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
+
+    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
+    size_t i = 0;
+    for (i = 0; count > i && !s.error; i++) {
+        items[i] = dsStreamReadValue(wadVersion, &s, version);
+    }
+
+    if (s.error) {
+        for (size_t j = 0; count > j && j <= i; j++) {
+            RValue_free(&items[j]);
+        }
+        free(items);
+        free(bytes);
+        return RValue_makeBool(false);
+    }
+
+    free(grid->items);
+    grid->items = items;
+    grid->width = width;
+    grid->height = height;
+    free(bytes);
+    return RValue_makeBool(true);
+}
+
+static RValue dsGridReadJson(VMContext* ctx, DsGrid* grid, const char* json) {
+    JsonValue* parsed = JsonReader_parse(json);
+    if (parsed == nullptr) return RValue_makeBool(false);
+
+    if (parsed->type == JSON_OBJECT) {
+        JsonValue* wJson = JsonReader_getJsonValueByKey(parsed, "width");
+        JsonValue* hJson = JsonReader_getJsonValueByKey(parsed, "height");
+        JsonValue* bodyJson = JsonReader_getJsonValueByKey(parsed, "body");
+        if (wJson != nullptr && hJson != nullptr && bodyJson != nullptr &&
+            wJson->type == JSON_NUMBER && hJson->type == JSON_NUMBER && bodyJson->type == JSON_ARRAY) {
+            int32_t width = (int32_t) wJson->numberValue;
+            int32_t height = (int32_t) hJson->numberValue;
+            if (0 <= width && 0 <= height) {
+                size_t count = (size_t) width * (size_t) height;
+                RValue* items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
+                int bodyLen = JsonReader_arrayLength(bodyJson);
+                repeat(bodyLen, i) {
+                    if (count <= (size_t) i) break;
+                    RValue v = jsonDecodeValue(ctx, JsonReader_getArrayElement(bodyJson, i));
+                    items[i] = RValue_makeIndependent(v);
+                    RValue_free(&v);
+                }
+                free(grid->items);
+                grid->items = items;
+                grid->width = width;
+                grid->height = height;
+            }
+        }
+    }
+
+    JsonReader_free(parsed);
+    return RValue_makeBool(true);
+}
+
+static RValue builtin_ds_map_read(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = ctx->runner;
+    DsMapEntry** mapPtr = dsMapGet(runner, RValue_toInt32(args[0]));
+    if (mapPtr == nullptr) return RValue_makeBool(false);
+    if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
+        return RValue_makeBool(false);
+    }
+    if (args[1].string[0] == '{') return dsMapReadJson(ctx, mapPtr, args[1].string);
+    return dsMapReadNative(ctx, mapPtr, args[1].string);
+}
+
+static RValue builtin_ds_grid_read(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = ctx->runner;
+    DsGrid* grid = dsGridGet(runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeBool(false);
+    if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
+        return RValue_makeBool(false);
+    }
+    if (args[1].string[0] == '{') return dsGridReadJson(ctx, grid, args[1].string);
+    return dsGridReadNative(ctx, grid, args[1].string);
+}
+
+static RValue builtin_ds_map_write(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsMapEntry** mapPtr = dsMapGet(runner, id);
+    if (mapPtr == nullptr) return RValue_makeOwnedString(safeStrdup(""));
+
+    uint8_t* buf = nullptr;
+    ptrdiff_t count = shlen(*mapPtr);
+    dsStreamAppendU32(&buf, 403);
+    dsStreamAppendU32(&buf, (uint32_t) count);
+    repeat(count, i) {
+        RValue key = RValue_makeString((*mapPtr)[i].key);
+        dsStreamWriteValue(&buf, key);
+        dsStreamWriteValue(&buf, (*mapPtr)[i].value);
+    }
+    return dsStreamFinishToHexString(buf);
+}
+
+static RValue builtin_ds_grid_write(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsGrid* grid = dsGridGet(runner, id);
+    if (grid == nullptr) return RValue_makeOwnedString(safeStrdup(""));
+
+    uint8_t* buf = nullptr;
+    dsStreamAppendU32(&buf, 603);
+    dsStreamAppendU32(&buf, (uint32_t) grid->width);
+    dsStreamAppendU32(&buf, (uint32_t) grid->height);
+    int32_t count = grid->width * grid->height;
+    repeat(count, i) {
+        dsStreamWriteValue(&buf, grid->items[i]);
+    }
+    return dsStreamFinishToHexString(buf);
+}
+
 // ===[ DS_STACK FUNCTIONS ]===
 
 static RValue builtin_ds_stack_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -11496,7 +11732,39 @@ static RValue builtin_string_height(VMContext* ctx, RValue* args, int32_t argCou
 }
 
 STUB_RETURN_ZERO(string_width_ext)
-STUB_RETURN_ZERO(string_height_ext)
+
+static RValue builtin_string_height_ext(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = ctx->runner;
+    Renderer* renderer = runner->renderer;
+    int32_t fontIndex = renderer->drawFont;
+    if (0 > fontIndex || renderer->dataWin->font.count <= (uint32_t) fontIndex) return RValue_makeReal(0.0);
+
+    Font* font = &renderer->dataWin->font.fonts[fontIndex];
+    char* str = RValue_toString(args[0], ctx->runner->dataWin);
+    float sep = (float) RValue_toReal(args[1]);
+    int32_t wrapWidth = RValue_toInt32(args[2]);
+
+    PreprocessedText processed = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    PreprocessedText wrapped = TextUtils_wrapText(font, processed.text, wrapWidth);
+    int32_t wrappedLen = (int32_t) strlen(wrapped.text);
+
+    if (wrappedLen == 0) {
+        PreprocessedText_free(wrapped);
+        PreprocessedText_free(processed);
+        free(str);
+        return RValue_makeReal(0.0);
+    }
+
+    int32_t lineCount = TextUtils_countLines(wrapped.text, wrappedLen);
+    PreprocessedText_free(wrapped);
+    PreprocessedText_free(processed);
+    free(str);
+
+    float defaultLine = TextUtils_lineStride(font) * font->scaleY;
+    float lineSep = (sep < 0.0f) ? defaultLine : sep;
+    return RValue_makeReal((GMLReal) ((float) (lineCount - 1) * lineSep + defaultLine));
+}
 
 // Color functions
 static RValue builtin_make_color_rgb(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -18935,6 +19203,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_map_find_next", builtin_ds_map_find_next);
     VM_registerBuiltin(ctx, "ds_map_size", builtin_ds_map_size);
     VM_registerBuiltin(ctx, "ds_map_destroy", builtin_ds_map_destroy);
+    VM_registerBuiltin(ctx, "ds_map_read", builtin_ds_map_read);
+    VM_registerBuiltin(ctx, "ds_map_write", builtin_ds_map_write);
 
     // ds_list
     VM_registerBuiltin(ctx, "ds_list_create", builtin_ds_list_create);
@@ -18962,6 +19232,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_grid_get", builtin_ds_grid_get);
     VM_registerBuiltin(ctx, "ds_grid_add", builtin_ds_grid_add);
     VM_registerBuiltin(ctx, "ds_grid_resize", builtin_ds_grid_resize);
+    VM_registerBuiltin(ctx, "ds_grid_read", builtin_ds_grid_read);
+    VM_registerBuiltin(ctx, "ds_grid_write", builtin_ds_grid_write);
 
     // ds_stack
     VM_registerBuiltin(ctx, "ds_stack_create", builtin_ds_stack_create);
