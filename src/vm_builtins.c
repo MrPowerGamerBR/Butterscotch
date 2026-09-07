@@ -17968,25 +17968,9 @@ static RValue builtin_sprite_get_info(VMContext* ctx, RValue* args, int32_t argC
 
 #define PARTICLE_DEG2RAD (M_PI / 180.0)
 
-// Particles draw from their own random stream instead of rand(). Sharing rand() would make every
-// particle spawn shift the sequence the game itself sees, so merely adding a particle effect to a
-// scene would change unrelated randomised behaviour (and every seeded screenshot test with it).
-// The trade-off is that --seed and randomize() do not reach particles.
-#define PARTICLE_RNG_SEED 0x9E3779B9u
-static uint32_t g_particleRngState = PARTICLE_RNG_SEED;
-
-static uint32_t particleRandomBits(void) {
-    uint32_t x = g_particleRngState;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    g_particleRngState = x;
-    return x;
-}
-
 // Uniform in [0, 1).
-static GMLReal particleRandom01(void) {
-    return (GMLReal) (particleRandomBits() >> 8) / (GMLReal) 0x01000000u;
+static GMLReal particleRandom01(Runner* runner) {
+    return (GMLReal) (Random_nextUInt32(&runner->random) >> 8) / (GMLReal) 0x01000000u;
 }
 
 // Uniform between the two bounds, and NOT normalised to (min <= max): GameMaker gives up on a range
@@ -17997,19 +17981,19 @@ static GMLReal particleRandom01(void) {
 // Two effects in DELTARUNE Chapter 5 lean on it -- obj_festival_particles at (-45, -90) and
 // obj_part_leaves at (-40, -90). Both are steady diagonal drifts, confetti and wind-blown leaves,
 // and neither applies gravity, so sweeping the range would spread them into a visible fan.
-static GMLReal particleRandomRange(GMLReal min, GMLReal max) {
+static GMLReal particleRandomRange(Runner* runner, GMLReal min, GMLReal max) {
     GMLReal range = max - min;
     if (0.0 >= range) return min;
-    return min + particleRandom01() * range;
+    return min + particleRandom01(runner) * range;
 }
 
 // Uniform integer in [min, max] with both ends included, which is how GameMaker reads part_type_life.
 // Truncating a real drawn from [min, max) would never return max. A reversed pair collapses to min,
 // the same way particleRandomRange() treats one.
-static int32_t particleRandomIntRange(int32_t min, int32_t max) {
+static int32_t particleRandomIntRange(Runner* runner, int32_t min, int32_t max) {
     if (min >= max) return min;
     GMLReal span = (GMLReal) max - (GMLReal) min + 1.0;
-    return min + (int32_t) (particleRandom01() * span);
+    return min + (int32_t) (particleRandom01(runner) * span);
 }
 
 // Triangle wave in [-1, 1] driven by the particle's age. Each wiggling property runs on its own
@@ -18030,12 +18014,12 @@ static GMLReal particleWiggleSize(int32_t age, int32_t seed)      { return parti
 // value is a literal count, a negative value is a 1-in-|number| chance of spawning a single particle.
 // Emitters take a real count, and GameMaker spends the fraction as a chance of one extra particle,
 // so part_emitter_stream(..., 0.5) emits on roughly every other step.
-static int32_t particleResolveCount(GMLReal number) {
-    if (0.0 > number) return (particleRandom01() * -number < 1.0) ? 1 : 0;
+static int32_t particleResolveCount(Runner* runner, GMLReal number) {
+    if (0.0 > number) return (particleRandom01(runner) * -number < 1.0) ? 1 : 0;
 
     int32_t whole = (int32_t) number;
     GMLReal fraction = number - (GMLReal) whole;
-    if (fraction > 0.0 && particleRandom01() <= fraction) whole++;
+    if (fraction > 0.0 && particleRandom01(runner) <= fraction) whole++;
     return whole;
 }
 
@@ -18148,24 +18132,24 @@ static bool particleSpawnAt(Runner* runner, ParticleSystem* system, int32_t type
     particle.typeId = typeId;
     particle.x = x;
     particle.y = y;
-    particle.speed = particleRandomRange(type->speedMin, type->speedMax);
-    particle.direction = particleRandomRange(type->dirMin, type->dirMax);
-    particle.size = particleRandomRange(type->sizeMin, type->sizeMax);
-    particle.angle = particleRandomRange(type->angMin, type->angMax);
+    particle.speed = particleRandomRange(runner, type->speedMin, type->speedMax);
+    particle.direction = particleRandomRange(runner, type->dirMin, type->dirMax);
+    particle.size = particleRandomRange(runner, type->sizeMin, type->sizeMax);
+    particle.angle = particleRandomRange(runner, type->angMin, type->angMax);
     if (!fixedColour && type->colourMix) {
-        colour = particleColourLerp(type->colourStart, type->colourMixEnd, particleRandom01());
+        colour = particleColourLerp(type->colourStart, type->colourMixEnd, particleRandom01(runner));
         fixedColour = true;
     }
     particle.colour = colour;
     particle.colourFixed = fixedColour;
-    particle.lifeTotal = particleRandomIntRange(type->lifeMin, type->lifeMax);
+    particle.lifeTotal = particleRandomIntRange(runner, type->lifeMin, type->lifeMax);
     if (1 > particle.lifeTotal) particle.lifeTotal = 1;
     particle.life = particle.lifeTotal;
-    particle.seed = (int32_t) (particleRandomBits() % 100000u);
+    particle.seed = (int32_t) (Random_nextUInt32(&runner->random) % 100000u);
 
     if (type->spriteRandom && type->sprite >= 0 && runner->dataWin != nullptr && (uint32_t) type->sprite < runner->dataWin->sprt.count) {
         uint32_t frames = runner->dataWin->sprt.sprites[type->sprite].textureCount;
-        if (frames > 0) particle.subimgBase = (int32_t) (particleRandomBits() % frames);
+        if (frames > 0) particle.subimgBase = (int32_t) (Random_nextUInt32(&runner->random) % frames);
     }
 
     arrput(system->particles, particle);
@@ -18176,7 +18160,7 @@ static bool particleSpawnAt(Runner* runner, ParticleSystem* system, int32_t type
 // Picks a point inside the emitter's region. Only the linear distribution is modelled; the gaussian
 // ones fall back to it (no game we test against uses them, and guessing at the curve would be worse
 // than an honest uniform spread).
-static void particleEmitterPoint(ParticleEmitter* emitter, GMLReal* outX, GMLReal* outY) {
+static void particleEmitterPoint(Runner* runner, ParticleEmitter* emitter, GMLReal* outX, GMLReal* outY) {
     GMLReal centerX = (emitter->xmin + emitter->xmax) * 0.5;
     GMLReal centerY = (emitter->ymin + emitter->ymax) * 0.5;
     GMLReal halfW = (emitter->xmax - emitter->xmin) * 0.5;
@@ -18188,8 +18172,8 @@ static void particleEmitterPoint(ParticleEmitter* emitter, GMLReal* outX, GMLRea
     // often enough to see.
     if (emitter->shape == PS_SHAPE_ELLIPSE) {
         // sqrt on the radius keeps the spread uniform by area instead of clustering at the centre.
-        GMLReal radius = GMLReal_sqrt(particleRandom01());
-        GMLReal angle = particleRandom01() * 2.0 * M_PI;
+        GMLReal radius = GMLReal_sqrt(particleRandom01(runner));
+        GMLReal angle = particleRandom01(runner) * 2.0 * M_PI;
         *outX = centerX + halfW * radius * GMLReal_cos(angle);
         *outY = centerY + halfH * radius * GMLReal_sin(angle);
         return;
@@ -18197,10 +18181,10 @@ static void particleEmitterPoint(ParticleEmitter* emitter, GMLReal* outX, GMLRea
 
     if (emitter->shape == PS_SHAPE_DIAMOND) {
         // Fold the unit square onto the triangle u + v <= 1, then mirror into a random quadrant.
-        GMLReal u = particleRandom01();
-        GMLReal v = particleRandom01();
+        GMLReal u = particleRandom01(runner);
+        GMLReal v = particleRandom01(runner);
         if (u + v > 1.0) { u = 1.0 - u; v = 1.0 - v; }
-        uint32_t quadrant = particleRandomBits();
+        uint32_t quadrant = Random_nextUInt32(&runner->random);
         if (quadrant & 1u) u = -u;
         if (quadrant & 2u) v = -v;
         *outX = centerX + halfW * u;
@@ -18210,20 +18194,20 @@ static void particleEmitterPoint(ParticleEmitter* emitter, GMLReal* outX, GMLRea
 
     if (emitter->shape == PS_SHAPE_LINE) {
         // A line from (xmin, ymin) to (xmax, ymax), not the rectangle they bound.
-        GMLReal t = particleRandom01();
+        GMLReal t = particleRandom01(runner);
         *outX = emitter->xmin + (emitter->xmax - emitter->xmin) * t;
         *outY = emitter->ymin + (emitter->ymax - emitter->ymin) * t;
         return;
     }
 
-    *outX = particleRandomRange(emitter->xmin, emitter->xmax);
-    *outY = particleRandomRange(emitter->ymin, emitter->ymax);
+    *outX = particleRandomRange(runner, emitter->xmin, emitter->xmax);
+    *outY = particleRandomRange(runner, emitter->ymin, emitter->ymax);
 }
 
 static void particleEmitterSpawn(Runner* runner, ParticleSystem* system, ParticleEmitter* emitter, int32_t typeId, int32_t count) {
     repeat(count, i) {
         GMLReal x, y;
-        particleEmitterPoint(emitter, &x, &y);
+        particleEmitterPoint(runner, emitter, &x, &y);
         if (!particleSpawnAt(runner, system, typeId, x, y, 0xFFFFFFu, false)) return;
     }
 }
@@ -18271,7 +18255,7 @@ static void particleUpdateSystem(Runner* runner, int32_t systemId) {
         int32_t spawnType = died ? type->deathType : type->stepType;
         int32_t spawnNumber = died ? type->deathNumber : type->stepNumber;
         if (spawnType >= 0 && spawnNumber != 0) {
-            int32_t count = particleResolveCount((GMLReal) spawnNumber);
+            int32_t count = particleResolveCount(runner, (GMLReal) spawnNumber);
             if (count > 0) {
                 PendingSpawn spawn;
                 spawn.typeId = spawnType;
@@ -18349,7 +18333,7 @@ static void particleUpdateSystem(Runner* runner, int32_t systemId) {
     repeat(emitterCount, i) {
         ParticleEmitter* emitter = &system->emitters[i];
         if (!emitter->used || 0 > emitter->streamType || emitter->streamNumber == 0.0) continue;
-        particleEmitterSpawn(runner, system, emitter, emitter->streamType, particleResolveCount(emitter->streamNumber));
+        particleEmitterSpawn(runner, system, emitter, emitter->streamType, particleResolveCount(runner, emitter->streamNumber));
     }
     }
 }
@@ -18485,9 +18469,6 @@ void Particles_freeAll(Runner* runner) {
     runner->particleSystemPool = nullptr;
     arrfree(runner->particleTypePool);
     runner->particleTypePool = nullptr;
-    // Reached on game_restart as well as shutdown, so put the stream back to where it started:
-    // a restarted game should produce the same particles as the first run.
-    g_particleRngState = PARTICLE_RNG_SEED;
 }
 
 // ===[ Systems ]===
@@ -18940,7 +18921,7 @@ static RValue builtin_part_emitter_burst(VMContext* ctx, RValue* args, MAYBE_UNU
     ParticleEmitter* emitter = particleEmitterGet(runner, systemId, RValue_toInt32(args[1]));
     if (system == nullptr || emitter == nullptr) return RValue_makeUndefined();
 
-    particleEmitterSpawn(runner, system, emitter, RValue_toInt32(args[2]), particleResolveCount(RValue_toReal(args[3])));
+    particleEmitterSpawn(runner, system, emitter, RValue_toInt32(args[2]), particleResolveCount(runner, RValue_toReal(args[3])));
     return RValue_makeUndefined();
 }
 
