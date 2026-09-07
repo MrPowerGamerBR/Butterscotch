@@ -492,7 +492,7 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
                 sampleRate = (uint32_t) vorbisSampleRate;
                 bitsPerSample = 16;
                 audioData = (uint8_t*) decodedData;
-                audioDataLen = (uint32_t)((size_t)decodedSamples * (size_t)vorbisChannels * sizeof(int16_t));
+                audioDataLen = decodedSamples * vorbisChannels * (uint32_t) sizeof(int16_t);
             }
 
             if (audioData == nullptr || audioDataLen == 0) {
