@@ -1450,8 +1450,8 @@ static void parseOBJT(BinaryReader* reader, DataWin* dw) {
 
     if (count == 0) { free(ptrs); o->objects = nullptr; return; }
 
-    // Detect GMS 2022.5+ by probing the first game object's event list structure.
-    if (DataWin_isVersionAtLeast(dw, 2, 3, 0, 0) && !DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0)) {
+    // Detect GMS 2022.5 to 2026.1 managed field by probing the first game object's event list structure.
+    if (DataWin_isVersionAtLeast(dw, 2, 3, 0, 0) && (!DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0) || DataWin_isVersionAtLeast(dw, 2024, 13, 0, 0))) {
         uint32_t probePtr = 0;
         repeat(count, i) { if (ptrs[i] != 0) { probePtr = ptrs[i]; break; } }
         if (probePtr != 0) {
@@ -1478,6 +1478,9 @@ static void parseOBJT(BinaryReader* reader, DataWin* dw) {
             if (!isOldFormat) {
                 DataWin_bumpVersionTo(dw, 2022, 5, 0, 0);
             }
+            else if (DataWin_isVersionAtLeast(dw, 2024, 13, 0, 0)) {
+                DataWin_bumpVersionTo(dw, 2026, 1, 0, 0);
+            }
         }
         }
     }
@@ -1491,7 +1494,7 @@ static void parseOBJT(BinaryReader* reader, DataWin* dw) {
         obj->name = readStringPtr(reader, dw);
         obj->spriteId = BinaryReader_readInt32(reader);
         obj->visible = BinaryReader_readBool32(reader);
-        if (DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0)) {
+        if (DataWin_isVersionAtLeast(dw, 2022, 5, 0, 0) && !DataWin_isVersionAtLeast(dw, 2026, 1, 0, 0)) {
             obj->managed = BinaryReader_readBool32(reader);
         } else {
             obj->managed = false;
