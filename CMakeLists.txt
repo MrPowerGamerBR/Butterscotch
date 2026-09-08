@@ -357,6 +357,7 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
             # GLAD
             add_library(glad STATIC vendor/glad/src/glad.c)
             target_include_directories(glad PUBLIC vendor/glad/include)
+            target_compile_options(glad PRIVATE -Wno-unused-but-set-variable)
             set(PLATFORM_LIBRARIES ${PLATFORM_LIBRARIES} glad)
         endif()
     endif()
