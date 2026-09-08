@@ -1014,7 +1014,6 @@ int loop(CommandLineArgs args, const char *argv0) {
                 bool isPaused = Runner_isPaused(runner);
                 Runner_setPaused(runner, !isPaused);
             }
-            
             bool shouldStep = !runner->paused;
             bool shouldRender = true;
             if (runner->debugMode && runner->paused) {
