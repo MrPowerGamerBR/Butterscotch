@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Ccache
+      - name: Setup ccache
         uses: actions/cache@v6
         with:
-          path: .ccache
+          path: ${{ env.CCACHE_DIR }}
           key: openindiana-ccache-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
             openindiana-ccache-${{ github.ref_name }}-
@@ -26,9 +26,9 @@ jobs:
         uses: vmactions/openindiana-vm@v1
         with:
           envs: 'CCACHE_DIR'
-          run: |
+          prepare: |
             sudo pkg refresh
-            sudo pkg install -y \
+            sudo pkg install \
               developer/build/cmake \
               developer/build/gnu-make \
               developer/gcc-13 \
@@ -36,7 +36,7 @@ jobs:
               library/sdl2 \
               library/audio/openal \
               x11/library/libx11
-
+          run: |
             export CCACHE_DIR="$PWD/$CCACHE_DIR"
             export CCACHE_BASEDIR="$PWD"
             export CCACHE_COMPILERCHECK=content
