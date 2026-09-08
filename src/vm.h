@@ -333,6 +333,9 @@ RValue VM_structGetVariableByVarName(VMContext* ctx, Instance* structInst, const
 void VM_structSet(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
 void VM_structSetAndFreeVal(VMContext* ctx, Instance* structInst, const char* name, RValue val, int32_t arrayIndex);
 
+// Create or reuse the shared static struct for a constructor code entry.
+Instance* VM_getOrCreateStaticStruct(VMContext* ctx, int32_t codeIndex);
+
 // @@CopyStatic@@: chain the current constructor's static struct to a parent constructor's static struct (static inheritance).
 void VM_copyStatic(VMContext* ctx, RValue* parentRef);
 

@@ -15553,10 +15553,16 @@ static RValue builtin_NullObject(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValu
 }
 
 // @@SetStatic@@() - GMS2.3+ internal function emitted at the top of constructor bodies.
-// TODO: Semi-stub! The native runner does more things than that
+// Native GameMaker creates or reuses the shared static object for this constructor and marks
+// the static block as initialized so all later static reads/writes resolve against that object.
 static RValue builtin_SetStatic(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    logSemiStubbedFunction(ctx, "@@SetStatic@@");
-    if (ctx->staticInitialized != nullptr) ctx->staticInitialized[ctx->currentCodeIndex] = true;
+    if (ctx->staticStructs != nullptr) {
+        // Lazily create the shared static object for this constructor, matching the native runner's `Code_CreateStatic` path.
+        (void) VM_getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+    }
+    if (ctx->staticInitialized != nullptr) {
+        ctx->staticInitialized[ctx->currentCodeIndex] = true;
+    }
     return RValue_makeUndefined();
 }
 
