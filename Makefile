@@ -197,6 +197,7 @@ $(error must enable at least 1 renderer)
 endif
 endif
 endif
+endif
 
 ifeq ($(AUDIO_BACKEND),miniaudio)
 INCLUDES += $(INC)src/audio/miniaudio $(INC)vendor/miniaudio
