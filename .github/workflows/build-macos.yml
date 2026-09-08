@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 jobs:
-  build-appkit-macos:
+  build-appkit-macos-modern:
     name: Build (AppKit ${{ matrix.label }})
     strategy:
       fail-fast: false
@@ -56,4 +56,194 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: butterscotch-appkit-macos-${{ matrix.label }}
+          path: build/butterscotch
+
+  build-appkit-macos-i386:
+    name: Build (SDL 1.2 i386)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit-info
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build ccache libxml2-dev uuid-dev libssl-dev bash patch make tar xz-utils bzip2 gzip cpio zlib1g-dev
+
+      - name: Cache Intel OSXCross and ccache
+        id: cache-intel
+        uses: actions/cache@v6
+        with:
+          path: |
+            vendor/osxcross
+            ~/.cache/ccache
+          key: osxcross-i386-v2
+
+      - name: Checkout OSXCross
+        if: steps.cache-intel.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: tpoechtrager/osxcross
+          ref: osxcross-1.1
+          path: vendor/osxcross
+
+      - name: Download Mac OS X SDK
+        if: steps.cache-intel.outputs.cache-hit != 'true'
+        run: |
+          curl -L -o vendor/osxcross/tarballs/MacOSX10.4u.sdk.tar.xz https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX10.4u.sdk.tar.xz
+
+      - name: Build OSXCross toolchain
+        if: steps.cache-intel.outputs.cache-hit != 'true'
+        env:
+          UNATTENDED: "1"
+        run: |
+          cd vendor/osxcross
+          ./build.sh
+
+      - name: Checkout SDL 1.2
+        if: steps.cache-intel.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: libsdl-org/SDL-1.2
+          ref: a1f09d7b03a0e1c49f7c91b521fce3cccd6fff6e
+          path: vendor/SDL
+
+      - name: Build SDL 1.2
+        if: steps.cache-intel.outputs.cache-hit != 'true'
+        env:
+          CC: o32-clang
+          CFLAGS: "-march=pentium-m -msse2"
+        run: |
+          export PATH="${{ github.workspace }}/vendor/osxcross/target/bin:$PATH"
+          cd vendor/SDL
+          ./configure \
+            --host=i386-apple-darwin8 \
+            --prefix=${{ github.workspace }}/vendor/osxcross/target \
+            --disable-shared || cat config.log
+          make -j$(nproc)
+          make install
+
+      - name: Configure and build Butterscotch
+        env:
+          CC: o32-clang
+        run: |
+          export PATH="${{ github.workspace }}/vendor/osxcross/target/bin:$PATH"
+          SDK_FRAMEWORKS="${{ github.workspace }}/vendor/osxcross/target/SDK/MacOSX10.4u.sdk/System/Library/Frameworks"
+          SDK_USR_LIB="${{ github.workspace }}/vendor/osxcross/target/SDK/MacOSX10.4u.sdk/usr/lib"
+          ACC_REMAP="/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate:${SDK_FRAMEWORKS}/vecLib.framework/Versions/A/vecLib"
+
+          cmake -B build -G Ninja \
+            -DWERROR=ON \
+            -DBACKEND=sdl1 \
+            -DAUDIO_BACKEND=openal \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SKIP_RPATH=ON \
+            -DCMAKE_C_COMPILER="o32-clang" \
+            -DCMAKE_AR="i386-apple-darwin8-ar" \
+            -DCMAKE_RANLIB="i386-apple-darwin8-ranlib" \
+            -DCMAKE_C_FLAGS="-march=pentium-m -msse2 -Wno-deprecated-declarations -I${{ github.workspace }}/vendor/osxcross/target/include" \
+            -DCMAKE_EXE_LINKER_FLAGS="-Wl,-framework,Cocoa -Wl,-framework,Carbon -Wl,-framework,IOKit -Wl,-framework,AudioToolbox -Wl,-framework,CoreAudio -Wl,-framework,CoreServices -Wl,-framework,OpenGL -Xlinker -dylib_file -Xlinker ${ACC_REMAP} ${SDK_USR_LIB}/libobjc.A.dylib ${SDK_USR_LIB}/libgcc_s.1.dylib -Wl,-undefined,dynamic_lookup" \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/vendor/osxcross/target" \
+            -DCMAKE_FIND_ROOT_PATH="${{ github.workspace }}/vendor/osxcross/target" \
+            -DCMAKE_INCLUDE_PATH="${{ github.workspace }}/vendor/osxcross/target/include" \
+            -DOPENAL_LIBRARY="${SDK_FRAMEWORKS}/OpenAL.framework/OpenAL" \
+            -DOPENAL_INCLUDE_DIR="${SDK_FRAMEWORKS}/OpenAL.framework/Headers" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: butterscotch-sdl-macos-i386
+          path: build/butterscotch
+
+  build-appkit-macos-powerpc:
+    name: Build (SDL 1.2 powerpc)
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/variantxyz/gcc-powerpc-apple-darwin8:build-gcc-14.2-macosxsdk10.4u
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit-info
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Install build tools
+        run: |
+          apt-get update && apt-get install -y cmake ninja-build ccache || true
+
+      - name: Cache PowerPC SDL and ccache
+        id: cache-ppc
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/powerpc-apple-darwin8
+            ~/.cache/ccache
+          key: sdl-ppc-sysroot-v2
+
+      - name: Checkout SDL 1.2
+        if: steps.cache-ppc.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: libsdl-org/SDL-1.2
+          ref: a1f09d7b03a0e1c49f7c91b521fce3cccd6fff6e
+          path: vendor/SDL
+
+      - name: Build SDL 1.2
+        if: steps.cache-ppc.outputs.cache-hit != 'true'
+        env:
+          CC: powerpc-apple-darwin8-gcc
+          CFLAGS: "-mcpu=G3"
+          EXTRA_CFLAGS: "-fno-altivec"
+        run: |
+          export PATH="/usr/local/bin:$PATH"
+          cd vendor/SDL
+          sed -i 's/-fpascal-strings//g' configure
+          ./configure \
+            --host=powerpc-apple-darwin8 \
+            --prefix=/usr/local/powerpc-apple-darwin8 \
+            --disable-altivec \
+            --disable-shared || cat config.log
+          make -j$(nproc)
+          make install
+
+      - name: Configure and build Butterscotch
+        env:
+          CC: powerpc-apple-darwin8-gcc
+        run: |
+          export PATH="/usr/local/bin:$PATH"
+          SDK_FRAMEWORKS="/usr/local/MacOSX10.4u.sdk/System/Library/Frameworks"
+          SDK_USR_LIB="/usr/local/MacOSX10.4u.sdk/usr/lib"
+          ACC_REMAP="/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate:${SDK_FRAMEWORKS}/vecLib.framework/Versions/A/vecLib"
+
+          cmake -B build -G Ninja \
+            -DWERROR=ON \
+            -DBACKEND=sdl1 \
+            -DAUDIO_BACKEND=openal \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SKIP_RPATH=ON \
+            -DCMAKE_C_COMPILER="powerpc-apple-darwin8-gcc" \
+            -DCMAKE_AR="powerpc-apple-darwin8-ar" \
+            -DCMAKE_RANLIB="powerpc-apple-darwin8-ranlib" \
+            -DCMAKE_C_FLAGS="-mcpu=G3 -Wno-deprecated-declarations" \
+            -DCMAKE_EXE_LINKER_FLAGS="-Wl,-framework,Cocoa -Wl,-framework,Carbon -Wl,-framework,IOKit -Wl,-framework,AudioToolbox -Wl,-framework,CoreAudio -Wl,-framework,CoreServices -Wl,-framework,OpenGL -Xlinker -dylib_file -Xlinker ${ACC_REMAP} ${SDK_USR_LIB}/libobjc.A.dylib ${SDK_USR_LIB}/libgcc_s.1.dylib -Wl,-undefined,dynamic_lookup" \
+            -DCMAKE_PREFIX_PATH="/usr/local/powerpc-apple-darwin8;/usr/local" \
+            -DCMAKE_FIND_ROOT_PATH="/usr/local/powerpc-apple-darwin8;/usr/local" \
+            -DOPENAL_LIBRARY="${SDK_FRAMEWORKS}/OpenAL.framework/OpenAL" \
+            -DOPENAL_INCLUDE_DIR="${SDK_FRAMEWORKS}/OpenAL.framework/Headers" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: butterscotch-sdl-macos-powerpc
           path: build/butterscotch
