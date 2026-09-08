@@ -776,21 +776,8 @@ int loop(CommandLineArgs args, const char *argv0) {
         }
 
         // Initialize the file system
-        char* dataWinDir = nullptr;
-        {
-            const char* lastSlash = strrchr(args.dataWinPath, '/');
-            const char* lastBackslash = strrchr(args.dataWinPath, '\\');
-            if (lastBackslash != nullptr && (lastSlash == nullptr || lastBackslash > lastSlash))
-                lastSlash = lastBackslash;
-            if (lastSlash != nullptr) {
-                size_t len = (size_t) (lastSlash - args.dataWinPath + 1);
-                dataWinDir = (char *)safeMalloc(len + 1);
-                memcpy(dataWinDir, args.dataWinPath, len);
-                dataWinDir[len] = '\0';
-            } else {
-                dataWinDir = safeStrdup("./");
-            }
-        }
+        char* dataWinDir = safeStrdup(args.dataWinPath);
+        bsGetDirname(dataWinDir);
         const char* savePath = args.saveFolder != nullptr ? args.saveFolder : dataWinDir;
         OverlayFileSystem* overlayFs = OverlayFileSystem_create(dataWinDir, savePath);
         free(dataWinDir);

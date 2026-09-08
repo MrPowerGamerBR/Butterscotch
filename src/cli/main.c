@@ -15,10 +15,6 @@
 #include <SDL3/SDL_main.h>
 #endif
 
-#ifndef F_OK
-#define F_OK 0 /* for MSVC */
-#endif
-
 static bool parseOsTypeArg(const char* s, YoYoOperatingSystem* out) {
     forEach(const OsTypeNameEntry, entry, OS_TYPE_NAMES, OS_TYPE_NAMES_COUNT) {
         if (strcmp(s, entry->name) == 0) {
