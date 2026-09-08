@@ -34,7 +34,7 @@ jobs:
         run: |
           export PATH="$PWD/artifacts/macos/build/toolchain-ppc/bin:$PATH"
           cmake -B build -G Ninja \
-            -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc
+            -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc \
             -DWERROR=ON \
             -DBACKEND=noop \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
