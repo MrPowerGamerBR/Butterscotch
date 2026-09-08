@@ -1755,10 +1755,6 @@ static void gsDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, flo
     );
 }
 
-static void gsPrimitiveEnsureCapacity(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t needed) {
-    return;
-}
-
 static void gsPrimitiveBegin(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t primitiveType) {
     return;
 }
