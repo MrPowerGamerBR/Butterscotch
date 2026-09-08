@@ -299,9 +299,11 @@ static void glBeginGUI(Renderer* renderer, int32_t guiW, int32_t guiH, int32_t p
 
     if (targetSurfaceId == RENDER_TARGET_HOST_FRAMEBUFFER) {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, portW, portH);
+        int32_t sx, sy, ex, ey;
+        GLCommon_computeLetterbox(guiW, guiH, portW, portH, &sx, &sy, &ex, &ey);
+        glViewport(sx, sy, ex - sx, ey - sy);
         glEnable(GL_SCISSOR_TEST);
-        glScissor(0, 0, portW, portH);
+        glScissor(sx, sy, ex - sx, ey - sy);
     } else {
         require(targetSurfaceId >= 0 && (uint32_t) targetSurfaceId < gl->surfaceCount);
         require(gl->surfaces[targetSurfaceId] != 0);
