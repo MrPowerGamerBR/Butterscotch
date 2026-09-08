@@ -1278,6 +1278,23 @@ int loop(CommandLineArgs args, const char *argv0) {
 
                         renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
                         renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
+
+                        // Keep the pause icon visually consistent across screen sizes/aspect ratios by scaling
+                        // from the shorter dimension instead of the full width, which changes on 4:3 vs 16:9.
+                        float middleX = 0.5f * (float) winW;
+                        float middleY = 0.5f * (float) winH;
+                        float smallerSide = (float) (winW < winH ? winW : winH);
+
+                        float barWidth = smallerSide * 0.025f;
+                        float barHeight = smallerSide * 0.1f;
+                        float gap = smallerSide * 0.028f;
+
+                        float rightBarLeft = middleX + gap * 0.5f;
+                        float leftBarRight = middleX - gap * 0.5f;
+
+                        renderer->vtable->drawRectangle(renderer, rightBarLeft, middleY - barHeight / 2.0f, rightBarLeft + barWidth, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
+                        renderer->vtable->drawRectangle(renderer, leftBarRight - barWidth, middleY - barHeight / 2.0f, leftBarRight, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
+
                         renderer->vtable->endGUI(renderer);
                     }
                 }
