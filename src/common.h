@@ -83,4 +83,8 @@
 #define longlong long long
 #endif
 
+#ifndef F_OK
+#define F_OK 0 /* for old MSVC */
+#endif
+
 #endif /* _BS_COMMON_H_ */

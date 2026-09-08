@@ -182,6 +182,37 @@ static inline int32_t Color_lerp(int32_t color1, int32_t color2, float blending)
     return r | (g << 8) | (b << 16);
 }
 
+static inline void bsGetDirname(char* path) {
+    if (!path || *path == '\0') {
+        return;
+    }
+    
+    char* lastSlash = strrchr(path, '/');
+    char* lastBackslash = strrchr(path, '\\');
+    char* target = nullptr;
+    if (lastSlash != nullptr && (target == nullptr || lastSlash > target))
+        target = lastSlash;
+    if (lastBackslash != nullptr && (target == nullptr || lastBackslash > target))
+        target = lastBackslash;
+#ifdef PLATFORM_VITA
+    if (target == nullptr)
+        target = strrchr(path, ':');
+#endif
+
+    if (target) {
+        if (*target == ':') {
+            *(target + 1) = '\0';
+        } else if (target == path || *(target - 1) == ':') {
+            *(target + 1) = '\0';
+        } else {
+            *target = '\0';
+        }
+    } else {
+        path[0] = '.';
+        path[1] = '\0';
+    }
+}
+
 #define shcopyFromTo(src, dst)                        \
 do {                                        \
 (dst) = NULL;                           \

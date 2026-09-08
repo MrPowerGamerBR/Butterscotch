@@ -340,16 +340,8 @@ static bool startRunnerFromPath(const char* dataWinPath, const char* savesPath, 
         return false;
     }
 
-    char* bundleDir = nullptr;
-    const char* lastSlash = strrchr(dataWinPath, '/');
-    if (lastSlash != nullptr) {
-        size_t len = (size_t) (lastSlash - dataWinPath + 1);
-        bundleDir = safeMalloc(len + 1);
-        memcpy(bundleDir, dataWinPath, len);
-        bundleDir[len] = '\0';
-    } else {
-        bundleDir = safeStrdup("./");
-    }
+    char* bundleDir = safeStrdup(dataWinPath);
+    bsGetDirname(bundleDir);
 
     VMContext* vm = VM_create(dataWin);
     Renderer* renderer = GLRenderer_create();
@@ -661,17 +653,7 @@ static bool performGameChange(const char* workingDirectory, char* launchParamete
 
     // Get the parent directory of the main data.win file
     char* parentDir = safeStrdup(gCurrentDataWinPath);
-    {
-        char* lastSlash = strrchr(parentDir, '/');
-        char* lastBackslash = strrchr(parentDir, '\\');
-        char* sep = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
-        if (sep != nullptr) {
-            *sep = '\0';
-        } else {
-            parentDir[0] = '.';
-            parentDir[1] = '\0';
-        }
-    }
+    bsGetDirname(parentDir);
 
     // The pendingWorkingDirectory contains a slash at the beginning of it (example: /chapter3)
     // The parentDir does NOT have a trailing slash, so we don't need to bother with it

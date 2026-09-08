@@ -527,18 +527,19 @@ int loop(CommandLineArgs args, const char *argv0) {
         options.parseTxtr = true;
 #ifdef PLATFORM_VITA
         do {
-            char *lastSlash = strrchr(args.dataWinPath, '/');
-            if (!lastSlash) {
-                lastSlash = strrchr(args.dataWinPath, ':');
-                if (!lastSlash) /* should be impossible if dataWinPath is valid */
-                    break;
+            char *texBinDir = safeStrdup(args.dataWinPath);
+            bsGetDirname(texBinDir);
+            if (strcmp(texBinDir, ".") == 0) {
+                free(texBinDir);
+                break;
             }
-            size_t texBinPathSize = lastSlash - args.dataWinPath + 1;
+            size_t dirLen = strlen(texBinDir);
+            bool needsSep = texBinDir[dirLen - 1] != '/' && texBinDir[dirLen - 1] != '\\' && texBinDir[dirLen - 1] != ':';
             const char *texBinName = "textures.bin";
-            size_t texBinNameSize = strlen(texBinName) + 1;
-            char *texBinPath = (char *)safeMalloc(texBinPathSize + texBinNameSize);
-            memcpy(texBinPath, args.dataWinPath, texBinPathSize);
-            memcpy(texBinPath + texBinPathSize, texBinName, texBinNameSize);
+            size_t texBinPathSize = dirLen + (needsSep ? 1 : 0) + strlen(texBinName) + 1;
+            char *texBinPath = (char *)safeMalloc(texBinPathSize);
+            snprintf(texBinPath, texBinPathSize, "%s%s%s", texBinDir, needsSep ? "/" : "", texBinName);
+            free(texBinDir);
             FILE *texBinFile = fopen(texBinPath, "rb");
             free(texBinPath);
             if (!texBinFile)
@@ -775,21 +776,8 @@ int loop(CommandLineArgs args, const char *argv0) {
         }
 
         // Initialize the file system
-        char* dataWinDir = nullptr;
-        {
-            const char* lastSlash = strrchr(args.dataWinPath, '/');
-            const char* lastBackslash = strrchr(args.dataWinPath, '\\');
-            if (lastBackslash != nullptr && (lastSlash == nullptr || lastBackslash > lastSlash))
-                lastSlash = lastBackslash;
-            if (lastSlash != nullptr) {
-                size_t len = (size_t) (lastSlash - args.dataWinPath + 1);
-                dataWinDir = (char *)safeMalloc(len + 1);
-                memcpy(dataWinDir, args.dataWinPath, len);
-                dataWinDir[len] = '\0';
-            } else {
-                dataWinDir = safeStrdup("./");
-            }
-        }
+        char* dataWinDir = safeStrdup(args.dataWinPath);
+        bsGetDirname(dataWinDir);
         const char* savePath = args.saveFolder != nullptr ? args.saveFolder : dataWinDir;
         OverlayFileSystem* overlayFs = OverlayFileSystem_create(dataWinDir, savePath);
         free(dataWinDir);
@@ -1421,17 +1409,7 @@ int loop(CommandLineArgs args, const char *argv0) {
 
             // Get the parent directory of the main data.win file
             char* parentDir = safeStrdup(currentDataWinPath);
-            {
-                char* lastSlash = strrchr(parentDir, '/');
-                char* lastBackslash = strrchr(parentDir, '\\');
-                char* sep = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
-                if (sep != nullptr) {
-                    *sep = '\0';
-                } else {
-                    parentDir[0] = '.';
-                    parentDir[1] = '\0';
-                }
-            }
+            bsGetDirname(parentDir);
 
             // The pendingWorkingDirectory contains a slash at the beginning of it (example: /chapter3)
             // The parentDir does NOT have a trailing slash, so we don't need to bother with it
