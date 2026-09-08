@@ -30,7 +30,7 @@ jobs:
             sudo pkg refresh
             sudo pkg install \
               developer/build/cmake \
-              developer/build/gnu-make \
+              developer/build/ninja \
               developer/build/pkgconfig \
               developer/gcc-13 \
               developer/ccache \
@@ -49,8 +49,7 @@ jobs:
             export CC=/usr/gcc/13/bin/gcc
             export CXX=/usr/gcc/13/bin/g++
 
-            cmake -B build -G "Unix Makefiles" \
-              -DCMAKE_MAKE_PROGRAM=/usr/bin/gmake \
+            cmake -B build -G Ninja \
               -DBACKEND=sdl2 \
               -DAUDIO_BACKEND=openal \
               -DCMAKE_BUILD_TYPE=Release \
