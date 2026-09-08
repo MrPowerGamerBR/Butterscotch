@@ -239,7 +239,6 @@ jobs:
             export CC=/usr/gcc/14/bin/gcc
             export CXX=/usr/gcc/14/bin/g++
             export PATH="/usr/gnu/bin:$PATH"
-            export LDFLAGS="-fuse-ld=gld"
 
             cmake -B build -G Ninja \
               -DBACKEND=sdl2 \
