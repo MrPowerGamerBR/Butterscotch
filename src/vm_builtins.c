@@ -15924,6 +15924,7 @@ static RValue builtin_path_duplicate(VMContext* ctx, RValue* args, int32_t argCo
     newPath->pointCount = source.pointCount;
     newPath->internalPointCount = source.internalPointCount;
     newPath->length = source.length;
+    newPath->exists = true;
 
     // Copy external points
     if (source.pointCount > 0) {
