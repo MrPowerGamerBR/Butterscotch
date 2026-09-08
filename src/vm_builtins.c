@@ -6476,6 +6476,36 @@ static RValue builtin_array_pop(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
     return value;
 }
 
+// array_concat(array, arrays...) - concatenate each provided array onto a copy of the first array.
+static RValue builtin_array_concat(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    if (args[0].type != RVALUE_ARRAY || args[0].array == nullptr) return RValue_makeUndefined();
+
+    GMLArray* out = GMLArray_clone(args[0].array, IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : nullptr);
+    int32_t outLen = GMLArray_length1D(out);
+
+    for (int32_t i = 1; i < argCount; i++) {
+        if (args[i].type != RVALUE_ARRAY || args[i].array == nullptr) {
+            GMLArray_decRef(out);
+            return RValue_makeUndefined();
+        }
+
+        GMLArray* src = args[i].array;
+        int32_t addLen = GMLArray_length1D(src);
+        if (addLen > 0) {
+            GMLArray_growTo(out, outLen + addLen);
+            repeat(addLen, j) {
+                RValue* slot = GMLArray_slot(out, outLen + j);
+                *slot = RValue_makeIndependent(GMLArray_get(src, j));
+            }
+        }
+        outLen += addLen;
+    }
+
+    if (IS_WAD17_OR_HIGHER(ctx)) out->owner = ctx->currentArrayOwner;
+    return RValue_makeArray(out);
+}
+
 // array_insert(array, index, values...) - insert one or more values at "index", shifting the tail up. If "index" is past the end, fill the gap with real 0 (see the yyVariable.js for reference).
 static RValue builtin_array_insert(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (2 > argCount) return RValue_makeUndefined();
@@ -19363,6 +19393,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "array_set", builtin_array_set);
     VM_registerBuiltin(ctx, "array_push", builtin_array_push);
     VM_registerBuiltin(ctx, "array_pop", builtin_array_pop);
+    VM_registerBuiltin(ctx, "array_concat", builtin_array_concat);
     VM_registerBuiltin(ctx, "array_resize", builtin_array_resize);
     VM_registerBuiltin(ctx, "array_delete", builtin_array_delete);
     VM_registerBuiltin(ctx, "array_insert", builtin_array_insert);
