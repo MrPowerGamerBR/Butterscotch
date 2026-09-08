@@ -778,6 +778,7 @@ struct Runner {
     // Just like the original runner, argv[0] is included in gameArgs
     char** gameArgs;
 
+    bool drawAutomatic;
     // Offset between game start time and nowNanos()
     uint64_t gameStartTime;
 
