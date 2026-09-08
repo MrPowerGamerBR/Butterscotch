@@ -45,6 +45,20 @@ jobs:
       - name: Install Xvfb
         run: sudo apt-get install -y xvfb
 
+      - name: Verify path regression bundle passes
+        run: |
+          set -euo pipefail
+          xvfb-run -a ./build/butterscotch --disable-log-colours tests/path-test/game.ios > /tmp/path-test-output.txt 2>&1
+
+          grep -F "Game: Passed 267 tests out of 267" /tmp/path-test-output.txt
+
+          if grep -E "Assert(Almost|Equals)? FAIL:|Assertion FAIL:" /tmp/path-test-output.txt >/dev/null; then
+            echo "Path regression test reported a failure; see output above." >&2
+            exit 1
+          fi
+
+          echo "Path regression bundle passed successfully."
+
       - name: Download Commercial Games
         if: env.DOWNLOAD_COMMERCIAL_GAMES == 'true'
         env:
