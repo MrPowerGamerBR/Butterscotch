@@ -16060,7 +16060,6 @@ static RValue builtin_path_flip(VMContext* ctx, RValue* args, int32_t argCount) 
         return RValue_makeUndefined();
 
     for (uint32_t i = 0; i < p->pointCount; i++) {
-        p->points[i].x = b.centreX - (p->points[i].x - b.centreX);
         p->points[i].y = b.centreY - (p->points[i].y - b.centreY);
     }
 
