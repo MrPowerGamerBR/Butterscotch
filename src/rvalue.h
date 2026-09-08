@@ -454,6 +454,17 @@ static inline char* RValue_toStringFancy(RValue val, DataWin* dataWin) {
                 free(structStr);
                 return result;
             }
+#if IS_WAD17_OR_HIGHER_ENABLED
+        case RVALUE_METHOD:
+        {
+            char* methodStr = GMLMethod_toString(val.method, dataWin);
+            size_t needed = strlen(methodStr) + 1;
+            char* result = (char*) safeCalloc(needed, sizeof(char));
+            snprintf(result, needed, "%s", methodStr);
+            free(methodStr);
+            return result;
+        }
+#endif
         default: {
             return RValue_toString(val, dataWin);
         }

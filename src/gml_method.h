@@ -9,6 +9,7 @@ typedef struct VMContext VMContext;
 #endif
 
 typedef struct RValue RValue;
+struct DataWin;
 
 #ifndef BUILTINFUNC_DEFINED
 #define BUILTINFUNC_DEFINED
@@ -29,6 +30,7 @@ typedef struct GMLMethod {
 GMLMethod* GMLMethod_create(int32_t codeIndex, int32_t boundInstanceId);
 GMLMethod* GMLMethod_createBuiltin(BuiltinFunc builtin, int32_t boundInstanceId);
 GMLMethod* GMLMethod_createUnresolved(const char* name, int32_t boundInstanceId);
+char* GMLMethod_toString(const GMLMethod* method, struct DataWin* dataWin);
 void GMLMethod_incRef(GMLMethod* m);
 // Decrement refCount. If it reaches 0, frees the struct. Safe on nullptr.
 void GMLMethod_decRef(GMLMethod* m);
