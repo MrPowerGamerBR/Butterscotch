@@ -157,4 +157,6 @@ static inline void GMLArray_addOnArrayRef(RValue* arrayRef, RValue val) {
     GMLArray_add(arrayRef->array, val);
 }
 
+char* GMLArray_toString(const GMLArray* arr, DataWin* dataWin);
+
 #endif /* _BS_GML_ARRAY_H_ */

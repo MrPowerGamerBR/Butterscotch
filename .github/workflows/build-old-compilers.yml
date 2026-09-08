@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install dependencies
-        run: sudo apt-get install -y tcc libsdl1.2-dev
+        run: sudo apt-get update && sudo apt-get install -y tcc libsdl1.2-dev
 
       - name: Configure and build Butterscotch
         run: make CC='tcc' BACKEND=sdl1 NO_COLOR=1 VERBOSE=1 -j$(nproc)
@@ -59,6 +59,41 @@ jobs:
         run: |
           sudo mv ~/woody/butterscotch .
           sudo chown -R $(whoami):$(id -gn) butterscotch/.ccache
+
+  build-msvc4:
+    name: Build (MSVC 4.0)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Download MSVC 4.0
+        uses: actions/checkout@v7
+        with:
+          repository: itsmattkc/MSVC400
+          ref: 821e942fd95bd16d01649401de7943ef87ae9f54
+          path: msvc400
+
+      - name: Setup MSVC 4.0
+        run: |
+          cmd /c "msvc400\bin\VCVARS32.BAT && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              "$($Matches[1])=$($Matches[2])" | Out-File -Append -FilePath $env:GITHUB_ENV
+            }
+          }
+        shell: pwsh
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: >-
+            make
+            diffutils
+
+      - name: Build
+        shell: msys2 {0}
+        run: make CC='cl' BACKEND=noop AUDIO_BACKEND=noop NO_COLOR=1 VERBOSE=1
 
   build-cxx:
     name: Build as C++

@@ -64,8 +64,10 @@ void DataWin_printDebugSummary(DataWin* dataWin) {
     // AGRP
     logInfo("-- AGRP (Audio Groups) --\n");
     logInfo("  Audio Groups:     %u\n", dataWin->agrp.count);
+    {
     forEachIndexed(AudioGroup, ag, idx, dataWin->agrp.audioGroups, dataWin->agrp.count) {
         logInfo("    [%u] %s\n", (unsigned int)idx, ag->name ? ag->name : "?");
+    }
     }
     logInfo("\n");
 

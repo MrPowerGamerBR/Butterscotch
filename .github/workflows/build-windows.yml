@@ -4,7 +4,7 @@ on:
   workflow_call:
 
 jobs:
-  build-glfw-windows:
+  build-arm-windows:
     name: Build (${{ matrix.arch }})
     runs-on: ubuntu-24.04
 
@@ -37,17 +37,18 @@ jobs:
             ccache \
             llvm
 
-      - uses: actions/cache@v6
+      - name: Setup ccache
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
-          key: ccache-glfw-windows-${{ matrix.arch }}-${{ github.sha }}
+          key: ccache-arm-windows-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: |
-            ccache-glfw-windows-${{ matrix.arch }}-
+            ccache-arm-windows-${{ matrix.arch }}-
 
       - name: Install LLVM-MinGW
         run: |
           curl -L \
-            https://github.com/mstorsjo/llvm-mingw/releases/download/20260728/llvm-mingw-20260728-ucrt-ubuntu-22.04-x86_64.tar.xz \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64.tar.xz \
             -o /tmp/llvm-mingw.tar.xz
 
           sudo mkdir -p /opt/llvm-mingw
@@ -57,27 +58,39 @@ jobs:
 
           echo "/opt/llvm-mingw/bin" >> "$GITHUB_PATH"
 
-      - name: Checkout GLFW
+      - name: Cache SDL2
+        id: cache-sdl2
+        uses: actions/cache@v6
+        with:
+          path: /usr/${{ matrix.triplet }}/sdl2
+          key: sdl2-windows-${{ matrix.triplet }}-${{ github.sha }}-2.32.10-rev2
+
+      - name: Checkout SDL2
+        if: steps.cache-sdl2.outputs.cache-hit != 'true'
         uses: actions/checkout@v7
         with:
-          repository: glfw/glfw
-          ref: fdd14e65b1c29e4e6df875fb5669ec00d6793531
-          path: vendor/glfw
+          repository: libsdl-org/SDL
+          ref: release-2.32.10
+          path: vendor/sdl2
 
-      - name: Build GLFW for MinGW
+      - name: Build SDL2 for MinGW
+        if: steps.cache-sdl2.outputs.cache-hit != 'true'
         run: |
-          cmake -B vendor/glfw/build -S vendor/glfw -G Ninja \
+          cmake -B vendor/sdl2/build -S vendor/sdl2 -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/llvm-mingw.cmake \
             -DTARGET_TRIPLE=${{ matrix.target }} \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_INSTALL_PREFIX=/usr/${{ matrix.triplet }} \
-            -DGLFW_BUILD_EXAMPLES=OFF -DGLFW_BUILD_TESTS=OFF -DGLFW_BUILD_DOCS=OFF
+            -DCMAKE_INSTALL_PREFIX=/usr/${{ matrix.triplet }}/sdl2 \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF
 
-          cmake --build vendor/glfw/build
-          sudo cmake --install vendor/glfw/build
+          cmake --build vendor/sdl2/build
+          sudo cmake --install vendor/sdl2/build
 
       - name: Configure
+        env:
+          PKG_CONFIG_PATH: /usr/${{ matrix.triplet }}/sdl2/lib/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/${{ matrix.triplet }}/sdl2/lib/pkgconfig
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/llvm-mingw.cmake \
@@ -86,8 +99,9 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DWERROR=ON \
-            -DBACKEND=glfw3 \
-            -DCMAKE_BUILD_TYPE=Release
+            -DBACKEND=sdl2 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
 
       - name: Build
         run: |
@@ -97,7 +111,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: butterscotch-glfw3-windows-${{ matrix.arch }}
+          name: butterscotch-sdl2-windows-${{ matrix.arch }}
           path: build/butterscotch.exe
 
   build-windows:
@@ -137,7 +151,7 @@ jobs:
               NO_COLOR=1 \
               VERBOSE=1 \
               CC='ccache ${{ matrix.arch }}-w64-mingw32-gcc' \
-              CFLAGS='-O3 -DNDEBUG -flto -fomit-frame-pointer' \
+              CFLAGS='-O3 -DNDEBUG -flto -ffast-math -fno-finite-math-only -fomit-frame-pointer' \
               BACKEND=${{ matrix.backend }} \
               EXTRALIBS='-latomic' \
               ${{ matrix.libs }}

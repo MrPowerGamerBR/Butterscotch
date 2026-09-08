@@ -239,7 +239,8 @@ typedef struct {
     uint32_t blend; // GameMaker-HTML5's m_imageBlend
     RuntimeBackgroundElement* backgroundElement; // owned; set for every background element
     RuntimeSpriteElement* spriteElement; // owned; nullptr if type != Sprite
-    RoomTile* tileElement; // borrowed, points into RoomLayerAssetsData->legacyTiles; nullptr if type != Tile
+    RoomTile* tileElement; // borrowed (legacyTiles) or owned (layer_tile_create); nullptr if type != Tile
+    bool tileElementOwned; // true if tileElement was heap-allocated and must be freed
     RoomLayerTilesData* tilemapData; // borrowed, points into the parsed RoomLayer; nullptr if type != Tilemap
     int32_t instanceId; // only valid if type == Instance; the instance may have died since, so callers must check liveness
 } RuntimeLayerElement;
@@ -269,7 +270,7 @@ typedef struct {
 
 // A single entry in the depth-sorted draw list. Cached on Runner and rebuilt lazily based on Runner.drawableListStructureDirty / drawableListSortDirty.
 // Filtering on instance->active/visible and runtimeLayer->visible happens at draw time so toggling those does not require invalidating the cache.
-typedef enum { DRAWABLE_TILE, DRAWABLE_INSTANCE, DRAWABLE_LAYER } DrawableType;
+typedef enum { DRAWABLE_TILE, DRAWABLE_INSTANCE, DRAWABLE_LAYER, DRAWABLE_PARTICLE_SYSTEM } DrawableType;
 
 typedef struct {
     DrawableType type;
@@ -279,6 +280,8 @@ typedef struct {
         int32_t tileIndex;
         // Stored as an ID (resolved via Runner_findRuntimeLayerById) instead of a pointer, because layer_create can call arrput on runner->runtimeLayers mid-draw and realloc the array, invalidating any cached pointers.
         int32_t runtimeLayerId;
+        // Same reasoning as runtimeLayerId: part_system_create during a draw event can realloc the pool.
+        int32_t particleSystemId;
     };
 } Drawable;
 
@@ -290,7 +293,7 @@ typedef struct {
 
 // ds_priority queue item
 typedef struct {
-    int32_t depth;
+    GMLReal depth;
     RValue item;
 } DsPriorityItem;
 
@@ -390,6 +393,127 @@ typedef struct {
     GMLReal cellHeight;
     uint8_t* cells;
 } MpGrid;
+
+// ===[ Particle System ]===
+// Backs the part_* builtins, which are implemented in vm_builtins.c. GameMaker splits particles into
+// three resources:
+//   * a SYSTEM owns the live particles and the emitters that spawn them, and decides when they are drawn
+//   * a TYPE describes how a particle looks and moves; types are global, so any system can stream any type
+//   * an EMITTER is owned by one system and spawns particles of a given type inside a region
+//
+// Ids are indices into the pools below, with a "used" tombstone so a destroyed id can be handed out
+// again. Same convention as the ds_* pools, and games do rely on it.
+
+// part_emitter_region() shape constants
+#define PS_SHAPE_RECTANGLE 0
+#define PS_SHAPE_ELLIPSE   1
+#define PS_SHAPE_DIAMOND   2
+#define PS_SHAPE_LINE      3
+
+// part_emitter_region() distribution constants
+#define PS_DISTR_LINEAR       0
+#define PS_DISTR_GAUSSIAN     1
+#define PS_DISTR_INVGAUSSIAN  2
+
+// Upper bound on live particles per system. GameMaker itself has no such limit, but an emitter left
+// streaming in a room the player never leaves will grow without bound, and the consoles this runner
+// targets cannot absorb that. Spawns past the cap are dropped (warned about once per system).
+#define PARTICLE_SYSTEM_MAX_PARTICLES 8192
+
+typedef struct {
+    bool used;
+
+    int32_t sprite;       // sprite asset index, -1 when the type has no sprite (draws nothing)
+    bool spriteAnimate;   // advance the subimage as the particle ages
+    bool spriteStretch;   // stretch one full animation cycle across the particle's whole life
+    bool spriteRandom;    // start from a random subimage
+
+    // Every "min/max/incr/wiggle" quadruple works the same way: the initial value is picked uniformly
+    // in [min, max], "incr" is added every step, and "wiggle" oscillates the value used for motion and
+    // drawing without accumulating into the base.
+    GMLReal sizeMin, sizeMax, sizeIncr, sizeWiggle;
+    GMLReal scaleX, scaleY;
+    GMLReal speedMin, speedMax, speedIncr, speedWiggle;
+    GMLReal dirMin, dirMax, dirIncr, dirWiggle;
+
+    GMLReal gravityAmount;
+    GMLReal gravityDirection;
+
+    // Drawn orientation. Independent of the direction of travel unless angRelative is set, in which
+    // case the angle is measured from it.
+    GMLReal angMin, angMax, angIncr, angWiggle;
+    bool angRelative;
+
+    int32_t lifeMin, lifeMax;
+
+    // Alpha and colour both run through three stops across the particle's life: start, middle at the
+    // halfway mark, end. part_type_alpha1/alpha2 and part_type_colour1/colour2 collapse the stops.
+    // part_type_colour_mix instead picks a fixed random blend of two colours per particle at spawn;
+    // when colourMix is set, colourStart/colourMixEnd are the blend endpoints and the per-particle
+    // result is stored in Particle.colour (colourFixed), so the lifetime curve is bypassed.
+    GMLReal alphaStart, alphaMiddle, alphaEnd;
+    uint32_t colourStart, colourMiddle, colourEnd; // GML packed BGR, as the drawing functions take it
+    bool colourMix;
+    uint32_t colourMixEnd; // second blend endpoint for part_type_colour_mix
+    bool additive;
+
+    int32_t deathType;   // type id spawned when a particle of this type dies, -1 when none
+    int32_t deathNumber; // how many to spawn; negative means a 1-in-|n| chance
+    int32_t stepType;    // type id spawned every step a particle of this type lives, -1 when none
+    int32_t stepNumber;  // same "negative means a chance" convention as deathNumber
+
+    // Particles alive that were born from this type. A destroyed type keeps its slot until the
+    // count reaches zero: in GameMaker a particle outlives the type it came from, and holding the
+    // slot is far cheaper than copying every type field into every particle.
+    int32_t refCount;
+} ParticleType;
+
+typedef struct {
+    int32_t typeId;
+    GMLReal x, y;
+    GMLReal speed;      // base speed, before wiggle
+    GMLReal direction;  // base direction in degrees, before wiggle
+    GMLReal size;       // base size, before wiggle
+    GMLReal angle;      // drawn orientation in degrees, before wiggle
+    int32_t life;       // steps remaining
+    int32_t lifeTotal;  // steps this particle started with, for the alpha/animation curves
+    int32_t subimgBase; // starting subimage
+    uint32_t colour;    // set by part_particles_create_colour; overrides the type's colour curve
+    bool colourFixed;   // true when "colour" above is in force
+    int32_t seed;       // per-particle random; phase-shifts this particle's wiggle oscillations
+} Particle;
+
+typedef struct {
+    bool used;
+    GMLReal xmin, xmax, ymin, ymax;
+    int32_t shape;
+    int32_t distribution;
+    int32_t streamType;   // type id streamed every step, -1 when the emitter is idle
+    // Particles per step. Negative means a 1-in-|n| chance; a fraction is a chance of one more, so
+    // an emitter streaming 0.5 spawns on roughly every other step.
+    GMLReal streamNumber;
+} ParticleEmitter;
+
+typedef struct {
+    bool used;
+    bool automaticUpdate; // step the system at the end of every frame (on by default, as in GML)
+    bool automaticDraw;   // draw the system from the depth list (on by default, as in GML)
+    int32_t depth;
+    GMLReal originX, originY;  // part_system_position: added to every particle when drawing
+    bool warnedFull;      // the "hit PARTICLE_SYSTEM_MAX_PARTICLES" warning fires once per system
+    Particle* particles;  // stb_ds array
+    ParticleEmitter* emitters; // stb_ds array, index = emitter id within this system
+} ParticleSystem;
+
+// Implemented in vm_builtins.c next to the part_* builtins; these four are the only entry points the
+// runner itself needs (depth list, frame step, teardown).
+ParticleSystem* Particles_systemGet(Runner* runner, int32_t systemId);
+// Steps every system with automaticUpdate set. Called once at the end of Runner_step.
+void Particles_updateAutomatic(Runner* runner);
+// Draws one system at the current draw state. Backs part_system_drawit and the depth-list entry.
+void Particles_drawSystem(Runner* runner, int32_t systemId);
+// Frees both pools. Called from the Runner's cleanup path.
+void Particles_freeAll(Runner* runner);
 
 // Open text file handle for GML file_text_* functions
 #define MAX_OPEN_TEXT_FILES 32
@@ -551,7 +675,14 @@ struct Runner {
     Instance** structInstances;
     int32_t forcedDepth;
     // The time between the last frame and the current frame, stored in microseconds.
-    double deltaTime;
+    GMLReal deltaTime;
+    // Current frame rate (capped at room speed)
+    double fps;                   // last measured frames-per-second value returned to GML
+    uint64_t fpsWindowStartNanos;  // nowNanos() at the start of the measurement window
+    int fpsWindowStartFrame;   // runner->frameCount at the start of the measurement window
+    // Real-time measured frame rate for the "fps_real" builtin, measured as 1 / frame work time (uncapped).
+    double fpsReal;
+    uint64_t fpsRealFrameStartNanos; // nowNanos() at start of frame work for fps_real (set in Runner_step, consumed in Runner_drawGUI)
     char* windowTitle;
 
     // ===[ Builtin function state ]===
@@ -563,6 +694,10 @@ struct Runner {
     DsGrid* dsGridPool; // stb_ds array of DsGrid
     GmlBuffer* gmlBufferPool; // stb_ds array of GmlBuffer
     MpGrid* mpGridPool; // stb_ds array of motion-planning grids
+    // Particle systems own their emitters and live particles; types are global and can be streamed by
+    // any system's emitters. Both pools reuse destroyed slots, matching the ds_* id behaviour.
+    ParticleSystem* particleSystemPool; // stb_ds array of ParticleSystem
+    ParticleType* particleTypePool; // stb_ds array of ParticleType
 
     // Motion planning potential field settings
     GMLReal mpPotMaxrot;

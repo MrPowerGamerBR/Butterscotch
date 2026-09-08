@@ -342,6 +342,7 @@ int32_t VM_getOrAllocateVarID(VMContext* ctx, const char* name);
 // Writes to the VMContext's scriptArgs, resizing the underlying array if needed
 // The "val" will be RValue_makeIndependent(val), it won't be freed
 void VM_writeToScriptArgs(VMContext* ctx, int32_t writeIndex, RValue val);
+void VM_writeToScriptArgsArrayElement(VMContext* ctx, int32_t writeIndex, int32_t arrayIndex, RValue val);
 
 static inline const char* VM_getCallerName(VMContext* ctx) {
     return ctx->currentCodeName != nullptr ? ctx->currentCodeName : "<unknown>";

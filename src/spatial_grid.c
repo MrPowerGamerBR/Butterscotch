@@ -33,20 +33,53 @@ void SpatialGrid_free(SpatialGrid* grid) {
     free(grid);
 }
 
-static void removeInstanceFromGridCells(SpatialGrid* grid, Instance* instance) {
+void SpatialGrid_removeInstance(SpatialGrid* grid, Instance* instance) {
     int32_t totalCells = (int32_t)grid->gridWidth * (int32_t)grid->gridHeight;
+    bool removedAny = false;
+
+    // First remove from any cells named in this instance's cached tracking data.
     repeat(arrlen(instance->collisionCells), i) {
         uint32_t gridCoordinates = instance->collisionCells[i];
         int32_t gridX = SpatialGrid_unpackGridX(gridCoordinates);
         int32_t gridY = SpatialGrid_unpackGridY(gridCoordinates);
         int32_t cellIndex = SpatialGrid_cellIndex(grid, gridX, gridY);
         if (cellIndex < 0 || cellIndex >= totalCells) continue;
-        repeat(arrlen(grid->grid[cellIndex]), j) {
-            if (grid->grid[cellIndex][j] == instance) {
-                arrdel(grid->grid[cellIndex], j);
-                break;
+
+        Instance** cell = grid->grid[cellIndex];
+        int32_t cellLen = (int32_t) arrlen(cell);
+        for (int32_t j = 0; j < cellLen;) {
+            if (cell[j] == instance) {
+                if (j < cellLen - 1) memmove(&cell[j], &cell[j + 1], (size_t) (cellLen - 1 - j) * sizeof(Instance*));
+                arrsetlen(cell, cellLen - 1);
+                removedAny = true;
+                cellLen--;
+            } else {
+                j++;
             }
         }
+    }
+
+    // Some room transitions and destructions can leave stale grid entries even when
+    // collisionCells was cleared or never populated for the current grid. Fall back to
+    // a full-grid scan so the instance pointer is not left dangling in the spatial hash.
+    repeat(totalCells, cellIndex) {
+        Instance** cell = grid->grid[cellIndex];
+        int32_t cellLen = (int32_t) arrlen(cell);
+        for (int32_t j = 0; j < cellLen;) {
+            if (cell[j] == instance) {
+                if (j < cellLen - 1) memmove(&cell[j], &cell[j + 1], (size_t) (cellLen - 1 - j) * sizeof(Instance*));
+                arrsetlen(cell, cellLen - 1);
+                removedAny = true;
+                cellLen--;
+            } else {
+                j++;
+            }
+        }
+    }
+
+    if (removedAny) {
+        arrsetlen(instance->collisionCells, 0);
+        instance->spatialGridDirty = false;
     }
 }
 
@@ -70,7 +103,7 @@ void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
         instance->spatialGridDirty = false;
 
         // Remove from old cells
-        removeInstanceFromGridCells(grid, instance);
+        SpatialGrid_removeInstance(grid, instance);
 
         InstanceBBox bbox = Collision_computeBBox(runner, instance);
 
@@ -101,7 +134,8 @@ void SpatialGrid_markInstanceAsDirty(SpatialGrid* grid, Instance* dirtyInstance)
 
     if (!dirtyInstance->active || dirtyInstance->destroyed) {
         // Destroyed instances are updated instantly because, if we didn't, we would need to track the ID + all grids that the instance is in
-        removeInstanceFromGridCells(grid, dirtyInstance);
+        // Guard against stale entries left behind by room transitions or earlier clears of collisionCells.
+        SpatialGrid_removeInstance(grid, dirtyInstance);
         return;
     }
 

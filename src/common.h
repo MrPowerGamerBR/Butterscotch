@@ -2,7 +2,7 @@
 #define _BS_COMMON_H_
 
 #include <stdbool.h>
-#ifndef nullptr
+#if !defined(__cplusplus) || (__cplusplus < 201103L && !defined(nullptr))
 #define nullptr NULL
 #endif
 

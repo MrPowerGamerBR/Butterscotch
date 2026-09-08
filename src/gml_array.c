@@ -128,3 +128,75 @@ void GMLArray_growTo(GMLArray* arr, int32_t minLength) {
         arr->modern.length = minLength;
     }
 }
+
+
+char* GMLArray_toStringFancy(const GMLArray* arr, DataWin* dataWin) {
+    if (arr == nullptr)
+        return safeStrdup("[]");
+
+    size_t capacity = 128;
+    size_t length = 0;
+
+    char* buf = (char*)safeMalloc(capacity);
+
+    buf[0] = '\0';
+
+    #define ENSURE_SPACE(extra) \
+        do { \
+            size_t needed = length + (extra) + 1; \
+            if (needed > capacity) { \
+                while (capacity < needed) \
+                    capacity *= 2; \
+                buf = (char*)safeRealloc(buf, capacity); \
+            } \
+        } while (0)
+
+    #define APPEND_STRING(str) \
+        do { \
+            const char* _str = (str); \
+            size_t _len = strlen(_str); \
+            ENSURE_SPACE(_len); \
+            memcpy(buf + length, _str, _len); \
+            length += _len; \
+            buf[length] = '\0'; \
+        } while (0)
+
+    APPEND_STRING("[ ");
+
+    bool first = true;
+
+    if (arr->type == GML_LEGACY_ARRAY) {
+        for (int r = 0; r < arr->legacy.rowCount; r++) {
+            GMLArrayRow* row = &arr->legacy.rows[r];
+
+            for (int c = 0; c < row->length; c++) {
+                if (!first)
+                    APPEND_STRING(",");
+
+                first = false;
+
+                char* valStr = RValue_toStringFancy(row->data[c], dataWin);
+                APPEND_STRING(valStr);
+                free(valStr);
+            }
+        }
+    } else {
+        for (int i = 0; i < arr->modern.length; i++) {
+            if (!first)
+                APPEND_STRING(",");
+
+            first = false;
+
+            char* valStr = RValue_toStringFancy(arr->modern.data[i], dataWin);
+            APPEND_STRING(valStr);
+            free(valStr);
+        }
+    }
+
+    APPEND_STRING(" ]");
+
+    #undef ENSURE_SPACE
+    #undef APPEND_STRING
+
+    return buf;
+}

@@ -56,7 +56,7 @@ define() {
 }
 
 include() {
-    config "INCLUDES += \$(INCLUDE)$1"
+    config "INCLUDES += \$(INC)$1"
 }
 
 check() {
@@ -121,7 +121,7 @@ if $CC /nologo tmp/nothing.c /Fetmp/a.out > /dev/null 2>&1; then
     config "OUTPUT_EXE := $output_exe"
     config 'OBJ_EXT := obj'
     config 'CFLAGS := /O2 /DNDEBUG'
-    config 'INCLUDE := /I'
+    config 'INC := /I'
     config 'DEFINE := /D'
 elif $CC tmp/nothing.c -o tmp/a.out > /dev/null 2>&1; then
     printgreen 'gcc'
@@ -134,7 +134,7 @@ elif $CC tmp/nothing.c -o tmp/a.out > /dev/null 2>&1; then
     config "OUTPUT_EXE := -o\$(space)"
     config 'OBJ_EXT := o'
     config 'CFLAGS := -O2 -DNDEBUG'
-    config 'INCLUDE := -I'
+    config 'INC := -I'
     config 'DEFINE := -D'
 else
     printred 'unknown'

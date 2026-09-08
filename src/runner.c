@@ -32,6 +32,11 @@ void Runner_freeRuntimeLayer(RuntimeLayer* runtimeLayer) {
             free(el->spriteElement);
             el->spriteElement = nullptr;
         }
+        if (el->tileElement != nullptr && el->tileElementOwned) {
+            free(el->tileElement);
+            el->tileElement = nullptr;
+            el->tileElementOwned = false;
+        }
     }
     arrfree(runtimeLayer->elements);
     runtimeLayer->elements = nullptr;
@@ -667,6 +672,7 @@ static DrawKey drawableKey(const Drawable* d) {
         case DRAWABLE_TILE: k.order = d->tileIndex; break;
         case DRAWABLE_INSTANCE: k.order = (int32_t) d->instance->instanceId;  break;
         case DRAWABLE_LAYER: k.order = d->runtimeLayerId; break;
+        case DRAWABLE_PARTICLE_SYSTEM: k.order = d->particleSystemId; break;
     }
     return k;
 }
@@ -738,8 +744,6 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
     uint32_t borderY = tileset->gms2OutputBorderY;
     uint32_t columns = tileset->gms2TileColumns;
 
-    static bool rotateWarned = false;
-
     repeat(data->tilesY, ty) {
         repeat(data->tilesX, tx) {
             uint32_t cell = data->tileData[ty * data->tilesX + tx];
@@ -755,10 +759,9 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
             bool flip = (cell & GMS2_TILE_FLIP_MASK) != 0;
             bool rotate = (cell & GMS2_TILE_ROTATE_MASK) != 0;
 
-            if (rotate && !rotateWarned) {
-                logWarn("Runner: GMS2 tile layer has rotated tiles; rotation not yet implemented, drawing unrotated\n");
-                rotateWarned = true;
-            }
+            float angleDeg = rotate ? 90.0f : 0.0f;
+            float pivotX = (float)(tx * tileW) + layerOffsetX + (float)tileW / 2.0f;
+            float pivotY = (float)(ty * tileH) + layerOffsetY + (float)tileH / 2.0f;
 
             float xscale = mirror ? -1.0f : 1.0f;
             float yscale = flip ? -1.0f : 1.0f;
@@ -768,7 +771,7 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
             float dstX = (float) (tx * tileW) + layerOffsetX + (mirror ? (float) tileW : 0.0f);
             float dstY = (float) (ty * tileH) + layerOffsetY + (flip ? (float) tileH : 0.0f);
 
-            runner->renderer->vtable->drawSpritePart(runner->renderer, tpagIndex, srcX, srcY, (int32_t) tileW, (int32_t) tileH, dstX, dstY, xscale, yscale, 0.0f, 0.0f, 0.0f, 0xFFFFFF, 1.0f);
+            runner->renderer->vtable->drawSpritePart(runner->renderer, tpagIndex, srcX, srcY, (int32_t) tileW, (int32_t) tileH, dstX, dstY, xscale, yscale, angleDeg, pivotX, pivotY, 0xFFFFFF, 1.0f);
         }
     }
 }
@@ -793,6 +796,9 @@ static void refreshDrawableDepths(Runner* runner, Drawable* drawables, int32_t c
         } else if (d->type == DRAWABLE_LAYER) {
             RuntimeLayer* rl = Runner_findRuntimeLayerById(runner, d->runtimeLayerId);
             if (rl != nullptr) d->depth = rl->depth;
+        } else if (d->type == DRAWABLE_PARTICLE_SYSTEM) {
+            ParticleSystem* ps = Particles_systemGet(runner, d->particleSystemId);
+            if (ps != nullptr) d->depth = ps->depth;
         }
     }
 }
@@ -842,6 +848,21 @@ static void rebuildDrawableCacheIfDirty(Runner* runner) {
                 d.runtimeLayerId = (int32_t) runtimeLayer->id;
                 arrput(runner->cachedDrawables, d);
             }
+        }
+
+        // Particle systems are not room-scoped: a system created in one room keeps running until the
+        // game destroys it, so they are re-added on every rebuild rather than tracked per room.
+        {
+        repeat((int32_t) arrlen(runner->particleSystemPool), i) {
+            ParticleSystem* particleSystem = &runner->particleSystemPool[i];
+            if (!particleSystem->used || !particleSystem->automaticDraw) continue;
+            Drawable d;
+            ZERO_STRUCT(d);
+            d.type = DRAWABLE_PARTICLE_SYSTEM;
+            d.depth = particleSystem->depth;
+            d.particleSystemId = (int32_t) i;
+            arrput(runner->cachedDrawables, d);
+        }
         }
 
         int32_t count = (int32_t) arrlen(runner->cachedDrawables);
@@ -969,6 +990,7 @@ void Runner_draw(Runner* runner) {
             Instance* inst = d->instance;
             // Filter inactive/invisible instances at draw time so the cache doesn't need invalidation when those flags toggle.
             if (!inst->active || !inst->visible) continue;
+
             int32_t ownerObjectIndex = -1;
             int32_t codeId = findEventCodeIdAndOwner(runner, inst->objectIndex, EVENT_DRAW, DRAW_NORMAL, &ownerObjectIndex);
             if (codeId >= 0) {
@@ -976,6 +998,12 @@ void Runner_draw(Runner* runner) {
             } else if (runner->renderer != nullptr) {
                 Renderer_drawSelf(runner->renderer, inst);
             }
+        } else if (d->type == DRAWABLE_PARTICLE_SYSTEM) {
+            // Filtered at draw time, like instance visibility: part_system_automatic_draw can be
+            // toggled from a Draw event that already ran this frame.
+            ParticleSystem* particleSystem = Particles_systemGet(runner, d->particleSystemId);
+            if (particleSystem == nullptr || !particleSystem->automaticDraw) continue;
+            Particles_drawSystem(runner, d->particleSystemId);
         } else if (d->type == DRAWABLE_LAYER) {
             // Re-resolve every iteration: a previous instance's Draw event may have called layer_create/layer_destroy and reallocated runner->runtimeLayers.
             RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, d->runtimeLayerId);
@@ -1007,6 +1035,11 @@ void Runner_draw(Runner* runner) {
                     RuntimeLayerElement* layerElement = &runtimeLayer->elements[j];
                     if (layerElement->type == RuntimeLayerElementType_Background && layerElement->backgroundElement != nullptr) {
                         renderBackgroundElement(runner, layerElement->backgroundElement, roomW, roomH, layerOffsetX, layerOffsetY);
+                    } else if (layerElement->type == RuntimeLayerElementType_Tile && layerElement->tileElement != nullptr && layerElement->tileElementOwned) {
+                        if (!layerElement->visible) continue;
+                        RoomTile rt = *layerElement->tileElement;
+                        rt.alpha = layerElement->alpha;
+                        Renderer_drawTile(runner->renderer, &rt, layerOffsetX, layerOffsetY);
                     }
                 }
             }
@@ -1146,6 +1179,11 @@ void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t ta
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_END);
     endGuiPass(runner);
+
+    if (runner->fpsRealFrameStartNanos != 0) {
+        uint64_t elapsed = nowNanos() - runner->fpsRealFrameStartNanos;
+        if (elapsed > 0) runner->fpsReal = (double)1e9 / (double)(int64_t)elapsed;
+    }
 }
 
 void Runner_drawPre(Runner* runner, int32_t windowW, int32_t windowH) {
@@ -1396,9 +1434,14 @@ static Instance** takePersistentInstances(Runner* runner) {
             }
 #endif
 
+            // Clear the slot before freeing the instance so any nested destroy/cleanup code cannot
+            // accidentally dereference a stale pointer that remains in runner->instances during room transitions.
+            runner->instances[i] = nullptr;
+
             hmdel(runner->instancesById, inst->instanceId);
             Runner_executeEvent(runner, inst, EVENT_CLEANUP, 0);
             Runner_removeInstanceFromObjectLists(runner, inst);
+            SpatialGrid_removeInstance(runner->spatialGrid, inst);
             Instance_free(inst);
         }
     }
@@ -1876,6 +1919,8 @@ static void cleanupState(Runner* runner) {
     }
     runner->savedRoomStates = nullptr;
 
+    Particles_freeAll(runner);
+
     // Drain ds_map/ds_list pools BEFORE bulk-freeing struct instances. Their RValue entries may hold RVALUE_STRUCT refs to structs in runner->structInstances, and RValue_free would deref freed memory if the structs are gone.
     {
     repeat((int32_t) arrlen(runner->dsMapPool), i) {
@@ -1953,8 +1998,10 @@ static void cleanupState(Runner* runner) {
     arrfree(runner->dsGridPool);
     runner->dsGridPool = nullptr;
 
+    {
     repeat((int32_t) arrlen(runner->callLaterEntries), i) {
         RValue_free(&runner->callLaterEntries[i].callback);
+    }
     }
     arrfree(runner->callLaterEntries);
     runner->callLaterEntries = nullptr;
@@ -2299,6 +2346,11 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->fileSystem = fileSystem;
     runner->audioSystem = audioSystem;
     runner->frameCount = 0;
+    double initialFps = (double)dataWin->gen8.gms2FPS;
+    runner->fps = initialFps;
+    runner->fpsReal = initialFps;
+    runner->fpsWindowStartFrame = 0;
+    runner->fpsWindowStartNanos = nowNanos();
     runner->osType = OS_WINDOWS;
     runner->keyboard = RunnerKeyboard_create();
     runner->gamepads = RunnerGamepad_create();
@@ -2441,7 +2493,7 @@ Instance* Runner_createInstanceWithDepth(Runner* runner, GMLReal x, GMLReal y, i
     if (isObjectDisabled(runner, objectIndex)) return nullptr;
     Instance* inst = createAndInitInstance(runner, runner->nextInstanceId++, objectIndex, x, y);
     inst->depth = depth;
-    dispatchInstanceCreationEvents(runner, inst);
+    Runner_executeEvent(runner, inst, EVENT_PRECREATE, 0);
     return inst;
 }
 
@@ -2465,7 +2517,7 @@ Instance* Runner_copyInstance(Runner* runner, Instance* source, bool performEven
     if (isObjectDisabled(runner, source->objectIndex)) return nullptr;
 
     Instance* inst = createAndInitInstance(runner, runner->nextInstanceId++, source->objectIndex, source->x, source->y);
-    Instance_copyFields(inst, source);
+    Instance_copyFields(source, inst);
     inst->createEventFired = true;
     if (performEvent) {
         Runner_executeEvent(runner, inst, EVENT_PRECREATE, 0);
@@ -2481,6 +2533,41 @@ void Runner_setGameArgs(Runner* runner, char** argv, int32_t argc) {
     {repeat(argc, i) arrput(runner->gameArgs, safeStrdup(argv[i]));}
 }
 
+static void Runner_clearStaleInstanceReferencesToInstance(Runner* runner, Instance* destroyedInst) {
+    if (runner == nullptr || destroyedInst == nullptr) return;
+
+    // A destroyed instance can still be referenced by another instance's per-instance state
+    // as an integer id (e.g. linked-list pointers, owner ids, chain heads, etc.). Rewrite any
+    // stale id equal to the dying instance back to -4.
+
+    // This is probably not very optimal as it loops through every single instance and every single
+    // selfVar slot, but it doesn't happen too often so maybe it should be okay?
+    // Another option would be to keep a reverse lookup table of instance ids to instances that reference them,
+    // but that would be more memory and complexity overhead.
+
+    int32_t destroyedInstanceId = destroyedInst->instanceId;
+    int32_t count = (int32_t) arrlen(runner->instances);
+    for (int32_t i = 0; i < count; i++) {
+        Instance* inst = runner->instances[i];
+        if (inst == nullptr || !inst->active || inst->destroyed || inst->objectIndex < 0) continue;
+        repeat(inst->selfVars.capacity, slotIndex) {
+            IntRValueEntry* entry = &inst->selfVars.entries[slotIndex];
+            if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+
+            uint8_t vtype = entry->value.type;
+            if (
+                (vtype == RVALUE_INT32 && entry->value.int32 == destroyedInstanceId) ||
+#ifndef NO_RVALUE_INT64
+                (vtype == RVALUE_INT64 && entry->value.int64 == destroyedInstanceId) ||
+#endif
+                (vtype == RVALUE_REAL && entry->value.real == (GMLReal) destroyedInstanceId)
+            ) {
+                entry->value = RValue_makeInt32(INSTANCE_NOONE);
+            }
+        }
+    }
+}
+
 void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst, bool runDestroyEvent) {
     // We check this to avoid a infinite loop if "inst" is destroyed within a event destroy event
     if (inst->destroyed)
@@ -2492,6 +2579,10 @@ void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst, bool ru
     // A destroyed instance must ALWAYS be not active
     // If a destroyed instance is active, then well, something went VERY wrong
     inst->active = false;
+
+    // Any selfVars that still hold the destroyed instance's id must be invalidated back to
+    // noone (-4) before the instance is fully reclaimed.
+    Runner_clearStaleInstanceReferencesToInstance(runner, inst);
 
 #ifdef ENABLE_VM_TRACING
     GameObject* gameObject = &runner->dataWin->objt.objects[inst->objectIndex];
@@ -3757,6 +3848,8 @@ static void tickTimelines(Runner* runner) {
 }
 
 void Runner_step(Runner* runner) {
+    runner->fpsRealFrameStartNanos = nowNanos();
+
     // The snapshot arena is stack-like and every push must be matched with a pop within the same frame. Assert that invariant at the top of each step: a non-zero length here means some site below pushed without popping, and we want a loud failure with the offending length so we can find it instead of silently leaking until the next frame.
     requireMessageFormatted(__FILE__, __LINE__, arrlen(runner->instanceSnapshots) == 0, "instanceSnapshots arena was not fully popped at end of previous frame (length=%td)", arrlen(runner->instanceSnapshots));
 
@@ -3837,7 +3930,7 @@ void Runner_step(Runner* runner) {
             if (entry->units == 1) {
                 entry->elapsed += (double)1.0;
             } else {
-                entry->elapsed += runner->deltaTime / (double)1000000.0;
+                entry->elapsed += (double)runner->deltaTime / (double)1000000.0;
             }
 
             if (entry->elapsed >= entry->period) {
@@ -4092,11 +4185,22 @@ void Runner_step(Runner* runner) {
     // Execute End Step for all instances
     Runner_executeEventForAll(runner, EVENT_STEP, STEP_END);
 
+    // Step particle systems left on automatic update. After End Step, so a system whose emitters were
+    // just reconfigured streams with this frame's settings, and before the draw pass that shows them.
+    Particles_updateAutomatic(runner);
+
     // Update view following
     updateViews(runner);
 
     Runner_cleanupDestroyedInstances(runner);
     Runner_sweepDeadStructs(runner);
+
+    // Measure fps builtin
+    if (nowNanos() - runner->fpsWindowStartNanos >= (uint64_t)1000000000) {
+        runner->fps = (double)(runner->frameCount - runner->fpsWindowStartFrame);
+        runner->fpsWindowStartFrame = runner->frameCount;
+        runner->fpsWindowStartNanos = nowNanos();
+    }
 
     runner->frameCount++;
 }

@@ -4,8 +4,8 @@ on:
   workflow_call:
 
 jobs:
-  build-glfw3-haiku:
-    name: Build (GLFW3 x86_64)
+  build-haiku:
+    name: Build (SDL2 x86_64)
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -45,7 +45,7 @@ jobs:
           
           ls /boot/system/packages/ > baseline_packages.txt
           
-          pkgman install -y cmake make ccache gcc glfw_devel openal_devel gcc_syslibs_devel
+          pkgman install -y cmake make ccache gcc libsdl2_devel openal_devel gcc_syslibs_devel
           ls /boot/system/packages/ > current_packages.txt
           
           comm -13 baseline_packages.txt current_packages.txt | while read -r pkg; do
@@ -65,7 +65,7 @@ jobs:
           export CCACHE_NOHASHDIR=true
 
           cmake -B build \
-            -DBACKEND=glfw3 \
+            -DBACKEND=sdl2 \
             -DAUDIO_BACKEND=openal \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
@@ -76,5 +76,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: butterscotch-glfw3-haiku-x86-64
+          name: butterscotch-sdl2-haiku-x86-64
           path: build/butterscotch

@@ -314,10 +314,12 @@ static inline bool Collision_ellipseOverlapsInstance(Runner* runner, Instance* i
         GMLReal nx = axes[axIdx][0], ny = axes[axIdx][1];
         GMLReal rMin = corners[0][0] * nx + corners[0][1] * ny;
         GMLReal rMax = rMin;
+        {
         for (int c = 1; 4 > c; c++) {
             GMLReal p = corners[c][0] * nx + corners[c][1] * ny;
             if (p < rMin) rMin = p;
             else if (p > rMax) rMax = p;
+        }
         }
         GMLReal du = nx * obb.cs + ny * obb.sn;
         GMLReal dv = -nx * obb.sn + ny * obb.cs;

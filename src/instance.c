@@ -1,4 +1,5 @@
 #include "instance.h"
+#include "vm.h"
 
 #include <stdlib.h>
 #include "string_compat.h"
@@ -202,4 +203,71 @@ void Instance_computeComponentsFromSpeed(Instance* inst) {
     if (GMLReal_fabs(inst->vspeed - GMLReal_round(inst->vspeed)) < 0.0001) {
         inst->vspeed = (float) GMLReal_round(inst->vspeed);
     }
+}
+
+char* Instance_toStringFancy(Instance* inst, DataWin* dataWin) {
+    const IntRValueHashMap* map = &inst->selfVars;
+    if (map->capacity == 0) return safeStrdup("{}");
+    const IntRValueEntry* entries = map->entries;
+    uint32_t mask = map->mask;
+
+    size_t requiredSize = 4; // "{ }\0"
+    bool first = true;
+    for (uint32_t idx = 0; idx <= mask; ++idx) {
+        int32_t slotKey = entries[idx].key;
+        if (slotKey == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+
+        const char* name = "?";
+        if (dataWin != nullptr) {
+            repeat(dataWin->vari.variableCount, varIdx) {
+                Variable* var = &dataWin->vari.variables[varIdx];
+                if (var->instanceType == INSTANCE_SELF && var->varID == slotKey) {
+                    name = var->name;
+                    break;
+                }
+            }
+        }
+
+        if (name == nullptr) name = "?";
+        RValue val = entries[idx].value;
+        char* valStr = RValue_toStringFancy(val, dataWin);
+        requiredSize += strlen(name) + strlen(valStr) + (first ? 0 : 2) + 5; // "name : value" + separators
+        free(valStr);
+        first = false;
+    }
+
+    size_t bufSize = requiredSize > 128 ? requiredSize : 128;
+    char* buf = (char*) safeCalloc(bufSize, sizeof(char));
+    size_t pos = 0;
+    pos += snprintf(buf + pos, bufSize - pos, "{ ");
+    first = true;
+    {
+    for (uint32_t idx = 0; idx <= mask; ++idx) {
+        int32_t slotKey = entries[idx].key;
+        if (slotKey != INT_RVALUE_HASHMAP_EMPTY_KEY) {
+            const char* name = "?";
+            if (dataWin != nullptr) {
+                repeat(dataWin->vari.variableCount, varIdx) {
+                    Variable* var = &dataWin->vari.variables[varIdx];
+                    if (var->instanceType == INSTANCE_SELF && var->varID == slotKey) {
+                        name = var->name;
+                        break;
+                    }
+                }
+            }
+            if (name == nullptr) name = "?";
+
+            RValue val = entries[idx].value;
+            char* valStr = RValue_toStringFancy(val, dataWin);
+            if (!first) {
+                pos += snprintf(buf + pos, bufSize - pos, ", ");
+            }
+            first = false;
+            pos += snprintf(buf + pos, bufSize - pos, "%s : %s", name, valStr);
+            free(valStr);
+        }
+    }
+    }
+    pos += snprintf(buf + pos, bufSize - pos, " }");
+    return buf;
 }

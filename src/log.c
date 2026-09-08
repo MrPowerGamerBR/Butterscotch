@@ -1,12 +1,6 @@
 #include "log.h"
 
-#include <stdio.h>
-#include <stdbool.h>
 #include <stdarg.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "utils.h"
 
 // In the platform main.c
 void platformLog(const logType type, const char *format, va_list va);
@@ -56,7 +50,6 @@ void logWarn(const char* fmt, ...) {
 void vLogWarn(const char* fmt, va_list va) {
 	platformLog(LOG_TYPE_WARNING, fmt, va);
 }
-
 
 void logError(const char* fmt, ...) {
 	va_list va;

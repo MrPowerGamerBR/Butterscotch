@@ -41,7 +41,8 @@ static const OsTypeNameEntry OS_TYPE_NAMES[] = {
 enum GraphicsAPI {
     SOFTWARE,
     MODERN_GL,
-    LEGACY_GL
+    LEGACY_GL,
+    NOOP
 };
 
 extern enum GraphicsAPI gfx;
@@ -127,7 +128,6 @@ void platformInitFunctions(Runner *);
 void platformExit(void);
 void platformSwapBuffers(void);
 void *platformGetProcAddress(const char *name);
-double platformGetTime(void);
 bool platformHandleEvents(void);
 void platformGetMousePos(double *xPos, double *yPos);
 bool platformGetWindowSize(int32_t* outW, int32_t* outH);

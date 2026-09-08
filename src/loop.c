@@ -14,7 +14,6 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include <io.h>
-#include <psapi.h>
 #endif
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -47,6 +46,9 @@
 #ifdef ENABLE_SW_RENDERER
 #include "sw_renderer.h"
 #endif
+#ifdef ENABLE_NOOP_RENDERER
+#include "noop_renderer.h"
+#endif
 #include "overlay_file_system.h"
 #if defined(USE_OPENAL)
 #include "al_audio_system.h"
@@ -74,6 +76,20 @@ const GLuint *hostFramebuffer;
 #ifndef _WIN32
 #include <fcntl.h>
 #include <unistd.h>
+#else
+/* we define this ourselves because psapi.h isn't available in msvc 4.0 */
+typedef struct {
+    DWORD cb;
+    DWORD PageFaultCount;
+    size_t PeakWorkingSetSize;
+    size_t WorkingSetSize;
+    size_t QuotaPeakPagedPoolUsage;
+    size_t QuotaPagedPoolUsage;
+    size_t QuotaPeakNonPagedPoolUsage;
+    size_t QuotaNonPagedPoolUsage;
+    size_t PagefileUsage;
+    size_t PeakPagefileUsage;
+} BS_PROCESS_MEMORY_COUNTERS;
 #endif
 
 static size_t get_used_memory(void) {
@@ -112,7 +128,7 @@ static size_t get_used_memory(void) {
         return info.resident_size;
     }
 #elif defined(_WIN32)
-    typedef BOOL (WINAPI *GetProcessMemoryInfo_t)(HANDLE, PPROCESS_MEMORY_COUNTERS, DWORD);
+    typedef BOOL (WINAPI *GetProcessMemoryInfo_t)(HANDLE, BS_PROCESS_MEMORY_COUNTERS*, DWORD);
     static GetProcessMemoryInfo_t func = NULL;
     static bool initialized = false;
 
@@ -126,7 +142,7 @@ static size_t get_used_memory(void) {
     }
 
     if (func) {
-        PROCESS_MEMORY_COUNTERS pmc;
+        BS_PROCESS_MEMORY_COUNTERS pmc;
         pmc.cb = sizeof(pmc);
         if (func(GetCurrentProcess(), &pmc, sizeof(pmc)))
             return pmc.WorkingSetSize;
@@ -322,6 +338,11 @@ static void writeFramebufferAsPng(GLuint fbo, int width, int height, const char*
 }
 
 static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frameNumber, int width, int height, bool flipY) {
+    if (filenamePattern == nullptr) {
+        logWarn("Screenshot capture requested without a filename pattern\n");
+        return;
+    }
+
     char filename[512];
     snprintf(filename, sizeof(filename), filenamePattern, frameNumber);
     writeFramebufferAsPng(fbo, width, height, filename, "Screenshot saved", true, flipY);
@@ -330,6 +351,11 @@ static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frame
 // Dumps every live surface in the GL renderer as a PNG.
 // Filename pattern takes two %d slots: frame number, then surface ID.
 static void dumpAllSurfaces(GLRenderer* gl, const char* filenamePattern, int frameNumber) {
+    if (filenamePattern == nullptr) {
+        logWarn("Surface dump requested without a filename pattern\n");
+        return;
+    }
+    
     repeat(gl->surfaceCount, surfaceId) {
         if (gl->surfaces[surfaceId] == 0)
             continue;
@@ -788,6 +814,12 @@ int loop(CommandLineArgs args, const char *argv0) {
             return 0;
         }
 #endif
+#ifndef ENABLE_NOOP_RENDERER
+        if (gfx == NOOP) {
+            logError("The noop renderer is not available in this build!\n");
+            return 0;
+        }
+#endif
 
 #ifdef ENABLE_SCREENSHOTS
         if (gfx != MODERN_GL && hmlen(args.screenshotSurfacesFrames)) {
@@ -837,10 +869,17 @@ int loop(CommandLineArgs args, const char *argv0) {
         }
 
         // Initialize the renderer
+        // NOTE: headless mode keeps rendering active (hidden window + normal renderer).
+        // NOOP is a separate renderer that stubs all draw calls.
         Renderer* renderer = nullptr;
 #ifdef ENABLE_SW_RENDERER
         if (gfx == SOFTWARE)
             renderer = SWRenderer_create();
+#endif
+#ifdef ENABLE_NOOP_RENDERER
+        if (gfx == NOOP) {
+            renderer = NoopRenderer_create();
+        }
 #endif
 #ifdef ENABLE_LEGACY_GL
         if (gfx == LEGACY_GL) {

@@ -2249,8 +2249,14 @@ static bool glSetRenderTarget(Renderer* renderer, int32_t surfaceId, bool implic
     glBindFramebuffer(GL_FRAMEBUFFER, gl->surfaces[surfaceId]);
 
     if (surfaceId == renderer->runner->applicationSurfaceId && implicitApplicationSurface) {
+        gl->base.CPortX = 0;
+        gl->base.CPortY = 0;
+        gl->base.CPortW = gl->gameW;
+        gl->base.CPortH = gl->gameH;
+
         glViewport(gl->base.CPortX, gl->base.CPortY, gl->base.CPortW, gl->base.CPortH);
         glEnable(GL_SCISSOR_TEST);
+        glScissor(gl->base.CPortX, gl->base.CPortY, gl->base.CPortW, gl->base.CPortH);
 
         glApplyProjection(renderer,&camera->viewMatrix,&camera->projectionMatrix);
 
@@ -2743,8 +2749,8 @@ static GLenum glShaderGetUniformTypeByLocation(GMLShader* shader, int32_t locati
 
 static void glShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t count, float value1, float value2, float value3, float value4) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    flushBatch(gl);
     if (handle == -1 || renderer->currentShader == -1) return;
+    flushBatch(gl);
 
     GMLShader* shader = &gl->gmlShaders[renderer->currentShader];
     GLenum type = glShaderGetUniformTypeByLocation(shader, handle);
@@ -2769,8 +2775,8 @@ static void glShaderSetUniformF(Renderer* renderer, int32_t handle, int32_t coun
 
 static void glShaderSetUniformFArray(Renderer* renderer, int32_t handle, float* values, uint32_t count) {
     GLRenderer* gl = (GLRenderer*) renderer;
-    flushBatch(gl);
     if (handle == -1 || renderer->currentShader == -1 || values == NULL || count == 0) return;
+    flushBatch(gl);
 
     GMLShader* shader = &gl->gmlShaders[renderer->currentShader];
     GLenum type = glShaderGetUniformTypeByLocation(shader, handle);

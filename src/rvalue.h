@@ -17,11 +17,13 @@ struct GMLArray;
 typedef struct GMLArray GMLArray;
 void GMLArray_decRef(struct GMLArray* arr);
 void GMLArray_incRef(struct GMLArray* arr);
+char* GMLArray_toStringFancy(const GMLArray* arr, DataWin* dataWin);
 
 struct Instance;
 typedef struct Instance Instance;
 void Instance_structIncRef(struct Instance* inst);
 void Instance_structDecRef(struct Instance* inst);
+char* Instance_toStringFancy(Instance* inst, DataWin* dataWin);
 uint32_t Instance_getInstanceId(struct Instance* inst);
 
 #include "gml_method.h"
@@ -434,6 +436,24 @@ static inline char* RValue_toStringFancy(RValue val, DataWin* dataWin) {
 
             return valueWithQuotes;
         }
+        case RVALUE_ARRAY:
+            {
+                char* arrStr = GMLArray_toStringFancy(val.array, dataWin);
+                size_t needed = strlen(arrStr) + 1;
+                char* result = (char*) safeCalloc(needed, sizeof(char));
+                snprintf(result, needed, "%s", arrStr);
+                free(arrStr);
+                return result;
+            }
+        case RVALUE_STRUCT:
+            {
+                char* structStr = Instance_toStringFancy(val.structInst, dataWin);
+                size_t needed = strlen(structStr) + 1;
+                char* result = (char*) safeCalloc(needed, sizeof(char));
+                snprintf(result, needed, "%s", structStr);
+                free(structStr);
+                return result;
+            }
         default: {
             return RValue_toString(val, dataWin);
         }

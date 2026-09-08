@@ -726,4 +726,123 @@ static inline void Renderer_drawCircle(Renderer* renderer, float cx, float cy, f
     Renderer_drawCircleColor(renderer, cx, cy, radius, renderer->drawColor, renderer->drawColor, outline);
 }
 
+#define DRAW_ROUNDRECT_FIXED_RADIUS 8.0f
+
+#define BS_RR_EMIT(prevX, prevY, curX, curY) \
+    do { \
+        if (outline) { \
+            renderer->vtable->drawLine(renderer, prevX, prevY, curX, curY, 1.0f, col2, renderer->drawAlpha); \
+        } else { \
+            renderer->vtable->drawTriangle(renderer, cx, cy, prevX, prevY, curX, curY, col1, col2, col2, renderer->drawAlpha, false); \
+        } \
+    } while (0)
+
+static inline void Renderer_drawRoundRectColor(Renderer* renderer, float x1, float y1, float x2, float y2, float xrad, float yrad, uint32_t col1, uint32_t col2, bool outline) {
+    float halfW = (x2 - x1) * 0.5f;
+    float halfH = (y2 - y1) * 0.5f;
+    if (0.0f >= halfW || 0.0f >= halfH) return;
+
+    if (xrad < 0.0f) xrad = 0.0f;
+    if (yrad < 0.0f) yrad = 0.0f;
+    if (xrad > halfW) xrad = halfW;
+    if (yrad > halfH) yrad = halfH;
+
+    if (!outline) {
+        x2 += 1.0f;
+        y2 += 1.0f;
+    }
+
+    float cx = (x1 + x2) * 0.5f;
+    float cy = (y1 + y2) * 0.5f;
+
+    float ccxTL = x1 + xrad, ccyTL = y1 + yrad;
+    float ccxTR = x2 - xrad, ccyTR = y1 + yrad;
+    float ccxBR = x2 - xrad, ccyBR = y2 - yrad;
+    float ccxBL = x1 + xrad, ccyBL = y2 - yrad;
+
+    int32_t quarterSeg = Renderer_normalizeCirclePrecision(renderer->circlePrecision) / 4;
+    if (1 > quarterSeg) quarterSeg = 1;
+
+    const float PI = 3.14159265358979323846f;
+    const float halfPi = PI * 0.5f;
+
+    float px = x1;
+    float py = y1 + yrad;
+
+    {
+        float step = halfPi / (float) quarterSeg;
+        for (int32_t i = 1; quarterSeg >= i; i++) {
+            float ang = PI + step * (float) i;
+            float curX = ccxTL + xrad * cosf(ang);
+            float curY = ccyTL + yrad * sinf(ang);
+            BS_RR_EMIT(px, py, curX, curY);
+            px = curX;
+            py = curY;
+        }
+    }
+    {
+        float curX = x2 - xrad, curY = y1;
+        BS_RR_EMIT(px, py, curX, curY);
+        px = curX;
+        py = curY;
+    }
+    {
+        float step = halfPi / (float) quarterSeg;
+        for (int32_t i = 1; quarterSeg >= i; i++) {
+            float ang = 3.0f * halfPi + step * (float) i;
+            float curX = ccxTR + xrad * cosf(ang);
+            float curY = ccyTR + yrad * sinf(ang);
+            BS_RR_EMIT(px, py, curX, curY);
+            px = curX;
+            py = curY;
+        }
+    }
+    {
+        float curX = x2, curY = y2 - yrad;
+        BS_RR_EMIT(px, py, curX, curY);
+        px = curX;
+        py = curY;
+    }
+    {
+        float step = halfPi / (float) quarterSeg;
+        for (int32_t i = 1; quarterSeg >= i; i++) {
+            float ang = step * (float) i;
+            float curX = ccxBR + xrad * cosf(ang);
+            float curY = ccyBR + yrad * sinf(ang);
+            BS_RR_EMIT(px, py, curX, curY);
+            px = curX;
+            py = curY;
+        }
+    }
+    {
+        float curX = x1 + xrad, curY = y2;
+        BS_RR_EMIT(px, py, curX, curY);
+        px = curX;
+        py = curY;
+    }
+    {
+        float step = halfPi / (float) quarterSeg;
+        for (int32_t i = 1; quarterSeg >= i; i++) {
+            float ang = halfPi + step * (float) i;
+            float curX = ccxBL + xrad * cosf(ang);
+            float curY = ccyBL + yrad * sinf(ang);
+            BS_RR_EMIT(px, py, curX, curY);
+            px = curX;
+            py = curY;
+        }
+    }
+    {
+        float curX = x1, curY = y1 + yrad;
+        if (px != curX || py != curY) {
+            BS_RR_EMIT(px, py, curX, curY);
+        }
+    }
+}
+
+#undef BS_RR_EMIT
+
+static inline void Renderer_drawRoundRect(Renderer* renderer, float x1, float y1, float x2, float y2, float xrad, float yrad, bool outline) {
+    Renderer_drawRoundRectColor(renderer, x1, y1, x2, y2, xrad, yrad, renderer->drawColor, renderer->drawColor, outline);
+}
+
 #endif /* _BS_RENDERER_H_ */
