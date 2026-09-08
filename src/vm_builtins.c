@@ -319,6 +319,7 @@ static const BuiltinVarEntry BUILTIN_VAR_TABLE[] = {
     { "current_time", BUILTIN_VAR_CURRENT_TIME },
     { "current_weekday", BUILTIN_VAR_CURRENT_WEEKDAY },
     { "current_year", BUILTIN_VAR_CURRENT_YEAR },
+    { "cursor_sprite", BUILTIN_VAR_CURSOR_SPRITE },
     { "debug_mode", BUILTIN_VAR_DEBUG_MODE },
     { "delta_time", BUILTIN_VAR_DELTA_TIME },
     { "depth", BUILTIN_VAR_DEPTH },
@@ -1300,6 +1301,8 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
             return RValue_makeReal(runner->lives);
         case BUILTIN_VAR_HEALTH:
             return RValue_makeReal(runner->health);
+        case BUILTIN_VAR_CURSOR_SPRITE:
+            return RValue_makeInt32(runner->cursorSprite);
 
         default:
             break;
@@ -1808,6 +1811,9 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             return;
         case BUILTIN_VAR_HEALTH:
             Runner_setHealth(runner, RValue_toReal(val));
+            return;
+        case BUILTIN_VAR_CURSOR_SPRITE:
+            runner->cursorSprite = RValue_toInt32(val);
             return;
 
         // Read-only variables (silently ignore with warning)

@@ -1178,6 +1178,19 @@ void Runner_drawGUI(Runner* runner, int32_t windowW, int32_t windowH, int32_t ta
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_BEGIN);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI);
     fireDrawSubtype(runner, drawables, drawableCount, DRAW_GUI_END);
+
+    //Rendering cursor_sprite
+    if (runner->cursorSprite >= 0 && (uint32_t)runner->cursorSprite < runner->dataWin->sprt.count) {
+        Sprite* cursorSprite = &runner->dataWin->sprt.sprites[runner->cursorSprite];
+        if (cursorSprite->textureCount > 0) {
+            float cursorX = (float)(runner->mouse->normalizedX * guiW);
+            float cursorY = (float)(runner->mouse->normalizedY * guiH);
+            Renderer_drawSpriteExt(runner->renderer, runner->cursorSprite, runner->cursorSpriteSubimage,
+                                   cursorX, cursorY, 1.0f, 1.0f, 0.0f, 0xFFFFFF, 1.0f);
+            runner->cursorSpriteSubimage = (runner->cursorSpriteSubimage + 1) % (int32_t) cursorSprite->textureCount;
+        }
+    }
+
     endGuiPass(runner);
 
     if (runner->fpsRealFrameStartNanos != 0) {
@@ -2131,6 +2144,8 @@ void Runner_reset(Runner* runner) {
     runner->score = 0.0;
     runner->lives = -1.0;
     runner->health = 0.0;
+    runner->cursorSprite = -1;
+    runner->cursorSpriteSubimage = 0;
     runner->gameStartFired = false;
     runner->currentRoomIndex = -1;
     runner->currentRoomOrderPosition = -1;
