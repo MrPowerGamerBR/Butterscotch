@@ -18,7 +18,6 @@ function assert_equals(actual, expected, text) {
 	} else {
 		var error_msg = "AssertEquals FAIL: " + text + " expected " + string(expected) + " but found " + string(actual);
 		show_debug_message(error_msg);
-		show_error(error_msg, false);
 	}
 }	
 
@@ -28,7 +27,6 @@ function assert_almost(actual, expected, text) {
 	} else {
 		var error_msg = "AssertAlmost FAIL: " + text + " expected " + string(expected) + " but found " + string(actual);
 		show_debug_message(error_msg);
-		show_error(error_msg, false);
 	}
 }
 
@@ -38,7 +36,6 @@ function assert(condition, text) {
 	} else {
 		var error_msg = "Assertion FAIL: " + text;
 		show_debug_message(error_msg);
-        show_error(error_msg, false);
 	}
 }
 
