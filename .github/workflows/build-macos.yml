@@ -4,6 +4,52 @@ on:
   workflow_call:
 
 jobs:
+  build-sdl-macos:
+    name: Build (SDL 1.2 ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: ppc
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install dependencies
+        run: sudo apt-get install libgmp-dev libmpc-dev libmpfr-dev ccache
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/ccache
+            ${{ github.workspace }}/artifacts/macos/build/toolchain-${{ matrix.arch }}
+          key: ccache-macos-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: ccache-macos-${{ matrix.arch }}-
+
+      - name: Build toolchain
+        run: |
+          ./artifacts/macos/build-toolchain-ppc.sh
+          export PATH="$PWD/artifacts/macos/build/toolchain-ppc/bin:$PATH"
+
+      - name: Configure
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc
+            -DWERROR=ON \
+            -DBACKEND=noop \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: butterscotch-sdl-macos-${{ matrix.arch }}
+          path: build/butterscotch
   build-appkit-macos:
     name: Build (AppKit ${{ matrix.label }})
     strategy:
@@ -19,12 +65,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Get commit info
-        id: commit-info
-        run: |
-          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "date=$(git log -1 --format=%cd --date=short)" >> $GITHUB_OUTPUT
-
       - name: Install dependencies
         run: brew install ccache
         env:
@@ -33,10 +73,9 @@ jobs:
 
       - uses: actions/cache@v6
         with:
-          path: ~/Library/Caches/ccache
+          path: ~/library/caches/ccache
           key: ccache-macos-${{ matrix.label }}-${{ github.sha }}
-          restore-keys: |
-            ccache-macos-${{ matrix.label }}-
+          restore-keys: ccache-macos-${{ matrix.label }}-
 
       - name: Configure
         run: |
