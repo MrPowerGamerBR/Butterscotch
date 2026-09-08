@@ -1,7 +1,30 @@
 #include "gml_method.h"
 #include "common.h"
+#include "data_win.h"
 #include "utils.h"
 #include <stdlib.h>
+
+char* GMLMethod_toString(const GMLMethod* method, DataWin* dataWin) {
+    if (method == nullptr) return safeStrdup("<method:null>");
+    if (method->unresolvedName != nullptr && method->unresolvedName[0] != '\0') {
+        return safeStrdup(method->unresolvedName);
+    }
+    if (dataWin != nullptr && method->codeIndex >= 0 && (uint32_t) method->codeIndex < dataWin->func.functionCount) {
+        const char* name = dataWin->func.functions[method->codeIndex].name;
+        if (name != nullptr && name[0] != '\0') {
+            return safeStrdup(name);
+        }
+    }
+    if (method->builtin != nullptr) {
+        return safeStrdup("<builtin>");
+    }
+    if (method->codeIndex >= 0) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "<method:%d>", method->codeIndex);
+        return safeStrdup(buf);
+    }
+    return safeStrdup("<method>");
+}
 
 GMLMethod* GMLMethod_create(int32_t codeIndex, int32_t boundInstanceId) {
     GMLMethod* m = (GMLMethod *)safeCalloc(1, sizeof(GMLMethod));
