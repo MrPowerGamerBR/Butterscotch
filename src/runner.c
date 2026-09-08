@@ -2338,8 +2338,18 @@ Runner* Runner_getCurrentRunner(void) {
 }
 
 void Runner_setPaused(Runner* runner, bool paused) {
-    if (runner != nullptr) {
-        runner->paused = paused;
+    if (runner == nullptr) {
+        return;
+    }
+
+    runner->paused = paused;
+
+    if (runner->audioSystem != nullptr && runner->audioSystem->vtable != nullptr) {
+        if (paused) {
+            runner->audioSystem->vtable->pauseAll(runner->audioSystem);
+        } else {
+            runner->audioSystem->vtable->resumeAll(runner->audioSystem);
+        }
     }
 }
 

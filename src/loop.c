@@ -93,7 +93,7 @@ typedef struct {
 } BS_PROCESS_MEMORY_COUNTERS;
 #endif
 
-static bool hostVariableSnapshotRequested(void) {
+static bool hostVariableSnapshotRequested(Runner* runner) {
     static char commandBuffer[64];
     static size_t commandLength = 0;
     char input[64];
@@ -131,6 +131,10 @@ static bool hostVariableSnapshotRequested(void) {
             commandBuffer[commandLength] = '\0';
             if (strcmp(commandBuffer, "BS_REQUEST_VARS") == 0) {
                 snapshotRequested = true;
+            } else if (strncmp(commandBuffer, "BS_PAUSE ", 9) == 0) {
+                const char* value = commandBuffer + 9;
+                const bool paused = strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0;
+                Runner_setPaused(runner, paused);
             }
             commandLength = 0;
         } else if (commandLength + 1 < sizeof(commandBuffer)) {
@@ -1082,7 +1086,7 @@ int loop(CommandLineArgs args, const char *argv0) {
 
             bool hostSnapshotRequested = args.hostVariableJson &&
                 args.hostVariableJsonOnDemand &&
-                hostVariableSnapshotRequested();
+                hostVariableSnapshotRequested(runner);
 
             // Debug key bindings
             if (runner->debugMode) {

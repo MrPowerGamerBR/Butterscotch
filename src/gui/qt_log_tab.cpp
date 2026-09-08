@@ -2,18 +2,40 @@
 
 #include <QColor>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QPlainTextEdit>
 #include <QRegularExpression>
 #include <QTextCursor>
 #include <QVBoxLayout>
 
-GameLogTab::GameLogTab(QWidget* parent) : QWidget(parent), output_(new QPlainTextEdit(this)) {
+GameLogTab::GameLogTab(QWidget* parent)
+    : QWidget(parent),
+      output_(new QPlainTextEdit(this)),
+      pauseButton_(new QPushButton(QStringLiteral("Pause"), this)),
+      resetButton_(new QPushButton(QStringLiteral("Reset"), this)),
+      quitButton_(new QPushButton(QStringLiteral("Quit"), this)) {
     output_->setReadOnly(true);
     output_->setLineWrapMode(QPlainTextEdit::NoWrap);
     output_->setPlaceholderText("Game log output will appear here...");
 
+    pauseButton_->setEnabled(false);
+    resetButton_->setEnabled(false);
+    quitButton_->setEnabled(false);
+    pauseButton_->setAutoDefault(false);
+    resetButton_->setAutoDefault(false);
+    quitButton_->setAutoDefault(false);
+
+    auto* actionLayout = new QHBoxLayout();
+    actionLayout->addWidget(pauseButton_);
+    actionLayout->addWidget(resetButton_);
+    actionLayout->addWidget(quitButton_);
+
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(output_);
+    layout->addLayout(actionLayout);
+    layout->setStretch(0, 1);
+
+    setPaused(false);
 }
 
 void GameLogTab::appendText(const QString& text) {
@@ -77,3 +99,26 @@ void GameLogTab::appendText(const QString& text) {
 void GameLogTab::clearLog() {
     output_->clear();
 }
+
+void GameLogTab::setPaused(bool paused) {
+    paused_ = paused;
+    pauseButton_->setText(paused ? QStringLiteral("Resume") : QStringLiteral("Pause"));
+    pauseButton_->setEnabled(true);
+}
+
+bool GameLogTab::isPaused() const {
+    return paused_;
+}
+
+QPushButton* GameLogTab::pauseButton() const {
+    return pauseButton_;
+}
+
+QPushButton* GameLogTab::resetButton() const {
+    return resetButton_;
+}
+
+QPushButton* GameLogTab::quitButton() const {
+    return quitButton_;
+}
+
