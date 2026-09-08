@@ -1409,17 +1409,7 @@ int loop(CommandLineArgs args, const char *argv0) {
 
             // Get the parent directory of the main data.win file
             char* parentDir = safeStrdup(currentDataWinPath);
-            {
-                char* lastSlash = strrchr(parentDir, '/');
-                char* lastBackslash = strrchr(parentDir, '\\');
-                char* sep = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
-                if (sep != nullptr) {
-                    *sep = '\0';
-                } else {
-                    parentDir[0] = '.';
-                    parentDir[1] = '\0';
-                }
-            }
+            bsGetDirname(parentDir);
 
             // The pendingWorkingDirectory contains a slash at the beginning of it (example: /chapter3)
             // The parentDir does NOT have a trailing slash, so we don't need to bother with it
