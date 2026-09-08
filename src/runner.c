@@ -749,6 +749,7 @@ void Runner_drawTileLayer(Runner* runner, RoomLayerTilesData* data, float layerO
             uint32_t cell = data->tileData[ty * data->tilesX + tx];
             uint32_t tileIndex = cell & GMS2_TILE_INDEX_MASK;
             if (tileIndex == 0) continue; // 0 = empty
+            if (tileIndex > tileset->gms2TileCount) continue;
 
             uint32_t col = tileIndex % columns;
             uint32_t row = tileIndex / columns;
