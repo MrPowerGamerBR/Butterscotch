@@ -1032,27 +1032,27 @@ int loop(CommandLineArgs args, const char *argv0) {
 
                 // Process input recording/playback (must happen after platformHandleEvents, before Runner_step)
                 InputRecording_processFrame(globalInputRecording, runner->keyboard, inputFrameCount++);
+            }
 
-                // Go to next room
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {
-                    DataWin* dw = runner->dataWin;
-                    if ((int32_t) dw->gen8.roomOrderCount > runner->currentRoomOrderPosition + 1) {
-                        int32_t nextIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition + 1];
-                        runner->pendingRoom = nextIdx;
-                        runner->audioSystem->vtable->stopAll(runner->audioSystem);
-                        logDebug("Going to next room -> %s\n", dw->room.rooms[nextIdx].name);
-                    }
+            // Go to next room
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {
+                DataWin* dw = runner->dataWin;
+                if ((int32_t) dw->gen8.roomOrderCount > runner->currentRoomOrderPosition + 1) {
+                    int32_t nextIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition + 1];
+                    runner->pendingRoom = nextIdx;
+                    runner->audioSystem->vtable->stopAll(runner->audioSystem);
+                    logDebug("Going to next room -> %s\n", dw->room.rooms[nextIdx].name);
                 }
+            }
 
-                // Go to previous room
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEDOWN)) {
-                    DataWin* dw = runner->dataWin;
-                    if (runner->currentRoomOrderPosition > 0) {
-                        int32_t prevIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition - 1];
-                        runner->pendingRoom = prevIdx;
-                        runner->audioSystem->vtable->stopAll(runner->audioSystem);
-                        logDebug("Going to previous room -> %s\n", dw->room.rooms[prevIdx].name);
-                    }
+            // Go to previous room
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEDOWN)) {
+                DataWin* dw = runner->dataWin;
+                if (runner->currentRoomOrderPosition > 0) {
+                    int32_t prevIdx = dw->gen8.roomOrder[runner->currentRoomOrderPosition - 1];
+                    runner->pendingRoom = prevIdx;
+                    runner->audioSystem->vtable->stopAll(runner->audioSystem);
+                    logDebug("Going to previous room -> %s\n", dw->room.rooms[prevIdx].name);
                 }
             }
 
