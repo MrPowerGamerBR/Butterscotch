@@ -1015,8 +1015,8 @@ int loop(CommandLineArgs args, const char *argv0) {
                 Runner_setPaused(runner, !isPaused);
             }
             
-            // Run the game step if the game is paused
             bool shouldStep = !runner->paused;
+            bool shouldRender = true;
             if (runner->debugMode && runner->paused) {
                 shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O');
                 if (shouldStep) logDebug("Frame advance (frame %d)\n", runner->frameCount);
@@ -1054,102 +1054,108 @@ int loop(CommandLineArgs args, const char *argv0) {
                         logDebug("Going to previous room -> %s\n", dw->room.rooms[prevIdx].name);
                     }
                 }
+            }
 
-                // Dump runner state to console
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)) {
-                    logDebug("Dumping runner state at frame %d\n", runner->frameCount);
-                    Runner_dumpState(runner);
-                }
+            // Dump runner state to console
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F12)) {
+                logDebug("Dumping runner state at frame %d\n", runner->frameCount);
+                Runner_dumpState(runner);
+            }
 
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F11)) {
-                    logDebug("Dumping runner state at frame %d\n", runner->frameCount);
-                    char* json = Runner_dumpStateJson(runner);
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F11)) {
+                logDebug("Dumping runner state at frame %d\n", runner->frameCount);
+                char* json = Runner_dumpStateJson(runner);
 
-                    if (args.dumpJsonFilePattern != nullptr) {
-                        char filename[512];
-                        snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
-                        FILE* f = fopen(filename, "wb");
-                        if (f != nullptr) {
-                            fwrite(json, 1, strlen(json), f);
-                            fputc('\n', f);
-                            fclose(f);
-                            logInfo("JSON dump saved: %s\n", filename);
-                        } else {
-                            logWarn("Could not write JSON dump to '%s'\n", filename);
-                        }
+                if (args.dumpJsonFilePattern != nullptr) {
+                    char filename[512];
+                    snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
+                    FILE* f = fopen(filename, "wb");
+                    if (f != nullptr) {
+                        fwrite(json, 1, strlen(json), f);
+                        fputc('\n', f);
+                        fclose(f);
+                        logInfo("JSON dump saved: %s\n", filename);
                     } else {
-                        logInfo("%s\n", json);
+                        logWarn("Could not write JSON dump to '%s'\n", filename);
                     }
-
-                    free(json);
+                } else {
+                    logInfo("%s\n", json);
                 }
 
-                // Toggle the collision mask debug overlay
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F2)) {
-                    debugShowCollisionMasks = !debugShowCollisionMasks;
-                    logDebug("Collision mask overlay %s!\n", debugShowCollisionMasks ? "enabled" : "disabled");
+                free(json);
+            }
+
+            // Toggle the collision mask debug overlay
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F2)) {
+                debugShowCollisionMasks = !debugShowCollisionMasks;
+                shouldRender = true;
+                logDebug("Collision mask overlay %s!\n", debugShowCollisionMasks ? "enabled" : "disabled");
+            }
+
+            // Enable free cam
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F3)) {
+                runner->freeCamPanX = 0.0f;
+                runner->freeCamPanY = 0.0f;
+                runner->freeCamZoom = 1.0f;
+
+                freeCamActive = !freeCamActive;
+                shouldRender = freeCamActive;
+                logDebug("Free cam %s!\n", freeCamActive ? "enabled" : "disabled");
+            }
+
+            if (freeCamActive) {
+                if (RunnerKeyboard_check(runner->keyboard, VK_UP)) {
+                    runner->freeCamPanY -= (float) (0.000005f * runner->deltaTime);
                 }
 
-                // Enable free cam
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F3)) {
-                    runner->freeCamPanX = 0.0f;
-                    runner->freeCamPanY = 0.0f;
-                    runner->freeCamZoom = 1.0f;
-
-                    freeCamActive = !freeCamActive;
-                    logDebug("Free cam %s!\n", freeCamActive ? "enabled" : "disabled");
+                if (RunnerKeyboard_check(runner->keyboard, VK_DOWN)) {
+                    runner->freeCamPanY += (float) (0.000005f * runner->deltaTime);
                 }
 
-                if (freeCamActive) {
-                    if (RunnerKeyboard_check(runner->keyboard, VK_UP)) {
-                        runner->freeCamPanY -= (float) (0.000005f * runner->deltaTime);
-                    }
-
-                    if (RunnerKeyboard_check(runner->keyboard, VK_DOWN)) {
-                        runner->freeCamPanY += (float) (0.000005f * runner->deltaTime);
-                    }
-
-                    if (RunnerKeyboard_check(runner->keyboard, VK_LEFT)) {
-                        runner->freeCamPanX -= (float) (0.000005f * runner->deltaTime);
-                    }
-
-                    if (RunnerKeyboard_check(runner->keyboard, VK_RIGHT)) {
-                        runner->freeCamPanX += (float) (0.000005f * runner->deltaTime);
-                    }
+                if (RunnerKeyboard_check(runner->keyboard, VK_LEFT)) {
+                    runner->freeCamPanX -= (float) (0.000005f * runner->deltaTime);
                 }
 
-                // Reset global interact state because I HATE when I get stuck while moving through rooms
-                if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F10)) {
-                    int32_t interactVarId = shget(runner->vmContext->varNameMap, "interact");
-
-                    Instance_setSelfVar(runner->vmContext->globalScopeInstance, interactVarId, RValue_makeInt32(0));
-                    logInfo("Changed global.interact [%d] value!\n", interactVarId);
+                if (RunnerKeyboard_check(runner->keyboard, VK_RIGHT)) {
+                    runner->freeCamPanX += (float) (0.000005f * runner->deltaTime);
                 }
+            }
 
-                bool currentKeyDown[GML_KEY_COUNT];
-                bool currentKeyPressed[GML_KEY_COUNT];
-                bool currentKeyReleased[GML_KEY_COUNT];
+            // Reset global interact state because I HATE when I get stuck while moving through rooms
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F10)) {
+                int32_t interactVarId = shget(runner->vmContext->varNameMap, "interact");
 
-                if (freeCamActive) {
-                    // THIS IS A HACK!! We don't want to pass keys to the runner, but we DO want to keep it so we can hold the arrow keys to move the camera
-                    memcpy(currentKeyDown, runner->keyboard->keyDown, sizeof(runner->keyboard->keyDown));
-                    memcpy(currentKeyPressed, runner->keyboard->keyPressed, sizeof(runner->keyboard->keyPressed));
-                    memcpy(currentKeyReleased, runner->keyboard->keyReleased, sizeof(runner->keyboard->keyReleased));
+                Instance_setSelfVar(runner->vmContext->globalScopeInstance, interactVarId, RValue_makeInt32(0));
+                logInfo("Changed global.interact [%d] value!\n", interactVarId);
+            }
 
-                    memset(runner->keyboard->keyDown, 0, sizeof(runner->keyboard->keyDown));
-                    memset(runner->keyboard->keyPressed, 0, sizeof(runner->keyboard->keyPressed));
-                    memset(runner->keyboard->keyReleased, 0, sizeof(runner->keyboard->keyReleased));
-                }
+            bool currentKeyDown[GML_KEY_COUNT];
+            bool currentKeyPressed[GML_KEY_COUNT];
+            bool currentKeyReleased[GML_KEY_COUNT];
 
-                // Run one game step (Begin Step, Keyboard, Alarms, Step, End Step, room transitions)
+            if (freeCamActive) {
+                // THIS IS A HACK!! We don't want to pass keys to the runner, but we DO want to keep it so we can hold the arrow keys to move the camera
+                memcpy(currentKeyDown, runner->keyboard->keyDown, sizeof(runner->keyboard->keyDown));
+                memcpy(currentKeyPressed, runner->keyboard->keyPressed, sizeof(runner->keyboard->keyPressed));
+                memcpy(currentKeyReleased, runner->keyboard->keyReleased, sizeof(runner->keyboard->keyReleased));
+
+                memset(runner->keyboard->keyDown, 0, sizeof(runner->keyboard->keyDown));
+                memset(runner->keyboard->keyPressed, 0, sizeof(runner->keyboard->keyPressed));
+                memset(runner->keyboard->keyReleased, 0, sizeof(runner->keyboard->keyReleased));
+            }
+
+            // Run one game step (Begin Step, Keyboard, Alarms, Step, End Step, room transitions)
+            if (shouldStep) {
                 Runner_step(runner);
+            }
 
-                if (freeCamActive) {
-                    memcpy(runner->keyboard->keyDown, currentKeyDown, sizeof(runner->keyboard->keyDown));
-                    memcpy(runner->keyboard->keyPressed, currentKeyPressed, sizeof(runner->keyboard->keyPressed));
-                    memcpy(runner->keyboard->keyReleased, currentKeyReleased, sizeof(runner->keyboard->keyReleased));
-                }
+            if (freeCamActive) {
+                memcpy(runner->keyboard->keyDown, currentKeyDown, sizeof(runner->keyboard->keyDown));
+                memcpy(runner->keyboard->keyPressed, currentKeyPressed, sizeof(runner->keyboard->keyPressed));
+                memcpy(runner->keyboard->keyReleased, currentKeyReleased, sizeof(runner->keyboard->keyReleased));
+            }
 
+            if (shouldStep) {
                 if (args.profilerFramesBetween > 0 && runner->frameCount > 0 && runner->frameCount % args.profilerFramesBetween == 0) {
                     char* profilerReport = Profiler_createReport(vm->profiler, 20, args.profilerFramesBetween);
                     if (profilerReport != nullptr) {
@@ -1164,140 +1170,151 @@ int loop(CommandLineArgs args, const char *argv0) {
                 if (0.0f > dt) dt = 0.0f;
                 if (dt > 0.1f) dt = 0.1f; // cap delta to avoid huge fades on lag spikes
                 runner->audioSystem->vtable->update(runner->audioSystem, dt);
+            }
 
-                // Dump full runner state if this frame was requested
-                if (hmget(args.dumpFrames, runner->frameCount)) {
-                    Runner_dumpState(runner);
-                }
+            // Dump full runner state if this frame was requested
+            if (hmget(args.dumpFrames, runner->frameCount)) {
+                Runner_dumpState(runner);
+            }
 
-                // Dump runner state as JSON if this frame was requested
-                if (hmget(args.dumpJsonFrames, runner->frameCount)) {
-                    char* json = Runner_dumpStateJson(runner);
-                    if (args.dumpJsonFilePattern != nullptr) {
-                        char filename[512];
-                        snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
-                        FILE* f = fopen(filename, "wb");
-                        if (f != nullptr) {
-                            fwrite(json, 1, strlen(json), f);
-                            fputc('\n', f);
-                            fclose(f);
-                            logInfo("JSON dump saved: %s\n", filename);
-                        } else {
-                            logWarn("Could not write JSON dump to '%s'\n", filename);
-                        }
+            // Dump runner state as JSON if this frame was requested
+            if (hmget(args.dumpJsonFrames, runner->frameCount)) {
+                char* json = Runner_dumpStateJson(runner);
+                if (args.dumpJsonFilePattern != nullptr) {
+                    char filename[512];
+                    snprintf(filename, sizeof(filename), args.dumpJsonFilePattern, runner->frameCount);
+                    FILE* f = fopen(filename, "wb");
+                    if (f != nullptr) {
+                        fwrite(json, 1, strlen(json), f);
+                        fputc('\n', f);
+                        fclose(f);
+                        logInfo("JSON dump saved: %s\n", filename);
                     } else {
-                        logInfo("%s\n", json);
+                        logWarn("Could not write JSON dump to '%s'\n", filename);
                     }
-                    free(json);
+                } else {
+                    logInfo("%s\n", json);
                 }
+                free(json);
+            }
 
-                // Clear the default framebuffer (window background) to black
+            // Clear the default framebuffer (window background) to black
 #ifdef ENABLE_SW_RENDERER
-                if (gfx == SOFTWARE)
-                    SWRenderer_clearFrameBuffer(renderer, 0);
+            if (gfx == SOFTWARE)
+                SWRenderer_clearFrameBuffer(renderer, 0);
 #endif
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
-                if (gfx == LEGACY_GL || gfx == MODERN_GL) {
-                    glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
-                    glClear(GL_COLOR_BUFFER_BIT);
-                }
+            if ((gfx == LEGACY_GL || gfx == MODERN_GL) && shouldRender) {
+                glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
 #endif
 
-                // Query actual framebuffer size
-                int32_t fbWidth, fbHeight;
-                platformGetWindowSize(&fbWidth, &fbHeight);
+            // Query actual framebuffer size
+            int32_t fbWidth, fbHeight;
+            platformGetWindowSize(&fbWidth, &fbHeight);
 
-                if (!runner->appSurfaceEnabled) {
-                    runner->applicationWidth = fbWidth;
-                    runner->applicationHeight = fbHeight;
-                    runner->usingAppSurface = false;
-                } else {
-                    if (runner->applicationWidth <= 0 || runner->applicationHeight <= 0) {
-                        runner->applicationWidth = (int32_t) gen8->defaultWindowWidth;
-                        runner->applicationHeight = (int32_t) gen8->defaultWindowHeight;
+            if (!runner->appSurfaceEnabled) {
+                runner->applicationWidth = fbWidth;
+                runner->applicationHeight = fbHeight;
+                runner->usingAppSurface = false;
+            } else {
+                if (runner->applicationWidth <= 0 || runner->applicationHeight <= 0) {
+                    runner->applicationWidth = (int32_t) gen8->defaultWindowWidth;
+                    runner->applicationHeight = (int32_t) gen8->defaultWindowHeight;
+                }
+                runner->usingAppSurface = true;
+            }
+
+            int32_t gameW = runner->applicationWidth;
+            int32_t gameH = runner->applicationHeight;
+
+            // Widescreen hack: render into a surface grown toward the requested aspect to fake a different aspect
+            // ratio. The game's logical applicationWidth/Height is left untouched (so the reads above stay the real
+            // size and this never compounds frame-to-frame); only the local gameW/gameH used for the projection/FBO
+            // grow. A wider-than-native target grows width (reveal left/right); a taller one grows height (reveal
+            // top/bottom). Runner_drawViews reads widescreenExtraWidth/Height to expand each view to match.
+            runner->widescreenExtraWidth = 0;
+            runner->widescreenExtraHeight = 0;
+            if (args.widescreenAspect > 0.0f && runner->usingAppSurface && gameW > 0 && gameH > 0) {
+                float nativeAspect = (float) gameW / (float) gameH;
+                if (args.widescreenAspect > nativeAspect) {
+                    int32_t targetW = (int32_t) ((float) gameH * args.widescreenAspect + 0.5f);
+                    if (targetW > gameW) {
+                        runner->widescreenExtraWidth = targetW - gameW;
+                        gameW = targetW;
                     }
-                    runner->usingAppSurface = true;
-                }
-
-                int32_t gameW = runner->applicationWidth;
-                int32_t gameH = runner->applicationHeight;
-
-                // Widescreen hack: render into a surface grown toward the requested aspect to fake a different aspect
-                // ratio. The game's logical applicationWidth/Height is left untouched (so the reads above stay the real
-                // size and this never compounds frame-to-frame); only the local gameW/gameH used for the projection/FBO
-                // grow. A wider-than-native target grows width (reveal left/right); a taller one grows height (reveal
-                // top/bottom). Runner_drawViews reads widescreenExtraWidth/Height to expand each view to match.
-                runner->widescreenExtraWidth = 0;
-                runner->widescreenExtraHeight = 0;
-                if (args.widescreenAspect > 0.0f && runner->usingAppSurface && gameW > 0 && gameH > 0) {
-                    float nativeAspect = (float) gameW / (float) gameH;
-                    if (args.widescreenAspect > nativeAspect) {
-                        int32_t targetW = (int32_t) ((float) gameH * args.widescreenAspect + 0.5f);
-                        if (targetW > gameW) {
-                            runner->widescreenExtraWidth = targetW - gameW;
-                            gameW = targetW;
-                        }
-                    } else if (args.widescreenAspect < nativeAspect) {
-                        int32_t targetH = (int32_t) ((float) gameW / args.widescreenAspect + 0.5f);
-                        if (targetH > gameH) {
-                            runner->widescreenExtraHeight = targetH - gameH;
-                            gameH = targetH;
-                        }
+                } else if (args.widescreenAspect < nativeAspect) {
+                    int32_t targetH = (int32_t) ((float) gameW / args.widescreenAspect + 0.5f);
+                    if (targetH > gameH) {
+                        runner->widescreenExtraHeight = targetH - gameH;
+                        gameH = targetH;
                     }
                 }
+            }
 
-                if (shouldStep) {
-                    Runner_drawPre(runner, fbWidth, fbHeight);
+            if (shouldRender) {
+                Runner_drawPre(runner, fbWidth, fbHeight);
 
-                    // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
-                    int32_t winW, winH;
-                    platformGetScaledWindowSize(&winW, &winH);
+                // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
+                int32_t winW, winH;
+                platformGetScaledWindowSize(&winW, &winH);
 
-                    Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
+                Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
 
-                    double mx, my;
-                    platformGetMousePos(&mx, &my);
-                    Runner_updateMousePosition(runner, winW, winH, mx, my);
+                double mx, my;
+                platformGetMousePos(&mx, &my);
+                Runner_updateMousePosition(runner, winW, winH, mx, my);
 
-                    Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
-                    renderer->vtable->endFrameInit(renderer);
-                    Runner_drawPost(runner, fbWidth, fbHeight);
-                    renderer->vtable->endFrameEnd(renderer);
-                    Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+                Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
+                renderer->vtable->endFrameInit(renderer);
+                Runner_drawPost(runner, fbWidth, fbHeight);
+                renderer->vtable->endFrameEnd(renderer);
+                Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+
+                if (runner->paused) {
+                    int32_t winW = fbWidth;
+                    int32_t winH = fbHeight;
+
+                    renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
+                    renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
+                    renderer->vtable->endGUI(renderer);
                 }
+            }
 
 #ifdef ENABLE_SCREENSHOTS
-                // Capture screenshot if this frame matches a requested frame
-                bool shouldScreenshot = hmget(args.screenshotFrames, runner->frameCount);
+            // Capture screenshot if this frame matches a requested frame
+            bool shouldScreenshot = hmget(args.screenshotFrames, runner->frameCount);
 
-                if (shouldScreenshot || RunnerKeyboard_checkPressed(runner->keyboard, VK_F5)) {
-                    captureScreenshot(0, args.screenshotPattern, runner->frameCount, fbWidth, fbHeight, true);
-                    glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
-                }
+            if (shouldScreenshot || RunnerKeyboard_checkPressed(runner->keyboard, VK_F5)) {
+                captureScreenshot(0, args.screenshotPattern, runner->frameCount, fbWidth, fbHeight, true);
+                glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
+            }
 
-                // Dump all surfaces if this frame matches a requested frame
-                bool shouldDumpSurfaces = hmget(args.screenshotSurfacesFrames, runner->frameCount);
+            // Dump all surfaces if this frame matches a requested frame
+            bool shouldDumpSurfaces = hmget(args.screenshotSurfacesFrames, runner->frameCount);
 
-                if (shouldDumpSurfaces || RunnerKeyboard_checkPressed(runner->keyboard, VK_F6)) {
-                    GLRenderer* gl = (GLRenderer*) renderer;
-                    dumpAllSurfaces(gl, args.screenshotSurfacesPattern, runner->frameCount);
-                    glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
-                }
+            if (shouldDumpSurfaces || RunnerKeyboard_checkPressed(runner->keyboard, VK_F6)) {
+                GLRenderer* gl = (GLRenderer*) renderer;
+                dumpAllSurfaces(gl, args.screenshotSurfacesPattern, runner->frameCount);
+                glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
+            }
 #endif
 
-                if (args.exitAtFrame >= 0 && runner->frameCount >= args.exitAtFrame) {
-                    logInfo("Exiting at frame %d (--exit-at-frame)\n", runner->frameCount);
-                    shouldWindowClose = true;
-                }
+            if (args.exitAtFrame >= 0 && runner->frameCount >= args.exitAtFrame) {
+                logInfo("Exiting at frame %d (--exit-at-frame)\n", runner->frameCount);
+                shouldWindowClose = true;
+            }
 
-                if (shouldStep && args.traceFrames) {
-                    double frameElapsedMs = (int64_t)(nowNanos() - frameStartTime) / 1000000.0;
-                    logInfo("Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
-                }
+            if (shouldStep && args.traceFrames) {
+                double frameElapsedMs = (int64_t)(nowNanos() - frameStartTime) / 1000000.0;
+                logInfo("Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
+            }
 
-                // Only swap when there isn't a room change to match the original runner.
-                if (runner->pendingRoom == -1)
-                    platformSwapBuffers();
+            // Always present the current frame so paused frames can still show the overlay.
+            if (runner->pendingRoom == -1)
+                platformSwapBuffers();
+            if (shouldStep) {
                 Runner_handlePendingRoomChange(runner);
             }
 
