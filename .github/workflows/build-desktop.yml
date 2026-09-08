@@ -221,7 +221,7 @@ jobs:
               developer/build/cmake \
               developer/build/ninja \
               developer/build/pkg-config \
-              developer/gcc-13 \
+              developer/gcc-14 \
               developer/ccache \
               library/sdl2 \
               library/audio/openal \
@@ -235,8 +235,8 @@ jobs:
             mkdir -p "$CCACHE_DIR"
             ccache -z
 
-            export CC=/usr/gcc/13/bin/gcc
-            export CXX=/usr/gcc/13/bin/g++
+            export CC=/usr/gcc/14/bin/gcc
+            export CXX=/usr/gcc/14/bin/g++
 
             cmake -B build -G Ninja \
               -DBACKEND=sdl2 \
