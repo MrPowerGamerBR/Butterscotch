@@ -1198,87 +1198,89 @@ int loop(CommandLineArgs args, const char *argv0) {
                 free(json);
             }
 
-            // Clear the default framebuffer (window background) to black
-#ifdef ENABLE_SW_RENDERER
-            if (gfx == SOFTWARE)
-                SWRenderer_clearFrameBuffer(renderer, 0);
-#endif
-#if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
-            if ((gfx == LEGACY_GL || gfx == MODERN_GL) && shouldRender) {
-                glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
-                glClear(GL_COLOR_BUFFER_BIT);
-            }
-#endif
-
-            // Query actual framebuffer size
-            int32_t fbWidth, fbHeight;
-            platformGetWindowSize(&fbWidth, &fbHeight);
-
-            if (!runner->appSurfaceEnabled) {
-                runner->applicationWidth = fbWidth;
-                runner->applicationHeight = fbHeight;
-                runner->usingAppSurface = false;
-            } else {
-                if (runner->applicationWidth <= 0 || runner->applicationHeight <= 0) {
-                    runner->applicationWidth = (int32_t) gen8->defaultWindowWidth;
-                    runner->applicationHeight = (int32_t) gen8->defaultWindowHeight;
+            if (!runner->debugMode) {
+                // Clear the default framebuffer (window background) to black
+    #ifdef ENABLE_SW_RENDERER
+                if (gfx == SOFTWARE)
+                    SWRenderer_clearFrameBuffer(renderer, 0);
+    #endif
+    #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
+                if ((gfx == LEGACY_GL || gfx == MODERN_GL) && shouldRender) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
+                    glClear(GL_COLOR_BUFFER_BIT);
                 }
-                runner->usingAppSurface = true;
-            }
+    #endif
 
-            int32_t gameW = runner->applicationWidth;
-            int32_t gameH = runner->applicationHeight;
+                // Query actual framebuffer size
+                int32_t fbWidth, fbHeight;
+                platformGetWindowSize(&fbWidth, &fbHeight);
 
-            // Widescreen hack: render into a surface grown toward the requested aspect to fake a different aspect
-            // ratio. The game's logical applicationWidth/Height is left untouched (so the reads above stay the real
-            // size and this never compounds frame-to-frame); only the local gameW/gameH used for the projection/FBO
-            // grow. A wider-than-native target grows width (reveal left/right); a taller one grows height (reveal
-            // top/bottom). Runner_drawViews reads widescreenExtraWidth/Height to expand each view to match.
-            runner->widescreenExtraWidth = 0;
-            runner->widescreenExtraHeight = 0;
-            if (args.widescreenAspect > 0.0f && runner->usingAppSurface && gameW > 0 && gameH > 0) {
-                float nativeAspect = (float) gameW / (float) gameH;
-                if (args.widescreenAspect > nativeAspect) {
-                    int32_t targetW = (int32_t) ((float) gameH * args.widescreenAspect + 0.5f);
-                    if (targetW > gameW) {
-                        runner->widescreenExtraWidth = targetW - gameW;
-                        gameW = targetW;
+                if (!runner->appSurfaceEnabled) {
+                    runner->applicationWidth = fbWidth;
+                    runner->applicationHeight = fbHeight;
+                    runner->usingAppSurface = false;
+                } else {
+                    if (runner->applicationWidth <= 0 || runner->applicationHeight <= 0) {
+                        runner->applicationWidth = (int32_t) gen8->defaultWindowWidth;
+                        runner->applicationHeight = (int32_t) gen8->defaultWindowHeight;
                     }
-                } else if (args.widescreenAspect < nativeAspect) {
-                    int32_t targetH = (int32_t) ((float) gameW / args.widescreenAspect + 0.5f);
-                    if (targetH > gameH) {
-                        runner->widescreenExtraHeight = targetH - gameH;
-                        gameH = targetH;
+                    runner->usingAppSurface = true;
+                }
+
+                int32_t gameW = runner->applicationWidth;
+                int32_t gameH = runner->applicationHeight;
+
+                // Widescreen hack: render into a surface grown toward the requested aspect to fake a different aspect
+                // ratio. The game's logical applicationWidth/Height is left untouched (so the reads above stay the real
+                // size and this never compounds frame-to-frame); only the local gameW/gameH used for the projection/FBO
+                // grow. A wider-than-native target grows width (reveal left/right); a taller one grows height (reveal
+                // top/bottom). Runner_drawViews reads widescreenExtraWidth/Height to expand each view to match.
+                runner->widescreenExtraWidth = 0;
+                runner->widescreenExtraHeight = 0;
+                if (args.widescreenAspect > 0.0f && runner->usingAppSurface && gameW > 0 && gameH > 0) {
+                    float nativeAspect = (float) gameW / (float) gameH;
+                    if (args.widescreenAspect > nativeAspect) {
+                        int32_t targetW = (int32_t) ((float) gameH * args.widescreenAspect + 0.5f);
+                        if (targetW > gameW) {
+                            runner->widescreenExtraWidth = targetW - gameW;
+                            gameW = targetW;
+                        }
+                    } else if (args.widescreenAspect < nativeAspect) {
+                        int32_t targetH = (int32_t) ((float) gameW / args.widescreenAspect + 0.5f);
+                        if (targetH > gameH) {
+                            runner->widescreenExtraHeight = targetH - gameH;
+                            gameH = targetH;
+                        }
                     }
                 }
-            }
 
-            if (shouldRender) {
-                Runner_drawPre(runner, fbWidth, fbHeight);
+                if (shouldRender) {
+                    Runner_drawPre(runner, fbWidth, fbHeight);
 
-                // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
-                int32_t winW, winH;
-                platformGetScaledWindowSize(&winW, &winH);
+                    // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
+                    int32_t winW, winH;
+                    platformGetScaledWindowSize(&winW, &winH);
 
-                Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
+                    Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
 
-                double mx, my;
-                platformGetMousePos(&mx, &my);
-                Runner_updateMousePosition(runner, winW, winH, mx, my);
+                    double mx, my;
+                    platformGetMousePos(&mx, &my);
+                    Runner_updateMousePosition(runner, winW, winH, mx, my);
 
-                Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
-                renderer->vtable->endFrameInit(renderer);
-                Runner_drawPost(runner, fbWidth, fbHeight);
-                renderer->vtable->endFrameEnd(renderer);
-                Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+                    Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
+                    renderer->vtable->endFrameInit(renderer);
+                    Runner_drawPost(runner, fbWidth, fbHeight);
+                    renderer->vtable->endFrameEnd(renderer);
+                    Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
 
-                if (runner->paused) {
-                    int32_t winW = fbWidth;
-                    int32_t winH = fbHeight;
+                    if (runner->paused) {
+                        int32_t winW = fbWidth;
+                        int32_t winH = fbHeight;
 
-                    renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
-                    renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
-                    renderer->vtable->endGUI(renderer);
+                        renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
+                        renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
+                        renderer->vtable->endGUI(renderer);
+                    }
                 }
             }
 
