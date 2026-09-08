@@ -1204,7 +1204,7 @@ int loop(CommandLineArgs args, const char *argv0) {
             if (!runner->debugMode) {
                 // Clear the default framebuffer (window background) to black
     #ifdef ENABLE_SW_RENDERER
-                if (gfx == SOFTWARE)
+                if (gfx == SOFTWARE && shouldRender)
                     SWRenderer_clearFrameBuffer(renderer, 0);
     #endif
     #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
