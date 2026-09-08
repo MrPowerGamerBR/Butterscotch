@@ -37,6 +37,7 @@ jobs:
             -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc \
             -DWERROR=ON \
             -DBACKEND=noop \
+            -DAUDIO_BACKEND=openal \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release
