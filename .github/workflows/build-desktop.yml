@@ -222,6 +222,7 @@ jobs:
               developer/build/ninja \
               developer/build/pkg-config \
               developer/gcc-14 \
+              developer/gnu-binutils \
               developer/ccache \
               library/sdl2 \
               library/audio/openal \
@@ -237,6 +238,8 @@ jobs:
 
             export CC=/usr/gcc/14/bin/gcc
             export CXX=/usr/gcc/14/bin/g++
+            export PATH="/usr/gnu/bin:$PATH"
+            export LDFLAGS="-fuse-ld=gld"
 
             cmake -B build -G Ninja \
               -DBACKEND=sdl2 \
@@ -246,6 +249,7 @@ jobs:
               -DCMAKE_C_COMPILER_LAUNCHER=ccache \
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
             cmake --build build
+            strip -s build/butterscotch
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
