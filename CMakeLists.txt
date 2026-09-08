@@ -435,6 +435,7 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "gui" OR PLATFORM STREQUAL "vita
         target_sources(butterscotch PRIVATE
             src/gui/qt_games_tab.cpp
             src/gui/qt_host.cpp
+            src/gui/qt_instances_tab.cpp
             src/gui/qt_log_tab.cpp
             src/gui/qt_variables_tab.cpp
         )

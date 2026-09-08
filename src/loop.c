@@ -93,7 +93,7 @@ typedef struct {
 } BS_PROCESS_MEMORY_COUNTERS;
 #endif
 
-static bool hostVariableSnapshotRequested(Runner* runner) {
+static void hostSnapshotRequests(Runner* runner, bool* outVariableRequested, bool* outInstanceRequested) {
     static char commandBuffer[64];
     static size_t commandLength = 0;
     char input[64];
@@ -103,11 +103,15 @@ static bool hostVariableSnapshotRequested(Runner* runner) {
     DWORD bytesAvailable = 0;
     HANDLE inputHandle = GetStdHandle(STD_INPUT_HANDLE);
     if (inputHandle == INVALID_HANDLE_VALUE || !PeekNamedPipe(inputHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr) || bytesAvailable == 0) {
-        return false;
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
     }
     DWORD bytesRead = 0;
     if (!ReadFile(inputHandle, input, (DWORD)sizeof(input), &bytesRead, nullptr) || bytesRead == 0) {
-        return false;
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
     }
     inputLength = (size_t)bytesRead;
 #else
@@ -116,21 +120,28 @@ static bool hostVariableSnapshotRequested(Runner* runner) {
     FD_SET(STDIN_FILENO, &inputFds);
     struct timeval timeout = {0, 0};
     if (select(STDIN_FILENO + 1, &inputFds, nullptr, nullptr, &timeout) <= 0) {
-        return false;
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
     }
     ssize_t bytesRead = read(STDIN_FILENO, input, sizeof(input));
     if (bytesRead <= 0) {
-        return false;
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
     }
     inputLength = (size_t)bytesRead;
 #endif
 
-    bool snapshotRequested = false;
+    bool variableRequested = false;
+    bool instanceRequested = false;
     for (size_t i = 0; i < inputLength; ++i) {
         if (input[i] == '\n') {
             commandBuffer[commandLength] = '\0';
             if (strcmp(commandBuffer, "BS_REQUEST_VARS") == 0) {
-                snapshotRequested = true;
+                variableRequested = true;
+            } else if (strcmp(commandBuffer, "BS_REQUEST_INSTANCES") == 0) {
+                instanceRequested = true;
             } else if (strncmp(commandBuffer, "BS_PAUSE ", 9) == 0) {
                 const char* value = commandBuffer + 9;
                 const bool paused = strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0;
@@ -143,13 +154,24 @@ static bool hostVariableSnapshotRequested(Runner* runner) {
             commandLength = 0;
         }
     }
-    return snapshotRequested;
+
+    if (outVariableRequested != nullptr) *outVariableRequested = variableRequested;
+    if (outInstanceRequested != nullptr) *outInstanceRequested = instanceRequested;
 }
 
 static void dumpHostVariableSnapshot(Runner* runner) {
     char* json = Runner_dumpGlobalVariablesJson(runner);
     if (json != nullptr) {
         fprintf(stdout, "BS_VARS_JSON %s\n", json);
+        fflush(stdout);
+        free(json);
+    }
+}
+
+static void dumpHostInstanceSnapshot(Runner* runner) {
+    char* json = Runner_dumpInstancesJson(runner);
+    if (json != nullptr) {
+        fprintf(stdout, "BS_INSTANCES_JSON %s\n", json);
         fflush(stdout);
         free(json);
     }
@@ -1084,9 +1106,11 @@ int loop(CommandLineArgs args, const char *argv0) {
                 continue;
             }
 
-            bool hostSnapshotRequested = args.hostVariableJson &&
-                args.hostVariableJsonOnDemand &&
-                hostVariableSnapshotRequested(runner);
+            bool hostVariableSnapshotRequestedFlag = false;
+            bool hostInstanceSnapshotRequestedFlag = false;
+            if (args.hostVariableJson && args.hostVariableJsonOnDemand) {
+                hostSnapshotRequests(runner, &hostVariableSnapshotRequestedFlag, &hostInstanceSnapshotRequestedFlag);
+            }
 
             // Debug key bindings
             if (runner->debugMode) {
@@ -1381,10 +1405,16 @@ int loop(CommandLineArgs args, const char *argv0) {
             }
 
             bool shouldDumpHostVariables = args.hostVariableJson &&
-                (hostSnapshotRequested ||
+                (hostVariableSnapshotRequestedFlag ||
+                 (!args.hostVariableJsonOnDemand && shouldStep && args.hostVariableJsonInterval > 0 && runner->frameCount % args.hostVariableJsonInterval == 0));
+            bool shouldDumpHostInstances = args.hostVariableJson &&
+                (hostInstanceSnapshotRequestedFlag ||
                  (!args.hostVariableJsonOnDemand && shouldStep && args.hostVariableJsonInterval > 0 && runner->frameCount % args.hostVariableJsonInterval == 0));
             if (shouldDumpHostVariables) {
                 dumpHostVariableSnapshot(runner);
+            }
+            if (shouldDumpHostInstances) {
+                dumpHostInstanceSnapshot(runner);
             }
 
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)) {

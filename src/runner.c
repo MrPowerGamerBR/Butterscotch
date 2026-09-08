@@ -2613,6 +2613,42 @@ char* Runner_dumpGlobalVariablesJson(Runner* runner) {
     return json;
 }
 
+char* Runner_dumpInstancesJson(Runner* runner) {
+    if (runner == nullptr || runner->dataWin == nullptr) {
+        return nullptr;
+    }
+
+    JsonWriter w = JsonWriter_create();
+    JsonWriter_beginObject(&w);
+    JsonWriter_key(&w, "instances");
+    JsonWriter_beginArray(&w);
+    repeat((int32_t) arrlen(runner->instances), i) {
+        Instance* inst = runner->instances[i];
+        if (!inst->active) {
+            continue;
+        }
+
+        const char* objectName = "";
+        if (inst->objectIndex >= 0 && runner->dataWin->objt.count > (uint32_t) inst->objectIndex) {
+            objectName = runner->dataWin->objt.objects[inst->objectIndex].name;
+        }
+
+        JsonWriter_beginObject(&w);
+        JsonWriter_propertyInt(&w, "instanceId", inst->instanceId);
+        JsonWriter_propertyString(&w, "objectName", objectName);
+        JsonWriter_propertyInt(&w, "objectIndex", inst->objectIndex);
+        JsonWriter_propertyDouble(&w, "x", inst->x);
+        JsonWriter_propertyDouble(&w, "y", inst->y);
+        JsonWriter_propertyInt(&w, "depth", inst->depth);
+        JsonWriter_endObject(&w);
+    }
+    JsonWriter_endArray(&w);
+    JsonWriter_endObject(&w);
+    char* json = JsonWriter_copyOutput(&w);
+    JsonWriter_free(&w);
+    return json;
+}
+
 void Runner_snapshotInstanceVariables(Runner* runner, int32_t instanceId, RunnerVariableSnapshot* out) {
     if (runner == nullptr || out == nullptr || runner->vmContext == nullptr) {
         return;
