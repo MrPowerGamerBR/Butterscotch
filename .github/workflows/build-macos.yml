@@ -29,10 +29,10 @@ jobs:
       - name: Build toolchain
         run: |
           ./artifacts/macos/build-toolchain-ppc.sh
-          export PATH="$PWD/artifacts/macos/build/toolchain-ppc/bin:$PATH"
 
       - name: Configure
         run: |
+          export PATH="$PWD/artifacts/macos/build/toolchain-ppc/bin:$PATH"
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc
             -DWERROR=ON \
