@@ -340,16 +340,8 @@ static bool startRunnerFromPath(const char* dataWinPath, const char* savesPath, 
         return false;
     }
 
-    char* bundleDir = nullptr;
-    const char* lastSlash = strrchr(dataWinPath, '/');
-    if (lastSlash != nullptr) {
-        size_t len = (size_t) (lastSlash - dataWinPath + 1);
-        bundleDir = safeMalloc(len + 1);
-        memcpy(bundleDir, dataWinPath, len);
-        bundleDir[len] = '\0';
-    } else {
-        bundleDir = safeStrdup("./");
-    }
+    char* bundleDir = safeStrdup(dataWinPath);
+    bsGetDirname(bundleDir);
 
     VMContext* vm = VM_create(dataWin);
     Renderer* renderer = GLRenderer_create();
