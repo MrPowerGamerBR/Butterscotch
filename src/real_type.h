@@ -84,4 +84,9 @@ static inline GMLReal GMLReal_bankersRound(GMLReal v) {
     return (fi & 1) == 0 ? f : f + 1.0;
 }
 
+static inline GMLReal GMLReal_clamp(GMLReal val, GMLReal min, GMLReal max) {
+    if (val < min) return min;
+    if (val > max) return max;
+    return val;
+}
 #endif /* _BS_REAL_TYPE_H_ */

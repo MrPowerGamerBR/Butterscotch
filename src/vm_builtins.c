@@ -6594,6 +6594,7 @@ static RValue builtin_place_free(VMContext* ctx, RValue* args, int32_t argCount)
 }
 
 // place_empty(x, y) - returns true if no instance overlaps at position (x, y), checking ALL instances (not just solid)
+// HTM5 uses performCollisionTest check
 static bool placeEmptyAt(Runner* runner, Instance* caller, GMLReal testX, GMLReal testY) {
     GMLReal savedX = caller->x;
     GMLReal savedY = caller->y;
@@ -6700,7 +6701,7 @@ static bool mpTestFree(Runner* runner, Instance* inst, GMLReal x, GMLReal y, int
             return placeFreeAt(runner, inst, x, y);
         }
     } else {
-        return noCollisionWithObject(runner, inst, x, y, objIndex);
+        return noCollisionWithObject(runner, inst, x, y, objIndex); // HTML5 uses instance_place check (performCollisionTest)
     }
 }
 
@@ -9237,6 +9238,437 @@ static RValue builtin_move_outside_all(VMContext* ctx, RValue* args, MAYBE_UNUSE
     GMLReal maxdist = RValue_toReal(args[1]);
     moveOutsideCommon(ctx->runner, ctx->currentInstance, dir, maxdist, true);
     return RValue_makeUndefined();
+}
+
+static int32_t commandInstancePlace(VMContext* ctx, Instance* self, GMLReal x, GMLReal y, int32_t target, DsList* outList) {
+    Runner* runner = ctx->runner;
+    if (self == NULL || target == INSTANCE_NOONE) return INSTANCE_NOONE;
+
+    int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, target);
+    if (resolvedTarget == INSTANCE_NOONE) return INSTANCE_NOONE;
+
+    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
+    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
+    // Save current position and temporarily move to test position
+    GMLReal savedX = self->x;
+    GMLReal savedY = self->y;
+    self->x = x;
+    self->y = y;
+
+    InstanceBBox selfBBox = Collision_computeBBox(runner, self);
+    int32_t resultId = INSTANCE_NOONE;
+
+    if (selfBBox.valid) {
+        int32_t snapBase = Runner_pushInstancesForTarget(runner, resolvedTarget);
+        int32_t snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+        for (int32_t i = snapBase; i < snapEnd && resultId == INSTANCE_NOONE; i++) {
+            Instance* other = runner->instanceSnapshots[i];
+            if (!other->active || other == self) continue;
+
+            InstanceBBox otherBBox = Collision_computeBBox(runner, other);
+            if (!otherBBox.valid) continue;
+
+            if (Collision_instancesOverlapPrecise(runner, self, other, selfBBox, otherBBox)) {
+                int32_t foundId = other->instanceId;
+                if (outList != NULL) {
+                    arrput(outList->items, RValue_makeReal((GMLReal)foundId));
+                } else {
+                    resultId = foundId;
+                    break;
+                }
+            }
+        }
+        Runner_popInstanceSnapshot(runner, snapBase);
+    }
+
+    self->x = savedX;
+    self->y = savedY;
+
+    return outList != NULL ? 0 : resultId;
+}
+
+static int32_t commandCollisionPoint(VMContext* ctx, Instance* self, GMLReal px, GMLReal py, int32_t target, DsList* outList) {
+    Runner* runner = ctx->runner;
+    if (self == NULL || target == INSTANCE_NOONE) return INSTANCE_NOONE;
+
+    int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, target);
+    if (resolvedTarget == INSTANCE_NOONE) return INSTANCE_NOONE;
+
+    int32_t resultId = INSTANCE_NOONE;
+    int32_t snapBase = Runner_pushInstancesForTarget(runner, resolvedTarget);
+    int32_t snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+
+    for (int32_t i = snapBase; i < snapEnd && resultId == INSTANCE_NOONE; i++) {
+        Instance* other = runner->instanceSnapshots[i];
+        if (!other->active || other == self) continue;
+
+        // Check if point is inside the instance's bounding box first
+        if (!Collision_pointInsideInstanceBox(runner, other, px, py)) continue;
+
+        // Always do precise check for point collisions
+        Sprite* spr = Collision_getSprite(runner->dataWin, other);
+        if (Collision_hasFrameMasks(spr) && !Collision_pointInInstance(spr, other, px, py)) {
+            continue;
+        }
+
+        int32_t foundId = other->instanceId;
+        if (outList != NULL) {
+            arrput(outList->items, RValue_makeReal((GMLReal)foundId));
+        } else {
+            resultId = foundId;
+            break;
+        }
+    }
+
+    Runner_popInstanceSnapshot(runner, snapBase);
+    return outList != NULL ? 0 : resultId;
+}
+
+static int32_t performCollisionTest(VMContext* ctx, Instance* self, GMLReal x, GMLReal y, RValue target, DsList* outList) {
+    Runner* runner = ctx->runner;
+    if (self == NULL) return INSTANCE_NOONE;
+
+    bool isArray = (target.type == RVALUE_ARRAY);
+    int32_t singleTarget = INSTANCE_NOONE;
+    bool isAll = false;
+
+    if (!isArray) {
+        singleTarget = RValue_toInt32(target);
+        isAll = (singleTarget == INSTANCE_ALL);
+    }
+
+    if (isArray) {
+        // Handle array of objects
+        GMLArray* arr = target.array;
+        int32_t len = GMLArray_length1D(arr);
+        int32_t resultId = INSTANCE_NOONE;
+
+        for (int32_t idx = 0; idx < len && resultId == INSTANCE_NOONE; idx++) {
+            RValue* slot = GMLArray_slot(arr, idx);
+            if (slot == NULL) continue;
+            int32_t val = RValue_toInt32(*slot);
+
+            int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, val);
+            if (resolvedTarget == INSTANCE_NOONE) continue;
+
+            int32_t singleResult = commandInstancePlace(ctx, self, x, y, resolvedTarget, outList);
+            if (outList == NULL && singleResult != INSTANCE_NOONE) {
+                resultId = singleResult;
+            }
+        }
+        return outList != NULL ? 0 : resultId;
+    }
+
+    // Single target
+    if (isAll) {
+        // Check all instances
+        SpatialGrid_syncGrid(runner, runner->spatialGrid);
+
+        GMLReal savedX = self->x;
+        GMLReal savedY = self->y;
+        self->x = x;
+        self->y = y;
+
+        InstanceBBox selfBBox = Collision_computeBBox(runner, self);
+        int32_t resultId = INSTANCE_NOONE;
+
+        if (selfBBox.valid) {
+            int32_t instanceCount = (int32_t) arrlen(runner->instances);
+            for (int32_t i = 0; i < instanceCount && resultId == INSTANCE_NOONE; i++) {
+                Instance* other = runner->instances[i];
+                if (!other->active || other == self) continue;
+
+                InstanceBBox otherBBox = Collision_computeBBox(runner, other);
+                if (!otherBBox.valid) continue;
+
+                if (Collision_instancesOverlapPrecise(runner, self, other, selfBBox, otherBBox)) {
+                    int32_t foundId = other->instanceId;
+                    if (outList != NULL) {
+                        arrput(outList->items, RValue_makeReal((GMLReal)foundId));
+                    } else {
+                        resultId = foundId;
+                        break;
+                    }
+                }
+            }
+        }
+
+        self->x = savedX;
+        self->y = savedY;
+        return outList != NULL ? 0 : resultId;
+    } else {
+        int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, singleTarget);
+        if (resolvedTarget == INSTANCE_NOONE) return INSTANCE_NOONE;
+        return commandInstancePlace(ctx, self, x, y, resolvedTarget, outList);
+    }
+}
+
+// move_and_collide(self, dx, dy, obj, iterations, xoff, yoff, x_constraint, y_constraint)
+static RValue builtin_move_and_collide(VMContext* ctx, RValue* args, int32_t argCount) {
+    Runner* runner = ctx->runner;
+    Instance* self = ctx->currentInstance;
+
+    // Create result array
+    GMLArray* resultArray = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+    RValue arr = RValue_makeArray(resultArray);
+
+    if (self == nullptr) return arr;
+
+    GMLReal dx = RValue_toReal(args[0]);
+    GMLReal dy = RValue_toReal(args[1]);
+
+    // Object/instance target (arg 2) - can be array, ALL, or single object
+    RValue target = (argCount > 2) ? args[2] : RValue_makeReal(INSTANCE_ALL);
+
+    // Check if currently colliding
+    int32_t initialCollision = performCollisionTest(ctx, self, self->x, self->y, target, NULL);
+    if (initialCollision != INSTANCE_NOONE) {
+        return arr;
+    }
+
+    if (dx == 0.0 && dy == 0.0) return arr;
+
+    // iterations (arg 3) - default 4
+    int32_t iterations = (argCount > 3) ? RValue_toInt32(args[3]) : 4;
+    if (iterations <= 0) iterations = 4;
+
+    // xoff/yoff (arg 4, 5) - default 0
+    GMLReal xoff = (argCount > 4) ? RValue_toReal(args[4]) : 0.0;
+    GMLReal yoff = (argCount > 5) ? RValue_toReal(args[5]) : 0.0;
+
+    // x_constraint/y_constraint (arg 6, 7) - default -1 (disabled)
+    GMLReal xConstraint = (argCount > 6) ? RValue_toReal(args[6]) : -1.0;
+    GMLReal yConstraint = (argCount > 7) ? RValue_toReal(args[7]) : -1.0;
+
+    bool applyXConstraint = xConstraint >= 0.0;
+    bool applyYConstraint = yConstraint >= 0.0;
+
+    GMLReal clampMinX = self->x, clampMaxX = self->x;
+    GMLReal clampMinY = self->y, clampMaxY = self->y;
+
+    if (applyXConstraint) {
+        clampMinX = self->x - xConstraint;
+        clampMaxX = self->x + xConstraint;
+    }
+    if (applyYConstraint) {
+        clampMinY = self->y - yConstraint;
+        clampMaxY = self->y + yConstraint;
+    }
+
+    bool checkPerp = (xoff == 0.0 && yoff == 0.0);
+
+    GMLReal lxoff = 0.0, lyoff = 0.0;
+    GMLReal deltaLength = 0.0;
+    if (!checkPerp) {
+        deltaLength = GMLReal_sqrt(xoff * xoff + yoff * yoff);
+        lxoff = xoff / deltaLength;
+        lyoff = yoff / deltaLength;
+    }
+
+    GMLReal steps = GMLReal_sqrt(dx * dx + dy * dy);
+    GMLReal ndx = dx / steps;
+    GMLReal ndy = dy / steps;
+    const GMLReal root2over2 = 0.70710678118654;
+    GMLReal stepDist = steps / (GMLReal)iterations;
+    GMLReal distToTravel = steps;
+
+    // Use a temporary list for collecting collision results during testing
+    DsList tempList = {0};
+    tempList.items = NULL;
+
+    for (int32_t i = 0; i < iterations; i++) {
+        GMLReal thisStepDist = stepDist;
+        if (distToTravel < thisStepDist) {
+            thisStepDist = distToTravel;
+            if (thisStepDist <= 0.0) break;
+        }
+
+        GMLReal tx = self->x + ndx * thisStepDist;
+        GMLReal ty = self->y + ndy * thisStepDist;
+
+        if (applyXConstraint) {
+            tx = GMLReal_clamp(tx, clampMinX, clampMaxX);
+        }
+        if (applyYConstraint) {
+            ty = GMLReal_clamp(ty, clampMinY, clampMaxY);
+        }
+
+        // Use performCollisionTest with a temporary list to get all collisions at this position
+        arrfree(tempList.items);
+        tempList.items = NULL;
+        performCollisionTest(ctx, self, tx, ty, target, &tempList);
+
+        if (arrlen(tempList.items) == 0) {
+            // Free move: apply the movement
+            self->x = (float)tx;
+            self->y = (float)ty;
+            distToTravel -= thisStepDist;
+            SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
+        } else {
+            // Collision! Add all collided instances to result (with duplicate checking)
+            repeat(arrlen(tempList.items), collIdx) {
+                int32_t collidedId = RValue_toInt32(tempList.items[collIdx]);
+
+                // Check if already in result array
+                bool alreadyExists = false;
+                int32_t resultLen = GMLArray_length1D(resultArray);
+                for (int32_t checkIdx = 0; resultLen > checkIdx; checkIdx++) {
+                    RValue* existing = GMLArray_slot(resultArray, checkIdx);
+                    if (existing != NULL && RValue_toInt32(*existing) == collidedId) {
+                        alreadyExists = true;
+                        break;
+                    }
+                }
+                if (!alreadyExists) {
+                    GMLArray_add(resultArray, RValue_makeReal((GMLReal)collidedId));
+                }
+            }
+
+            bool hasMoved = false;
+
+            if (checkPerp) {
+                // Try sliding along the surface using perpendicular directions
+                for (int32_t j = 1; j <= iterations - i; j++) {
+                    // Try one perpendicular direction
+                    GMLReal ptx = self->x + root2over2 * (ndx + (GMLReal)j * ndy) * thisStepDist;
+                    GMLReal pty = self->y + root2over2 * (ndy - (GMLReal)j * ndx) * thisStepDist;
+
+                    if (applyXConstraint) {
+                        ptx = GMLReal_clamp(ptx, clampMinX, clampMaxX);
+                    }
+                    if (applyYConstraint) {
+                        pty = GMLReal_clamp(pty, clampMinY, clampMaxY);
+                    }
+
+                    arrfree(tempList.items);
+                    tempList.items = NULL;
+                    performCollisionTest(ctx, self, ptx, pty, target, &tempList);
+
+                    if (arrlen(tempList.items) == 0) {
+                        distToTravel -= thisStepDist * (GMLReal)j;
+                        hasMoved = true;
+                        self->x = (float)ptx;
+                        self->y = (float)pty;
+                        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
+                        break;
+                    } else {
+                        // Add new collisions
+                        repeat(arrlen(tempList.items), collIdx) {
+                            int32_t collidedId = RValue_toInt32(tempList.items[collIdx]);
+                            bool alreadyExists = false;
+                            int32_t resultLen = GMLArray_length1D(resultArray);
+                            for (int32_t checkIdx = 0; resultLen > checkIdx; checkIdx++) {
+                                RValue* existing = GMLArray_slot(resultArray, checkIdx);
+                                if (existing != NULL && RValue_toInt32(*existing) == collidedId) {
+                                    alreadyExists = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyExists) {
+                                GMLArray_add(resultArray, RValue_makeReal((GMLReal)collidedId));
+                            }
+                        }
+                    }
+
+                    // Try the other perpendicular direction
+                    GMLReal ptx2 = self->x + root2over2 * (ndx - (GMLReal)j * ndy) * thisStepDist;
+                    GMLReal pty2 = self->y + root2over2 * (ndy + (GMLReal)j * ndx) * thisStepDist;
+
+                    if (applyXConstraint) {
+                        ptx2 = GMLReal_clamp(ptx2, clampMinX, clampMaxX);
+                    }
+                    if (applyYConstraint) {
+                        pty2 = GMLReal_clamp(pty2, clampMinY, clampMaxY);
+                    }
+
+                    arrfree(tempList.items);
+                    tempList.items = NULL;
+                    performCollisionTest(ctx, self, ptx2, pty2, target, &tempList);
+
+                    if (arrlen(tempList.items) == 0) {
+                        distToTravel -= thisStepDist * (GMLReal)j;
+                        hasMoved = true;
+                        self->x = (float)ptx2;
+                        self->y = (float)pty2;
+                        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
+                        break;
+                    } else {
+                        repeat(arrlen(tempList.items), collIdx) {
+                            int32_t collidedId = RValue_toInt32(tempList.items[collIdx]);
+                            bool alreadyExists = false;
+                            int32_t resultLen = GMLArray_length1D(resultArray);
+                            for (int32_t checkIdx = 0; resultLen > checkIdx; checkIdx++) {
+                                RValue* existing = GMLArray_slot(resultArray, checkIdx);
+                                if (existing != NULL && RValue_toInt32(*existing) == collidedId) {
+                                    alreadyExists = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyExists) {
+                                GMLArray_add(resultArray, RValue_makeReal((GMLReal)collidedId));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Use xoff/yoff offset direction for sliding
+                for (int32_t j = 1; j <= iterations - i; j++) {
+                    GMLReal ptx = self->x + root2over2 * (ndx + (GMLReal)j * lxoff) * thisStepDist;
+                    GMLReal pty = self->y + root2over2 * (ndy + (GMLReal)j * lyoff) * thisStepDist;
+
+                    if (applyXConstraint) {
+                        ptx = GMLReal_clamp(ptx, clampMinX, clampMaxX);
+                    }
+                    if (applyYConstraint) {
+                        pty = GMLReal_clamp(pty, clampMinY, clampMaxY);
+                    }
+
+                    arrfree(tempList.items);
+                    tempList.items = NULL;
+                    performCollisionTest(ctx, self, ptx, pty, target, &tempList);
+
+                    if (arrlen(tempList.items) == 0) {
+                        distToTravel -= thisStepDist * (GMLReal)j;
+                        hasMoved = true;
+                        self->x = (float)ptx;
+                        self->y = (float)pty;
+                        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, self);
+                        break;
+                    } else {
+                        repeat(arrlen(tempList.items), collIdx) {
+                            int32_t collidedId = RValue_toInt32(tempList.items[collIdx]);
+                            bool alreadyExists = false;
+                            int32_t resultLen = GMLArray_length1D(resultArray);
+                            for (int32_t checkIdx = 0; resultLen > checkIdx; checkIdx++) {
+                                RValue* existing = GMLArray_slot(resultArray, checkIdx);
+                                if (existing != NULL && RValue_toInt32(*existing) == collidedId) {
+                                    alreadyExists = true;
+                                    break;
+                                }
+                            }
+                            if (!alreadyExists) {
+                                GMLArray_add(resultArray, RValue_makeReal((GMLReal)collidedId));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Clean up the temp list
+            arrfree(tempList.items);
+            tempList.items = NULL;
+
+            if (!hasMoved) {
+                return arr; // Stuck, return whatever collisions we've found
+            }
+        }
+    }
+
+    // Clean up
+    arrfree(tempList.items);
+
+    return arr;
 }
 
 static RValue builtin_action_snap(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -12032,60 +12464,15 @@ static RValue builtin_display_set_gui_maximise(VMContext* ctx, MAYBE_UNUSED RVal
 static RValue builtin_place_meeting(VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeBool(false);
 
-    Runner* runner = ctx->runner;
     Instance* caller = ctx->currentInstance;
     if (caller == nullptr) return RValue_makeBool(false);
 
     GMLReal testX = RValue_toReal(args[0]);
     GMLReal testY = RValue_toReal(args[1]);
-    int32_t target = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
-    if (target == INSTANCE_NOONE) return RValue_makeBool(false);
+    RValue target = args[2];
 
-    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
-
-    // Save current position and temporarily move to test position
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
-
-    InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
-    bool found = false;
-
-    if (callerBBox.valid) {
-        SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, target);
-
-        for (int32_t gx = query.range.minGridX; query.range.maxGridX >= gx && !found; gx++) {
-            for (int32_t gy = query.range.minGridY; query.range.maxGridY >= gy && !found; gy++) {
-                Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
-                int32_t cellLen = (int32_t) arrlen(cell);
-                repeat(cellLen, ci) {
-                    Instance* other = cell[ci];
-                    if (!other->active || other == caller) continue;
-                    if (other->lastCollisionQueryId == query.queryId) continue;
-                    other->lastCollisionQueryId = query.queryId;
-
-                    if (!query.matchAll && query.filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, target)) continue;
-                    if (!query.matchAll && query.filterByInstanceId && other->instanceId != (uint32_t) target) continue;
-
-                    InstanceBBox otherBBox = Collision_computeBBox(runner, other);
-                    if (!otherBBox.valid) continue;
-
-                    if (Collision_instancesOverlapPrecise(runner, caller, other, callerBBox, otherBBox)) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Restore original position
-    caller->x = savedX;
-    caller->y = savedY;
-
-    return RValue_makeBool(found);
+    int32_t result = performCollisionTest(ctx, caller, testX, testY, target, NULL);
+    return RValue_makeBool(result != INSTANCE_NOONE);
 }
 
 // GameMaker rounds the coordinates when in collision compatibility mode
@@ -12944,57 +13331,15 @@ static RValue builtin_collision_point(VMContext* ctx, RValue* args, int32_t argC
 static RValue builtin_instance_place(VMContext* ctx, RValue* args, int32_t argCount) {
     if (3 > argCount) return RValue_makeReal((GMLReal) INSTANCE_NOONE);
 
-    Runner* runner = ctx->runner;
     Instance* caller = ctx->currentInstance;
     if (caller == nullptr) return RValue_makeReal((GMLReal) INSTANCE_NOONE);
 
     GMLReal testX = RValue_toReal(args[0]);
     GMLReal testY = RValue_toReal(args[1]);
-    int32_t targetObjIndex = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
-    if (targetObjIndex == INSTANCE_NOONE) return RValue_makeReal((GMLReal) INSTANCE_NOONE);
+    RValue target = args[2];
 
-    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
-
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
-
-    InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
-    int32_t resultId = INSTANCE_NOONE;
-
-    if (callerBBox.valid) {
-        SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, targetObjIndex);
-
-        for (int32_t gx = query.range.minGridX; query.range.maxGridX >= gx && resultId == INSTANCE_NOONE; gx++) {
-            for (int32_t gy = query.range.minGridY; query.range.maxGridY >= gy && resultId == INSTANCE_NOONE; gy++) {
-                Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
-                int32_t cellLen = (int32_t) arrlen(cell);
-                repeat(cellLen, ci) {
-                    Instance* other = cell[ci];
-                    if (!other->active || other == caller) continue;
-                    if (other->lastCollisionQueryId == query.queryId) continue;
-                    other->lastCollisionQueryId = query.queryId;
-
-                    if (!query.matchAll && query.filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, targetObjIndex)) continue;
-                    if (!query.matchAll && query.filterByInstanceId && other->instanceId != (uint32_t) targetObjIndex) continue;
-
-                    InstanceBBox otherBBox = Collision_computeBBox(runner, other);
-                    if (!otherBBox.valid) continue;
-
-                    if (Collision_instancesOverlapPrecise(runner, caller, other, callerBBox, otherBBox)) {
-                        resultId = other->instanceId;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    caller->x = savedX;
-    caller->y = savedY;
-    return RValue_makeReal((GMLReal) resultId);
+    int32_t result = performCollisionTest(ctx, caller, testX, testY, target, NULL);
+    return RValue_makeReal((GMLReal) result);
 }
 
 // instance_place_list(x, y, obj, list, ordered) -> count of colliding instances, appended to ds_list
@@ -13007,57 +13352,18 @@ static RValue builtin_instance_place_list(VMContext* ctx, RValue* args, int32_t 
 
     GMLReal testX = RValue_toReal(args[0]);
     GMLReal testY = RValue_toReal(args[1]);
-    int32_t targetObjIndex = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
+    RValue target = args[2];
     int32_t listId = RValue_toInt32(args[3]);
     // arg 4 (ordered) is currently ignored; instances are appended in iteration order
-
-    if (targetObjIndex == INSTANCE_NOONE) return RValue_makeReal(0.0);
 
     DsList* list = dsListGet(runner, listId);
     if (list == nullptr) return RValue_makeReal(0.0);
 
-    // ALWAYS SYNC THE GRID BEFORE CHANGING THE INSTANCE POSITION TO AVOID "SYNCING" THE TEST POSITION!
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
+    int32_t oldSize = (int32_t) arrlen(list->items);
+    performCollisionTest(ctx, caller, testX, testY, target, list);
+    int32_t newSize = (int32_t) arrlen(list->items);
 
-    GMLReal savedX = caller->x;
-    GMLReal savedY = caller->y;
-    caller->x = testX;
-    caller->y = testY;
-
-    InstanceBBox callerBBox = Collision_computeBBox(runner, caller);
-    int32_t count = 0;
-
-    if (callerBBox.valid) {
-        SpatialGridQuery query = SpatialGrid_prepareQuery(runner, callerBBox.left, callerBBox.top, callerBBox.right, callerBBox.bottom, targetObjIndex);
-
-        for (int32_t gx = query.range.minGridX; query.range.maxGridX >= gx; gx++) {
-            for (int32_t gy = query.range.minGridY; query.range.maxGridY >= gy; gy++) {
-                Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
-                int32_t cellLen = (int32_t) arrlen(cell);
-                repeat(cellLen, ci) {
-                    Instance* other = cell[ci];
-                    if (!other->active || other == caller) continue;
-                    if (other->lastCollisionQueryId == query.queryId) continue;
-                    other->lastCollisionQueryId = query.queryId;
-
-                    if (!query.matchAll && query.filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, targetObjIndex)) continue;
-                    if (!query.matchAll && query.filterByInstanceId && other->instanceId != (uint32_t) targetObjIndex) continue;
-
-                    InstanceBBox otherBBox = Collision_computeBBox(runner, other);
-                    if (!otherBBox.valid) continue;
-
-                    if (Collision_instancesOverlapPrecise(runner, caller, other, callerBBox, otherBBox)) {
-                        arrput(list->items, RValue_makeReal((GMLReal) other->instanceId));
-                        count++;
-                    }
-                }
-            }
-        }
-    }
-
-    caller->x = savedX;
-    caller->y = savedY;
-    return RValue_makeReal((GMLReal) count);
+    return RValue_makeReal((GMLReal)(newSize - oldSize));
 }
 
 // instance_position(x, y, obj)
@@ -13101,44 +13407,41 @@ static RValue builtin_position_meeting(VMContext* ctx, RValue* args, int32_t arg
     Runner* runner = ctx->runner;
     GMLReal px = RValue_toReal(args[0]);
     GMLReal py = RValue_toReal(args[1]);
-    int32_t target = VM_resolveInstanceTarget(ctx, RValue_toInt32(args[2]));
-    if (target == INSTANCE_NOONE) return RValue_makeBool(false);
+    RValue target = args[2];
+
+#ifdef IS_WAD17_OR_HIGHER_ENABLED
+    // If target is an array, check each element
+    if (target.type == RVALUE_ARRAY) {
+        GMLArray* arr = target.array;
+        int32_t len = GMLArray_length1D(arr);
+        for (int32_t idx = 0; idx < len; idx++) {
+            RValue* slot = GMLArray_slot(arr, idx);
+            if (slot == NULL) continue;
+            int32_t val = RValue_toInt32(*slot);
+
+            int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, val);
+            if (resolvedTarget == INSTANCE_NOONE) continue;
+
+            int32_t result = commandCollisionPoint(ctx, ctx->currentInstance, px, py, resolvedTarget, NULL);
+            if (result != INSTANCE_NOONE) {
+                return RValue_makeBool(true);
+            }
+        }
+        return RValue_makeBool(false);
+    }
+#endif
+
+    // Single target
+    int32_t targetVal = RValue_toInt32(target);
+    int32_t resolvedTarget = VM_resolveInstanceTarget(ctx, targetVal);
+    if (resolvedTarget == INSTANCE_NOONE) return RValue_makeBool(false);
 
     if (runner->collisionCompatibilityMode) {
         px = compatRoundCoord(px); py = compatRoundCoord(py);
     }
 
-    SpatialGrid_syncGrid(runner, runner->spatialGrid);
-    SpatialGridQuery query = SpatialGrid_prepareQuery(runner, px, py, px, py, target);
-    bool found = false;
-
-    for (int32_t gx = query.range.minGridX; query.range.maxGridX >= gx && !found; gx++) {
-        for (int32_t gy = query.range.minGridY; query.range.maxGridY >= gy && !found; gy++) {
-            Instance** cell = runner->spatialGrid->grid[SpatialGrid_cellIndex(runner->spatialGrid, gx, gy)];
-            int32_t cellLen = (int32_t) arrlen(cell);
-            repeat(cellLen, ci) {
-                Instance* other = cell[ci];
-                // Keep in mind that we DO NOT skip "self"
-                if (!other->active) continue;
-                if (other->lastCollisionQueryId == query.queryId) continue;
-                other->lastCollisionQueryId = query.queryId;
-
-                if (!query.matchAll && query.filterByObject && !VM_isObjectOrDescendant(runner->dataWin, other->objectIndex, target)) continue;
-                if (!query.matchAll && query.filterByInstanceId && other->instanceId != (uint32_t) target) continue;
-
-                if (!Collision_pointInsideInstanceBox(ctx->runner, other, px, py)) continue;
-
-                // GameMaker ALWAYS does precise collision checks here
-                Sprite* spr = Collision_getSprite(ctx->dataWin, other);
-                if (Collision_hasFrameMasks(spr) && !Collision_pointInInstance(spr, other, px, py)) continue;
-
-                found = true;
-                break;
-            }
-        }
-    }
-
-    return RValue_makeBool(found);
+    int32_t result = commandCollisionPoint(ctx, ctx->currentInstance, px, py, resolvedTarget, NULL);
+    return RValue_makeBool(result != INSTANCE_NOONE);
 }
 
 // Misc stubs
@@ -19135,6 +19438,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "move_outside_all", builtin_move_outside_all);
     VM_registerBuiltin(ctx, "move_bounce_solid", builtin_move_bounce_solid);
     VM_registerBuiltin(ctx, "move_bounce_all", builtin_move_bounce_all);
+    VM_registerBuiltin(ctx, "move_and_collide", builtin_move_and_collide);
     VM_registerBuiltin(ctx, "lengthdir_x", builtin_lengthdir_x);
     VM_registerBuiltin(ctx, "lengthdir_y", builtin_lengthdir_y);
 
