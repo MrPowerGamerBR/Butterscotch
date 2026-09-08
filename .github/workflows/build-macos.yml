@@ -73,7 +73,7 @@ jobs:
 
       - uses: actions/cache@v6
         with:
-          path: ~/library/caches/ccache
+          path: ~/Library/Caches/ccache
           key: ccache-macos-${{ matrix.label }}-${{ github.sha }}
           restore-keys: ccache-macos-${{ matrix.label }}-
 
