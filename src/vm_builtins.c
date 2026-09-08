@@ -7510,6 +7510,19 @@ static RValue builtin_ini_open_from_string(VMContext* ctx, RValue* args, int32_t
     return RValue_makeUndefined();
 }
 
+static const char* iniArgToString(RValue arg, char* buf, size_t bufSize, DataWin* dataWin) {
+    if (arg.type == RVALUE_STRING && arg.string != nullptr) {
+        return arg.string;
+    }
+    char* str = RValue_toString(arg, dataWin);
+    if (str == nullptr) {
+        return "";
+    }
+    snprintf(buf, bufSize, "%s", str);
+    free(str);
+    return buf;
+}
+
 static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner->currentIni == nullptr) {
@@ -7543,8 +7556,10 @@ static RValue builtin_ini_read_string(VMContext* ctx, RValue* args, int32_t argC
     if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
 
     if (runner->currentIni != nullptr) {
-        const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-        const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+        char sectionBuf[32];
+        char keyBuf[32];
+        const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+        const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
 
         const char* value = Ini_getString(runner->currentIni, section, key);
         if (value != nullptr) {
@@ -7565,8 +7580,10 @@ static RValue builtin_ini_read_real(VMContext* ctx, RValue* args, int32_t argCou
     if (3 > argCount) return RValue_makeReal(0.0);
 
     if (runner->currentIni != nullptr) {
-        const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-        const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+        char sectionBuf[32];
+        char keyBuf[32];
+        const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+        const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
 
         const char* value = Ini_getString(runner->currentIni, section, key);
         if (value != nullptr) {
@@ -7581,8 +7598,10 @@ static RValue builtin_ini_write_string(VMContext* ctx, RValue* args, int32_t arg
     Runner* runner = ctx->runner;
     if (3 > argCount || runner->currentIni == nullptr) return RValue_makeUndefined();
 
-    const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-    const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+    char sectionBuf[32];
+    char keyBuf[32];
+    const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+    const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
     const char* value = (args[2].type == RVALUE_STRING ? args[2].string : "");
 
     Ini_setString(runner->currentIni, section, key, value);
@@ -7594,8 +7613,10 @@ static RValue builtin_ini_write_real(VMContext* ctx, RValue* args, int32_t argCo
     Runner* runner = ctx->runner;
     if (3 > argCount || runner->currentIni == nullptr) return RValue_makeUndefined();
 
-    const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-    const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+    char sectionBuf[32];
+    char keyBuf[32];
+    const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+    const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
     char* valueStr = RValue_toString(args[2], ctx->runner->dataWin);
 
     Ini_setString(runner->currentIni, section, key, valueStr);
