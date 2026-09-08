@@ -1197,6 +1197,10 @@ int loop(CommandLineArgs args, const char *argv0) {
                 free(json);
             }
 
+            // Query actual framebuffer size
+            int32_t fbWidth, fbHeight;
+            platformGetWindowSize(&fbWidth, &fbHeight);
+
             if (!runner->debugMode) {
                 // Clear the default framebuffer (window background) to black
     #ifdef ENABLE_SW_RENDERER
@@ -1209,10 +1213,6 @@ int loop(CommandLineArgs args, const char *argv0) {
                     glClear(GL_COLOR_BUFFER_BIT);
                 }
     #endif
-
-                // Query actual framebuffer size
-                int32_t fbWidth, fbHeight;
-                platformGetWindowSize(&fbWidth, &fbHeight);
 
                 if (!runner->appSurfaceEnabled) {
                     runner->applicationWidth = fbWidth;
