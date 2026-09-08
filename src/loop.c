@@ -980,7 +980,6 @@ int loop(CommandLineArgs args, const char *argv0) {
         Runner_initFirstRoom(runner);
 
         // Main loop
-        bool debugPaused = false;
         bool debugShowCollisionMasks = false;
         bool freeCamActive = false;
         bool actuallyShuttingDown = false;
@@ -1010,19 +1009,15 @@ int loop(CommandLineArgs args, const char *argv0) {
                 shouldWindowClose = true;
                 continue;
             }
-
-            // Debug key bindings
-            if (runner->debugMode) {
-                // Pause
-                if (RunnerKeyboard_checkPressed(runner->keyboard, 'P')) {
-                    debugPaused = !debugPaused;
-                    logDebug("%s\n", debugPaused ? "Paused" : "Resumed");
-                }
+            
+            if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F8)) {
+                bool isPaused = Runner_isPaused(runner);
+                Runner_setPaused(runner, !isPaused);
             }
-
+            
             // Run the game step if the game is paused
-            bool shouldStep = true;
-            if (runner->debugMode && debugPaused) {
+            bool shouldStep = !runner->paused;
+            if (runner->debugMode && runner->paused) {
                 shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O');
                 if (shouldStep) logDebug("Frame advance (frame %d)\n", runner->frameCount);
             }

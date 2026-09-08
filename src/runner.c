@@ -2331,6 +2331,26 @@ static void validateRendererVtable(Renderer* renderer) {
     #undef requireNotNullFunction
 }
 
+void Runner_setPaused(Runner* runner, bool paused) {
+    if (runner == nullptr) {
+        return;
+    }
+
+    runner->paused = paused;
+
+    if (runner->audioSystem != nullptr && runner->audioSystem->vtable != nullptr) {
+        if (paused) {
+            runner->audioSystem->vtable->pauseAll(runner->audioSystem);
+        } else {
+            runner->audioSystem->vtable->resumeAll(runner->audioSystem);
+        }
+    }
+}
+
+bool Runner_isPaused(Runner* runner) {
+    return runner != nullptr && runner->paused;
+}
+
 Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem, uint32_t randomSeed) {
     requireNotNull(dataWin);
     requireNotNull(vm);
@@ -2373,6 +2393,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->viewportW = 1;
     runner->viewportH = 1;
     runner->random = Random_create(randomSeed);
+    runner->paused = false;
 
     repeat(MAX_SURFACES, i) {
         runner->surfaceStack[i] = -1;

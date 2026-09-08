@@ -622,6 +622,7 @@ struct Runner {
     uint32_t backgroundColor;      // runtime-mutable (BGR format)
     bool drawBackgroundColor;
     bool shouldExit;
+    bool paused;
     bool debugMode;
     // application_surface runtime state (mirrors GML toggles)
     bool appSurfaceEnabled;
@@ -788,6 +789,8 @@ const char* Runner_getEventName(int32_t eventType, int32_t eventSubtype);
 void Runner_reset(Runner* runner);
 Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileSystem* fileSystem, AudioSystem* audioSystem, uint32_t randomSeed);
 void Runner_setGameArgs(Runner* runner, char** argv, int32_t argc);
+void Runner_setPaused(Runner* runner, bool paused);
+bool Runner_isPaused(Runner* runner);
 void Runner_initFirstRoom(Runner* runner);
 void Runner_step(Runner* runner);
 void Runner_handlePendingRoomChange(Runner* runner);
