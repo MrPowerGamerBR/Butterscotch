@@ -91,3 +91,54 @@ jobs:
         with:
           name: butterscotch-android
           path: src/android/frontend/app/build/outputs/apk/debug/app-debug.apk
+
+  build-webos:
+    name: Build (webOS)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up webOS toolchain
+        run: |
+          curl -Lo native-toolchain.tar.gz https://github.com/openlgtv/buildroot-nc4/releases/latest/download/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+          sudo tar xzf native-toolchain.tar.gz -C /opt/
+          
+          PLATFORM=linux-x86_64
+          TAG=$(curl -fsSL https://api.github.com/repos/webosbrew/ares-cli-rs/releases/latest | grep '"tag_name"' | cut -d '"' -f 4)
+          curl -fsSL "https://github.com/webosbrew/ares-cli-rs/releases/download/$TAG/ares-cli-rs-$TAG-$PLATFORM.tar.gz" | tar xz
+          sudo install -m 755 "ares-cli-rs-$TAG-$PLATFORM"/ares-* /usr/local/bin/
+
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ccache
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: ccache-webos-${{ github.sha }}
+          restore-keys: |
+            ccache-webos-
+
+      - name: Build Butterscotch
+        run: |
+          cmake -B build -G Ninja \
+            -DWERROR=ON -DPLATFORM=webos \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/arm-webos-linux-gnueabi_sdk-buildroot/share/buildroot/toolchainfile.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build
+
+      - name: Package IPK
+        run: |
+          mkdir -p dist/
+          cp build/butterscotch dist/
+          cp src/webos/dist/appinfo.json dist/
+          cp src/webos/dist/icon.png dist/
+          ares-package dist/ -o dist/
+
+      - name: Upload IPK
+        uses: actions/upload-artifact@v7
+        with:
+          name: butterscotch-webos
+          path: dist/*.ipk

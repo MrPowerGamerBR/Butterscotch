@@ -60,6 +60,7 @@ Of course, there are exceptions that break game compatibility altogether:
 * PlayStation 3
 * PlayStation Vita
 * Nintendo Switch
+* LG webOS
 * ...and maybe more in the future!
 
 Additionally, any platform with reasonably complete C and POSIX conformance should work, the following have been tested.
@@ -120,7 +121,8 @@ All RISC architecture (ARM, MIPS, PowerPC, RISC-V) builds require hardware float
 | Platform | Download | Notes |
 | -------- | -------- | ----- |
 | WebAssembly | [butterscotch-web.zip](https://nightly.link/ButterscotchRunner/Butterscotch/workflows/build/main/butterscotch-web.zip) | [Play online](https://butterscotch.mrpowergamerbr.com/web/) |
-| Android | [butterscotch-android.zip](https://nightly.link/ButterscotchRunner/Butterscotch/workflows/build/main/butterscotch-android.zip) |
+| Android | [butterscotch-android.zip](https://nightly.link/ButterscotchRunner/Butterscotch/workflows/build/main/butterscotch-android.zip) | 
+| webOS | [butterscotch-webos.zip](https://nightly.link/ButterscotchRunner/Butterscotch/workflows/build/main/butterscotch-webos.zip) | After installing the IPK, place the game's `data.win` and other required files in `/media/developer/apps/usr/palm/applications/com.mrpowergamerbr.butterscotch/` |
 
 ## Community Ports
 

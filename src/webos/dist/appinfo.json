@@ -1,0 +1,9 @@
+{
+  "id": "com.mrpowergamerbr.butterscotch",
+  "version": "1.0.0",
+  "vendor": "Perfect Dreams",
+  "type": "native",
+  "main": "butterscotch",
+  "title": "Butterscotch",
+  "icon": "icon.png"
+}

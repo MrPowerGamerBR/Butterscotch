@@ -228,7 +228,13 @@ bool InputRecording_save(InputRecording* recording) {
     }
 
     const char* output = JsonWriter_getOutput(&w);
-    fwrite(output, 1, JsonWriter_getLength(&w), file);
+    size_t len = JsonWriter_getLength(&w);
+    if (fwrite(output, 1, len, file) != len) {
+        logWarn("Error: Could not write input recording to '%s'\n", recording->recordFilePath);
+        JsonWriter_free(&w);
+        fclose(file);
+        return false;
+    }
     fputc('\n', file);
     fclose(file);
 
