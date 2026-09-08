@@ -201,6 +201,26 @@ InstancesTab::InstancesTab(QWidget* parent) : QWidget(parent) {
     layout->addLayout(toolbarLayout);
     layout->addWidget(tableView_);
 
+    connect(tableView_, &QTreeWidget::itemExpanded, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || item->parent() != nullptr) {
+            return;
+        }
+        const QString instanceId = item->text(0).trimmed();
+        if (!instanceId.isEmpty()) {
+            expandedInstanceIds_.insert(instanceId);
+        }
+    });
+
+    connect(tableView_, &QTreeWidget::itemCollapsed, this, [this](QTreeWidgetItem* item) {
+        if (item == nullptr || item->parent() != nullptr) {
+            return;
+        }
+        const QString instanceId = item->text(0).trimmed();
+        if (!instanceId.isEmpty()) {
+            expandedInstanceIds_.remove(instanceId);
+        }
+    });
+
     connect(tableView_, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int column) {
         Q_UNUSED(column);
         if (item == nullptr || item->parent() != nullptr) {
@@ -210,19 +230,10 @@ InstancesTab::InstancesTab(QWidget* parent) : QWidget(parent) {
             return;
         }
 
-        const QString instanceId = item->text(0).trimmed();
-        const bool wasExpanded = item->isExpanded();
-
-        if (wasExpanded) {
+        if (item->isExpanded()) {
             tableView_->collapseItem(item);
-            if (!instanceId.isEmpty()) {
-                expandedInstanceIds_.remove(instanceId);
-            }
         } else {
             tableView_->expandItem(item);
-            if (!instanceId.isEmpty()) {
-                expandedInstanceIds_.insert(instanceId);
-            }
         }
     });
 
@@ -255,18 +266,15 @@ void InstancesTab::setSnapshot(const QString& jsonText) {
 }
 
 void InstancesTab::refresh() {
-    QSet<QString> expandedBeforeRefresh;
+    expandedInstanceIds_.clear();
     for (int i = 0; i < tableView_->topLevelItemCount(); ++i) {
         auto* item = tableView_->topLevelItem(i);
         if (item != nullptr && item->childCount() > 0) {
             const QString id = item->text(0).trimmed();
             if (!id.isEmpty() && item->isExpanded()) {
-                expandedBeforeRefresh.insert(id);
+                expandedInstanceIds_.insert(id);
             }
         }
-    }
-    if (!expandedBeforeRefresh.isEmpty()) {
-        expandedInstanceIds_ = expandedBeforeRefresh;
     }
 
     tableView_->clear();

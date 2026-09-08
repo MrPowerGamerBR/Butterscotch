@@ -287,13 +287,43 @@ public:
                              QWidget* variablesTab,
                              QWidget* instancesTab,
                              QComboBox* variableRefreshModeSelector,
-                             QComboBox* instanceRefreshModeSelector)
+                             QComboBox* instanceRefreshModeSelector,
+                             QObject* instanceTreeWidget,
+                             QObject* instanceTreeViewport)
         : refreshTimer_(refreshTimer),
           tabs_(tabs),
           variablesTab_(variablesTab),
           instancesTab_(instancesTab),
           variableRefreshModeSelector_(variableRefreshModeSelector),
-          instanceRefreshModeSelector_(instanceRefreshModeSelector) {}
+          instanceRefreshModeSelector_(instanceRefreshModeSelector),
+          instanceTreeWidget_(instanceTreeWidget),
+          instanceTreeViewport_(instanceTreeViewport) {}
+
+    void resumeRefreshTimerForCurrentTab() {
+        if (refreshTimer_ == nullptr || tabs_ == nullptr) {
+            return;
+        }
+
+        QComboBox* activeModeSelector = nullptr;
+        if (tabs_->currentWidget() == variablesTab_) {
+            activeModeSelector = variableRefreshModeSelector_;
+        } else if (tabs_->currentWidget() == instancesTab_) {
+            activeModeSelector = instanceRefreshModeSelector_;
+        }
+
+        if (activeModeSelector == nullptr) {
+            refreshTimer_->stop();
+            return;
+        }
+
+        if (activeModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+            refreshTimer_->start(1000);
+        } else if (activeModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+            refreshTimer_->start(100);
+        } else {
+            refreshTimer_->stop();
+        }
+    }
 
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (event->type() == QEvent::Wheel ||
@@ -307,41 +337,29 @@ public:
         }
 
         if (event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::KeyRelease) {
-            if (refreshTimer_ == nullptr || tabs_ == nullptr) {
+            if (watched == instanceTreeWidget_ || watched == instanceTreeViewport_) {
+                QTimer::singleShot(150, this, [this]() {
+                    resumeRefreshTimerForCurrentTab();
+                });
                 return QObject::eventFilter(watched, event);
             }
 
-            QComboBox* activeModeSelector = nullptr;
-            if (tabs_->currentWidget() == variablesTab_) {
-                activeModeSelector = variableRefreshModeSelector_;
-            } else if (tabs_->currentWidget() == instancesTab_) {
-                activeModeSelector = instanceRefreshModeSelector_;
-            }
-
-            if (activeModeSelector == nullptr) {
-                refreshTimer_->stop();
-                return QObject::eventFilter(watched, event);
-            }
-
-            if (activeModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
-                refreshTimer_->start(1000);
-            } else if (activeModeSelector->currentIndex() == kLiveVariableRefreshMode) {
-                refreshTimer_->start(100);
-            } else {
-                refreshTimer_->stop();
-            }
+            resumeRefreshTimerForCurrentTab();
+            return QObject::eventFilter(watched, event);
         }
 
         return QObject::eventFilter(watched, event);
     }
 
 private:
-    QTimer* refreshTimer_;
-    QTabWidget* tabs_;
-    QWidget* variablesTab_;
-    QWidget* instancesTab_;
-    QComboBox* variableRefreshModeSelector_;
-    QComboBox* instanceRefreshModeSelector_;
+    QTimer* refreshTimer_ = nullptr;
+    QTabWidget* tabs_ = nullptr;
+    QWidget* variablesTab_ = nullptr;
+    QWidget* instancesTab_ = nullptr;
+    QComboBox* variableRefreshModeSelector_ = nullptr;
+    QComboBox* instanceRefreshModeSelector_ = nullptr;
+    QObject* instanceTreeWidget_ = nullptr;
+    QObject* instanceTreeViewport_ = nullptr;
 };
 
 int main(int argc, char* argv[]) {
@@ -408,7 +426,9 @@ int main(int argc, char* argv[]) {
                                                                 variablesTab,
                                                                 instancesTab,
                                                                 refreshModeSelector,
-                                                                instanceRefreshModeSelector);
+                                                                instanceRefreshModeSelector,
+                                                                instanceTreeWidget,
+                                                                instanceTreeWidget->viewport());
     variableTable->viewport()->installEventFilter(tableInteractionFilter);
     variableTable->installEventFilter(tableInteractionFilter);
     instanceTreeWidget->viewport()->installEventFilter(tableInteractionFilter);
