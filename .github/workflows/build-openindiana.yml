@@ -31,6 +31,7 @@ jobs:
             sudo pkg install \
               developer/build/cmake \
               developer/build/gnu-make \
+              developer/build/pkgconfig \
               developer/gcc-13 \
               developer/ccache \
               library/sdl2 \
