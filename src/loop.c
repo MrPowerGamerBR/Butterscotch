@@ -1246,23 +1246,25 @@ int loop(CommandLineArgs args, const char *argv0) {
                     }
                 }
 
-                Runner_drawPre(runner, fbWidth, fbHeight);
+                if (shouldStep) {
+                    Runner_drawPre(runner, fbWidth, fbHeight);
 
-                // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
-                int32_t winW, winH;
-                platformGetScaledWindowSize(&winW, &winH);
+                    // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
+                    int32_t winW, winH;
+                    platformGetScaledWindowSize(&winW, &winH);
 
-                Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
+                    Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
 
-                double mx, my;
-                platformGetMousePos(&mx, &my);
-                Runner_updateMousePosition(runner, winW, winH, mx, my);
+                    double mx, my;
+                    platformGetMousePos(&mx, &my);
+                    Runner_updateMousePosition(runner, winW, winH, mx, my);
 
-                Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
-                renderer->vtable->endFrameInit(renderer);
-                Runner_drawPost(runner, fbWidth, fbHeight);
-                renderer->vtable->endFrameEnd(renderer);
-                Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+                    Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
+                    renderer->vtable->endFrameInit(renderer);
+                    Runner_drawPost(runner, fbWidth, fbHeight);
+                    renderer->vtable->endFrameEnd(renderer);
+                    Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+                }
 
 #ifdef ENABLE_SCREENSHOTS
                 // Capture screenshot if this frame matches a requested frame
