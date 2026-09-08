@@ -2346,6 +2346,7 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     runner->fileSystem = fileSystem;
     runner->audioSystem = audioSystem;
     runner->frameCount = 0;
+    runner->gameSpeedOverride = 0.0;
     double initialFps = (double)dataWin->gen8.gms2FPS;
     runner->fps = initialFps;
     runner->fpsReal = initialFps;

@@ -676,6 +676,8 @@ struct Runner {
     int32_t forcedDepth;
     // The time between the last frame and the current frame, stored in microseconds.
     GMLReal deltaTime;
+    // Runtime override for the active game speed. 0 means "unset" and the loop falls back to the room/default FPS.
+    GMLReal gameSpeedOverride;
     // Current frame rate (capped at room speed)
     double fps;                   // last measured frames-per-second value returned to GML
     uint64_t fpsWindowStartNanos;  // nowNanos() at the start of the measurement window
@@ -887,6 +889,14 @@ static inline void Runner_setActiveState(Runner* runner, Instance* instance, boo
 #endif
 
     instance->active = active;
+}
+
+static inline GMLReal Runner_getEffectiveGameSpeed(Runner* runner) {
+    if (runner == nullptr) return 0.0;
+    if (runner->gameSpeedOverride > 0.0) return runner->gameSpeedOverride;
+    if (runner->currentRoom != nullptr && runner->currentRoom->speed > 0) return (GMLReal) runner->currentRoom->speed;
+    if (runner->dataWin != nullptr && runner->dataWin->gen8.gms2FPS > 0.0f) return (GMLReal) runner->dataWin->gen8.gms2FPS;
+    return 30.0;
 }
 
 #endif /* _BS_RUNNER_H_ */
