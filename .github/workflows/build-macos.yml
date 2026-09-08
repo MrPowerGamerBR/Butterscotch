@@ -35,6 +35,7 @@ jobs:
           export PATH="$PWD/artifacts/macos/build/toolchain-ppc/bin:$PATH"
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc \
+            -DCMAKE_SYSTEM_NAME=Darwin \
             -DWERROR=ON \
             -DBACKEND=noop \
             -DAUDIO_BACKEND=openal \
