@@ -7515,9 +7515,7 @@ static const char* iniArgToString(RValue arg, char* buf, size_t bufSize, DataWin
         return arg.string;
     }
     char* str = RValue_toString(arg, dataWin);
-    if (str == nullptr) {
-        return "";
-    }
+    
     snprintf(buf, bufSize, "%s", str);
     free(str);
     return buf;
