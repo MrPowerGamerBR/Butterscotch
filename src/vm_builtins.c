@@ -7583,10 +7583,13 @@ static RValue builtin_ini_write_string(VMContext* ctx, RValue* args, int32_t arg
 
     const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
     const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
-    const char* value = (args[2].type == RVALUE_STRING ? args[2].string : "");
 
+    // GameMaker accepts any value here and converts it to a string.
+    // (Deltarune's Chinese patch relies on this by passing the numeric global.names.)
+    char* value = RValue_toString(args[2]);
     Ini_setString(runner->currentIni, section, key, value);
     runner->currentIniDirty = true;
+    free(value);
     return RValue_makeUndefined();
 }
 
