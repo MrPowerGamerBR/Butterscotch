@@ -338,6 +338,11 @@ static void writeFramebufferAsPng(GLuint fbo, int width, int height, const char*
 }
 
 static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frameNumber, int width, int height, bool flipY) {
+    if (filenamePattern == nullptr) {
+        logWarn("Screenshot capture requested without a filename pattern\n");
+        return;
+    }
+
     char filename[512];
     snprintf(filename, sizeof(filename), filenamePattern, frameNumber);
     writeFramebufferAsPng(fbo, width, height, filename, "Screenshot saved", true, flipY);
@@ -346,6 +351,11 @@ static void captureScreenshot(GLuint fbo, const char* filenamePattern, int frame
 // Dumps every live surface in the GL renderer as a PNG.
 // Filename pattern takes two %d slots: frame number, then surface ID.
 static void dumpAllSurfaces(GLRenderer* gl, const char* filenamePattern, int frameNumber) {
+    if (filenamePattern == nullptr) {
+        logWarn("Surface dump requested without a filename pattern\n");
+        return;
+    }
+    
     repeat(gl->surfaceCount, surfaceId) {
         if (gl->surfaces[surfaceId] == 0)
             continue;

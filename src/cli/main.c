@@ -15,6 +15,10 @@
 #include <SDL3/SDL_main.h>
 #endif
 
+#ifndef F_OK
+#define F_OK 0 /* for MSVC */
+#endif
+
 static bool parseOsTypeArg(const char* s, YoYoOperatingSystem* out) {
     forEach(const OsTypeNameEntry, entry, OS_TYPE_NAMES, OS_TYPE_NAMES_COUNT) {
         if (strcmp(s, entry->name) == 0) {
@@ -534,9 +538,9 @@ static void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[]) 
         strncpy(baseDir, argv[0], sizeof(baseDir) - 1);
         
         bsGetDirname(baseDir);
-        for (int i = 0; i < 4; i++) {
+        repeat(4, i) {
             snprintf(resolvedPath, sizeof(resolvedPath), "%s%s", baseDir, defaultDataWinPaths[i]);
-            if (access(resolvedPath, 0) == 0) {
+            if (access(resolvedPath, F_OK) == 0) {
                 args->dataWinPath = resolvedPath;
                 break;
             }

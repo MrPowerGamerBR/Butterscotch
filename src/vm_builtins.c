@@ -2721,6 +2721,21 @@ static RValue builtin_dcos(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t ar
     return RValue_makeReal(GMLReal_cos(RValue_toReal(args[0]) * (M_PI / 180.0)));
 }
 
+static RValue builtin_dtan(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    return RValue_makeReal(GMLReal_tan(RValue_toReal(args[0]) * (M_PI / 180.0)));
+}
+
+static RValue builtin_darcsin(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    return RValue_makeReal(GMLReal_asin(RValue_toReal(args[0]) * (M_PI / 180.0)));
+}
+
+static RValue builtin_darccos(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeReal(0.0);
+    return RValue_makeReal(GMLReal_acos(RValue_toReal(args[0]) * (M_PI / 180.0)));
+}
+
 static RValue builtin_degtorad(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeReal(0.0);
     return RValue_makeReal(RValue_toReal(args[0]) * (M_PI / 180.0));
@@ -5392,6 +5407,242 @@ static RValue builtin_ds_grid_resize(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     return RValue_makeUndefined();
 }
 
+static RValue jsonDecodeValue(VMContext* ctx, JsonValue* json);
+
+static uint8_t* dsHexDecode(const char* hex, int32_t* outLen) {
+    int32_t hexLen = (int32_t) strlen(hex);
+    if (2 > hexLen || (hexLen & 1) != 0) return nullptr;
+    int32_t byteLen = hexLen / 2;
+    uint8_t* bytes = (uint8_t *)safeMalloc((size_t) byteLen);
+    repeat(byteLen, i) {
+        int hi = dsHexNibble(hex[i * 2]);
+        int lo = dsHexNibble(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0) { free(bytes); return nullptr; }
+        bytes[i] = (uint8_t) ((hi << 4) | lo);
+    }
+    *outLen = byteLen;
+    return bytes;
+}
+
+static RValue dsMapReadNative(VMContext* ctx, DsMapEntry** mapPtr, const char* hex) {
+    int32_t byteLen = 0;
+    uint8_t* bytes = dsHexDecode(hex, &byteLen);
+    if (bytes == nullptr) return RValue_makeBool(false);
+
+    DsReadStream s = {0};
+    s.data = bytes;
+    s.size = byteLen;
+    s.pos = 0;
+    s.error = false;
+
+    uint32_t magic = dsStreamReadU32(&s);
+    int32_t version;
+    if (magic == 402) version = 3;
+    else if (magic == 403) version = 0;
+    else { free(bytes); return RValue_makeBool(false); }
+
+    int32_t count = dsStreamReadS32(&s);
+    if (s.error || 0 > count) { free(bytes); return RValue_makeBool(false); }
+
+    {
+    ptrdiff_t len = shlen(*mapPtr);
+    repeat(len, i) {
+        RValue_free(&(*mapPtr)[i].value);
+        free((*mapPtr)[i].key);
+    }
+    }
+    shfree(*mapPtr);
+    *mapPtr = nullptr;
+
+    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
+    for (int32_t i = 0; count > i && !s.error; i++) {
+        RValue key = dsStreamReadValue(wadVersion, &s, version);
+        if (s.error) { RValue_free(&key); break; }
+        RValue val = dsStreamReadValue(wadVersion, &s, version);
+        if (s.error) { RValue_free(&key); RValue_free(&val); break; }
+
+        RValue addArgs[3];
+        addArgs[0] = RValue_makeInt32((int32_t) (mapPtr - ctx->runner->dsMapPool));
+        addArgs[1] = key;
+        addArgs[2] = val;
+        dsMapAddCommon(ctx, addArgs, 3, false, 0);
+        RValue_free(&key);
+        RValue_free(&val);
+    }
+
+    bool result = !s.error;
+    free(bytes);
+    return RValue_makeBool(result);
+}
+
+static RValue dsMapReadJson(VMContext* ctx, DsMapEntry** mapPtr, const char* json) {
+    JsonValue* parsed = JsonReader_parse(json);
+    if (parsed == nullptr) return RValue_makeBool(false);
+
+    ptrdiff_t len = shlen(*mapPtr);
+    repeat(len, i) {
+        RValue_free(&(*mapPtr)[i].value);
+        free((*mapPtr)[i].key);
+    }
+    shfree(*mapPtr);
+    *mapPtr = nullptr;
+
+    if (parsed->type == JSON_OBJECT) {
+        int objLen = JsonReader_objectLength(parsed);
+        repeat(objLen, i) {
+            const char* key = JsonReader_getJsonKeyByIndex(parsed, i);
+            JsonValue* valJson = JsonReader_getJsonValueByIndex(parsed, i);
+            RValue val = jsonDecodeValue(ctx, valJson);
+            RValue storedVal = RValue_makeIndependent(val);
+            RValue_free(&val);
+            shput(*mapPtr, safeStrdup(key), storedVal);
+        }
+    }
+
+    JsonReader_free(parsed);
+    return RValue_makeBool(true);
+}
+
+static RValue dsGridReadNative(VMContext* ctx, DsGrid* grid, const char* hex) {
+    int32_t byteLen = 0;
+    uint8_t* bytes = dsHexDecode(hex, &byteLen);
+    if (bytes == nullptr) return RValue_makeBool(false);
+
+    DsReadStream s = {0};
+    s.data = bytes;
+    s.size = byteLen;
+    s.pos = 0;
+    s.error = false;
+
+    uint32_t magic = dsStreamReadU32(&s);
+    int32_t version;
+    if (magic == 602) version = 3;
+    else if (magic == 603) version = 0;
+    else { free(bytes); return RValue_makeBool(false); }
+
+    int32_t width = dsStreamReadS32(&s);
+    int32_t height = dsStreamReadS32(&s);
+    if (s.error || 0 > width || 0 > height) { free(bytes); return RValue_makeBool(false); }
+
+    size_t count = (size_t) width * (size_t) height;
+    RValue* items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
+
+    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
+    size_t i = 0;
+    for (i = 0; count > i && !s.error; i++) {
+        items[i] = dsStreamReadValue(wadVersion, &s, version);
+    }
+
+    if (s.error) {
+        for (size_t j = 0; count > j && j <= i; j++) {
+            RValue_free(&items[j]);
+        }
+        free(items);
+        free(bytes);
+        return RValue_makeBool(false);
+    }
+
+    free(grid->items);
+    grid->items = items;
+    grid->width = width;
+    grid->height = height;
+    free(bytes);
+    return RValue_makeBool(true);
+}
+
+static RValue dsGridReadJson(VMContext* ctx, DsGrid* grid, const char* json) {
+    JsonValue* parsed = JsonReader_parse(json);
+    if (parsed == nullptr) return RValue_makeBool(false);
+
+    if (parsed->type == JSON_OBJECT) {
+        JsonValue* wJson = JsonReader_getJsonValueByKey(parsed, "width");
+        JsonValue* hJson = JsonReader_getJsonValueByKey(parsed, "height");
+        JsonValue* bodyJson = JsonReader_getJsonValueByKey(parsed, "body");
+        if (wJson != nullptr && hJson != nullptr && bodyJson != nullptr &&
+            wJson->type == JSON_NUMBER && hJson->type == JSON_NUMBER && bodyJson->type == JSON_ARRAY) {
+            int32_t width = (int32_t) wJson->numberValue;
+            int32_t height = (int32_t) hJson->numberValue;
+            if (0 <= width && 0 <= height) {
+                size_t count = (size_t) width * (size_t) height;
+                RValue* items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
+                int bodyLen = JsonReader_arrayLength(bodyJson);
+                repeat(bodyLen, i) {
+                    if (count <= (size_t) i) break;
+                    RValue v = jsonDecodeValue(ctx, JsonReader_getArrayElement(bodyJson, i));
+                    items[i] = RValue_makeIndependent(v);
+                    RValue_free(&v);
+                }
+                free(grid->items);
+                grid->items = items;
+                grid->width = width;
+                grid->height = height;
+            }
+        }
+    }
+
+    JsonReader_free(parsed);
+    return RValue_makeBool(true);
+}
+
+static RValue builtin_ds_map_read(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = ctx->runner;
+    DsMapEntry** mapPtr = dsMapGet(runner, RValue_toInt32(args[0]));
+    if (mapPtr == nullptr) return RValue_makeBool(false);
+    if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
+        return RValue_makeBool(false);
+    }
+    if (args[1].string[0] == '{') return dsMapReadJson(ctx, mapPtr, args[1].string);
+    return dsMapReadNative(ctx, mapPtr, args[1].string);
+}
+
+static RValue builtin_ds_grid_read(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeBool(false);
+    Runner* runner = ctx->runner;
+    DsGrid* grid = dsGridGet(runner, RValue_toInt32(args[0]));
+    if (grid == nullptr) return RValue_makeBool(false);
+    if (args[1].type != RVALUE_STRING || args[1].string == nullptr || args[1].string[0] == '\0') {
+        return RValue_makeBool(false);
+    }
+    if (args[1].string[0] == '{') return dsGridReadJson(ctx, grid, args[1].string);
+    return dsGridReadNative(ctx, grid, args[1].string);
+}
+
+static RValue builtin_ds_map_write(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsMapEntry** mapPtr = dsMapGet(runner, id);
+    if (mapPtr == nullptr) return RValue_makeOwnedString(safeStrdup(""));
+
+    uint8_t* buf = nullptr;
+    ptrdiff_t count = shlen(*mapPtr);
+    dsStreamAppendU32(&buf, 403);
+    dsStreamAppendU32(&buf, (uint32_t) count);
+    repeat(count, i) {
+        RValue key = RValue_makeString((*mapPtr)[i].key);
+        dsStreamWriteValue(&buf, key);
+        dsStreamWriteValue(&buf, (*mapPtr)[i].value);
+    }
+    return dsStreamFinishToHexString(buf);
+}
+
+static RValue builtin_ds_grid_write(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    DsGrid* grid = dsGridGet(runner, id);
+    if (grid == nullptr) return RValue_makeOwnedString(safeStrdup(""));
+
+    uint8_t* buf = nullptr;
+    dsStreamAppendU32(&buf, 603);
+    dsStreamAppendU32(&buf, (uint32_t) grid->width);
+    dsStreamAppendU32(&buf, (uint32_t) grid->height);
+    int32_t count = grid->width * grid->height;
+    repeat(count, i) {
+        dsStreamWriteValue(&buf, grid->items[i]);
+    }
+    return dsStreamFinishToHexString(buf);
+}
+
 // ===[ DS_STACK FUNCTIONS ]===
 
 static RValue builtin_ds_stack_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -6647,19 +6898,13 @@ STUB_RETURN_ZERO(steam_get_persona_name)
 
 // ===[ Audio Built-in Functions ]===
 
-// Helper to get the AudioSystem from VMContext (returns nullptr if no audio)
-static AudioSystem* getAudioSystem(VMContext* ctx) {
-    Runner* runner = ctx->runner;
-    return runner->audioSystem;
-}
-
 static RValue builtin_audio_system_is_available(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     logSemiStubbedFunction(ctx, "audio_system_is_available");
     return RValue_makeBool(true);
 }
 
 static RValue builtin_audio_exists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr || audio->vtable == nullptr || 1 > argCount) return RValue_makeBool(false);
     if (args[0].type == RVALUE_UNDEFINED) return RValue_makeBool(false);
 
@@ -6681,7 +6926,7 @@ static RValue builtin_audio_exists(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 }
 
 static RValue builtin_audio_channel_num(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t count = RValue_toInt32(args[0]);
     audio->vtable->setChannelCount(audio, count);
@@ -6690,7 +6935,7 @@ static RValue builtin_audio_channel_num(VMContext* ctx, RValue* args, MAYBE_UNUS
 
 // Old version of builtin_audio_play_sound, the GMS2 compatibility script sets the priority to 10 for... some reason
 static RValue builtin_sound_play(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
 
     // Do not attempt to play "undefined" sounds
@@ -6703,7 +6948,7 @@ static RValue builtin_sound_play(VMContext* ctx, RValue* args, MAYBE_UNUSED int3
 }
 
 static RValue builtin_audio_get_name(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr || audio->vtable == nullptr || 1 > argCount) return RValue_makeString("<undefined>");
     if (args[0].type == RVALUE_UNDEFINED) return RValue_makeString("<undefined>");
 
@@ -6723,7 +6968,7 @@ static RValue builtin_audio_get_name(VMContext* ctx, RValue* args, MAYBE_UNUSED 
 
 // same as builtin_sound_play with loop enabled
 static RValue builtin_sound_loop(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
 
     // Do not attempt to play "undefined" sounds
@@ -6736,7 +6981,7 @@ static RValue builtin_sound_loop(VMContext* ctx, RValue* args, MAYBE_UNUSED int3
 }
 
 static RValue builtin_sound_volume(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
 
     int32_t soundIndex = RValue_toInt32(args[0]);
@@ -6749,7 +6994,7 @@ static RValue builtin_sound_volume(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 }
 
 static RValue builtin_audio_play_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
 
     // Do not attempt to play "undefined" sounds (matches GameMaker-HTML5 behavior, and fixes random sound effects on room transitions in DELTARUNE Chapter 2)
@@ -6764,7 +7009,7 @@ static RValue builtin_audio_play_sound(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_action_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
 
     // Do not attempt to play "undefined" sounds
@@ -6778,7 +7023,7 @@ static RValue builtin_action_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 }
 
 static RValue builtin_audio_stop_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     audio->vtable->stopSound(audio, soundOrInstance);
@@ -6786,7 +7031,7 @@ static RValue builtin_audio_stop_sound(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_audio_stop_all(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
     audio->vtable->stopAll(audio);
@@ -6795,7 +7040,7 @@ static RValue builtin_audio_stop_all(VMContext* ctx, MAYBE_UNUSED RValue* args, 
 }
 
 static RValue builtin_audio_is_playing(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeBool(false);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     bool playing = audio->vtable->isPlaying(audio, soundOrInstance);
@@ -6803,7 +7048,7 @@ static RValue builtin_audio_is_playing(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_audio_is_paused(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeBool(false);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     bool playing = audio->vtable->isPlaying(audio, soundOrInstance);
@@ -6813,7 +7058,7 @@ static RValue builtin_audio_is_paused(VMContext* ctx, RValue* args, MAYBE_UNUSED
 
 // audio_sound_length(sound) - returns the length of a sound in seconds.
 static RValue builtin_audio_sound_length(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(0.0);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float length = audio->vtable->getSoundLength(audio, soundOrInstance);
@@ -6821,7 +7066,7 @@ static RValue builtin_audio_sound_length(VMContext* ctx, RValue* args, MAYBE_UNU
 }
 
 static RValue builtin_audio_sound_gain(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float gain = (float) RValue_toReal(args[1]);
@@ -6831,7 +7076,7 @@ static RValue builtin_audio_sound_gain(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_audio_sound_pitch(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float pitch = (float) RValue_toReal(args[1]);
@@ -6840,7 +7085,7 @@ static RValue builtin_audio_sound_pitch(VMContext* ctx, RValue* args, MAYBE_UNUS
 }
 
 static RValue builtin_audio_sound_get_gain(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(0.0);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float gain = audio->vtable->getSoundGain(audio, soundOrInstance);
@@ -6848,7 +7093,7 @@ static RValue builtin_audio_sound_get_gain(VMContext* ctx, RValue* args, MAYBE_U
 }
 
 static RValue builtin_audio_sound_get_pitch(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(1.0);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float pitch = audio->vtable->getSoundPitch(audio, soundOrInstance);
@@ -6856,7 +7101,7 @@ static RValue builtin_audio_sound_get_pitch(VMContext* ctx, RValue* args, MAYBE_
 }
 
 static RValue builtin_audio_master_gain(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     float gain = (float) RValue_toReal(args[0]);
     audio->vtable->setMasterGain(audio, gain);
@@ -6864,7 +7109,7 @@ static RValue builtin_audio_master_gain(VMContext* ctx, RValue* args, MAYBE_UNUS
 }
 
 static RValue builtin_audio_set_master_gain(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t id = RValue_toInt32(args[0]);
     float gain = (float) RValue_toReal(args[1]);
@@ -6873,7 +7118,7 @@ static RValue builtin_audio_set_master_gain(VMContext* ctx, RValue* args, MAYBE_
 }
 
 static RValue builtin_audio_group_load(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t groupIndex = RValue_toInt32(args[0]);
     audio->vtable->groupLoad(audio, groupIndex);
@@ -6881,7 +7126,7 @@ static RValue builtin_audio_group_load(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_audio_group_is_loaded(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeBool(false);
     int32_t groupIndex = RValue_toInt32(args[0]);
     bool loaded = audio->vtable->groupIsLoaded(audio, groupIndex);
@@ -6894,7 +7139,7 @@ static RValue builtin_audio_play_music(VMContext* ctx, RValue* args, MAYBE_UNUSE
         return RValue_makeUndefined();
     }
 
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
     int32_t soundIndex = RValue_toInt32(args[0]);
     bool loop = RValue_toBool(args[1]);
@@ -6910,7 +7155,7 @@ static RValue builtin_audio_stop_music(VMContext* ctx, MAYBE_UNUSED RValue* args
         return RValue_makeUndefined();
     }
 
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
     if (runner->lastMusicInstance >= 0) {
@@ -6921,7 +7166,7 @@ static RValue builtin_audio_stop_music(VMContext* ctx, MAYBE_UNUSED RValue* args
 }
 
 static RValue builtin_audio_music_gain(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     Runner* runner = ctx->runner;
     if (runner->lastMusicInstance >= 0) {
@@ -6933,7 +7178,7 @@ static RValue builtin_audio_music_gain(VMContext* ctx, RValue* args, MAYBE_UNUSE
 }
 
 static RValue builtin_audio_music_is_playing(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeBool(false);
     Runner* runner = ctx->runner;
     if (runner->lastMusicInstance >= 0) {
@@ -6943,7 +7188,7 @@ static RValue builtin_audio_music_is_playing(VMContext* ctx, MAYBE_UNUSED RValue
 }
 
 static RValue builtin_audio_pause_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     audio->vtable->pauseSound(audio, soundOrInstance);
@@ -6951,7 +7196,7 @@ static RValue builtin_audio_pause_sound(VMContext* ctx, RValue* args, MAYBE_UNUS
 }
 
 static RValue builtin_audio_resume_sound(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     audio->vtable->resumeSound(audio, soundOrInstance);
@@ -6959,21 +7204,21 @@ static RValue builtin_audio_resume_sound(VMContext* ctx, RValue* args, MAYBE_UNU
 }
 
 static RValue builtin_audio_pause_all(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     audio->vtable->pauseAll(audio);
     return RValue_makeUndefined();
 }
 
 static RValue builtin_audio_resume_all(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     audio->vtable->resumeAll(audio);
     return RValue_makeUndefined();
 }
 
 static RValue builtin_audio_sound_get_track_position(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(0.0);
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float pos = audio->vtable->getTrackPosition(audio, soundOrInstance);
@@ -6981,7 +7226,7 @@ static RValue builtin_audio_sound_get_track_position(VMContext* ctx, RValue* arg
 }
 
 static RValue builtin_audio_sound_set_track_position(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeUndefined();
     int32_t soundOrInstance = RValue_toInt32(args[0]);
     float pos = (float) RValue_toReal(args[1]);
@@ -6990,7 +7235,7 @@ static RValue builtin_audio_sound_set_track_position(VMContext* ctx, RValue* arg
 }
 
 static RValue builtin_audio_create_stream(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
     char* filename = RValue_toString(args[0], ctx->runner->dataWin);
     int32_t streamIndex = audio->vtable->createStream(audio, filename);
@@ -6999,7 +7244,7 @@ static RValue builtin_audio_create_stream(VMContext* ctx, RValue* args, MAYBE_UN
 }
 
 static RValue builtin_audio_destroy_stream(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
-    AudioSystem* audio = getAudioSystem(ctx);
+    AudioSystem* audio = ctx->runner->audioSystem;
     if (audio == nullptr) return RValue_makeReal(-1.0);
     int32_t streamIndex = RValue_toInt32(args[0]);
     bool success = audio->vtable->destroyStream(audio, streamIndex);
@@ -7265,6 +7510,17 @@ static RValue builtin_ini_open_from_string(VMContext* ctx, RValue* args, int32_t
     return RValue_makeUndefined();
 }
 
+static const char* iniArgToString(RValue arg, char* buf, size_t bufSize, DataWin* dataWin) {
+    if (arg.type == RVALUE_STRING && arg.string != nullptr) {
+        return arg.string;
+    }
+    char* str = RValue_toString(arg, dataWin);
+    
+    snprintf(buf, bufSize, "%s", str);
+    free(str);
+    return buf;
+}
+
 static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     if (runner->currentIni == nullptr) {
@@ -7298,8 +7554,10 @@ static RValue builtin_ini_read_string(VMContext* ctx, RValue* args, int32_t argC
     if (3 > argCount) return RValue_makeOwnedString(safeStrdup(""));
 
     if (runner->currentIni != nullptr) {
-        const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-        const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+        char sectionBuf[32];
+        char keyBuf[32];
+        const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+        const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
 
         const char* value = Ini_getString(runner->currentIni, section, key);
         if (value != nullptr) {
@@ -7320,8 +7578,10 @@ static RValue builtin_ini_read_real(VMContext* ctx, RValue* args, int32_t argCou
     if (3 > argCount) return RValue_makeReal(0.0);
 
     if (runner->currentIni != nullptr) {
-        const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-        const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+        char sectionBuf[32];
+        char keyBuf[32];
+        const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+        const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
 
         const char* value = Ini_getString(runner->currentIni, section, key);
         if (value != nullptr) {
@@ -7336,8 +7596,10 @@ static RValue builtin_ini_write_string(VMContext* ctx, RValue* args, int32_t arg
     Runner* runner = ctx->runner;
     if (3 > argCount || runner->currentIni == nullptr) return RValue_makeUndefined();
 
-    const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-    const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+    char sectionBuf[32];
+    char keyBuf[32];
+    const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+    const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
     const char* value = (args[2].type == RVALUE_STRING ? args[2].string : "");
 
     Ini_setString(runner->currentIni, section, key, value);
@@ -7349,8 +7611,10 @@ static RValue builtin_ini_write_real(VMContext* ctx, RValue* args, int32_t argCo
     Runner* runner = ctx->runner;
     if (3 > argCount || runner->currentIni == nullptr) return RValue_makeUndefined();
 
-    const char* section = (args[0].type == RVALUE_STRING ? args[0].string : "");
-    const char* key = (args[1].type == RVALUE_STRING ? args[1].string : "");
+    char sectionBuf[32];
+    char keyBuf[32];
+    const char* section = iniArgToString(args[0], sectionBuf, sizeof(sectionBuf), ctx->dataWin);
+    const char* key = iniArgToString(args[1], keyBuf, sizeof(keyBuf), ctx->dataWin);
     char* valueStr = RValue_toString(args[2], ctx->runner->dataWin);
 
     Ini_setString(runner->currentIni, section, key, valueStr);
@@ -10802,6 +11066,86 @@ static RValue builtin_draw_ellipse_color(VMContext* ctx, RValue* args, MAYBE_UNU
     return RValue_makeUndefined();
 }
 
+static RValue builtin_draw_roundrect(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x1 = (float) RValue_toReal(args[0]);
+    float y1 = (float) RValue_toReal(args[1]);
+    float x2 = (float) RValue_toReal(args[2]);
+    float y2 = (float) RValue_toReal(args[3]);
+    bool outline = RValue_toBool(args[4]);
+    if (runner->applyOffsetForPrimitives && outline) {
+        x2 += 1.0f; y2 += 1.0f;
+        if (x2 == floorf(x2)) x2 += 0.01f;
+        if (y2 == floorf(y2)) y2 += 0.01f;
+    }
+    Renderer_drawRoundRect(runner->renderer, x1, y1, x2, y2, DRAW_ROUNDRECT_FIXED_RADIUS, DRAW_ROUNDRECT_FIXED_RADIUS, outline);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_roundrect_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x1 = (float) RValue_toReal(args[0]);
+    float y1 = (float) RValue_toReal(args[1]);
+    float x2 = (float) RValue_toReal(args[2]);
+    float y2 = (float) RValue_toReal(args[3]);
+    float xrad = (float) RValue_toReal(args[4]);
+    float yrad = (float) RValue_toReal(args[5]);
+    bool outline = RValue_toBool(args[6]);
+    if (runner->applyOffsetForPrimitives && outline) {
+        x2 += 1.0f; y2 += 1.0f;
+        if (x2 == floorf(x2)) x2 += 0.01f;
+        if (y2 == floorf(y2)) y2 += 0.01f;
+    }
+    Renderer_drawRoundRect(runner->renderer, x1, y1, x2, y2, xrad, yrad, outline);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_roundrect_color(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x1 = (float) RValue_toReal(args[0]);
+    float y1 = (float) RValue_toReal(args[1]);
+    float x2 = (float) RValue_toReal(args[2]);
+    float y2 = (float) RValue_toReal(args[3]);
+    uint32_t col1 = RValue_toColour(args[4]);
+    uint32_t col2 = RValue_toColour(args[5]);
+    bool outline = RValue_toBool(args[6]);
+    if (runner->applyOffsetForPrimitives && outline) {
+        x2 += 1.0f; y2 += 1.0f;
+        if (x2 == floorf(x2)) x2 += 0.01f;
+        if (y2 == floorf(y2)) y2 += 0.01f;
+    }
+    Renderer_drawRoundRectColor(runner->renderer, x1, y1, x2, y2, DRAW_ROUNDRECT_FIXED_RADIUS, DRAW_ROUNDRECT_FIXED_RADIUS, col1, col2, outline);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_draw_roundrect_color_ext(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    float x1 = (float) RValue_toReal(args[0]);
+    float y1 = (float) RValue_toReal(args[1]);
+    float x2 = (float) RValue_toReal(args[2]);
+    float y2 = (float) RValue_toReal(args[3]);
+    float xrad = (float) RValue_toReal(args[4]);
+    float yrad = (float) RValue_toReal(args[5]);
+    uint32_t col1 = RValue_toColour(args[6]);
+    uint32_t col2 = RValue_toColour(args[7]);
+    bool outline = RValue_toBool(args[8]);
+    if (runner->applyOffsetForPrimitives && outline) {
+        x2 += 1.0f; y2 += 1.0f;
+        if (x2 == floorf(x2)) x2 += 0.01f;
+        if (y2 == floorf(y2)) y2 += 0.01f;
+    }
+    Renderer_drawRoundRectColor(runner->renderer, x1, y1, x2, y2, xrad, yrad, col1, col2, outline);
+    return RValue_makeUndefined();
+}
+
 // draw_set_circle_precision(precision)
 static RValue builtin_draw_set_circle_precision(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
@@ -11407,7 +11751,39 @@ static RValue builtin_string_height(VMContext* ctx, RValue* args, int32_t argCou
 }
 
 STUB_RETURN_ZERO(string_width_ext)
-STUB_RETURN_ZERO(string_height_ext)
+
+static RValue builtin_string_height_ext(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeReal(0.0);
+    Runner* runner = ctx->runner;
+    Renderer* renderer = runner->renderer;
+    int32_t fontIndex = renderer->drawFont;
+    if (0 > fontIndex || renderer->dataWin->font.count <= (uint32_t) fontIndex) return RValue_makeReal(0.0);
+
+    Font* font = &renderer->dataWin->font.fonts[fontIndex];
+    char* str = RValue_toString(args[0], ctx->runner->dataWin);
+    float sep = (float) RValue_toReal(args[1]);
+    int32_t wrapWidth = RValue_toInt32(args[2]);
+
+    PreprocessedText processed = TextUtils_preprocessGmlTextIfNeeded(runner, str);
+    PreprocessedText wrapped = TextUtils_wrapText(font, processed.text, wrapWidth);
+    int32_t wrappedLen = (int32_t) strlen(wrapped.text);
+
+    if (wrappedLen == 0) {
+        PreprocessedText_free(wrapped);
+        PreprocessedText_free(processed);
+        free(str);
+        return RValue_makeReal(0.0);
+    }
+
+    int32_t lineCount = TextUtils_countLines(wrapped.text, wrappedLen);
+    PreprocessedText_free(wrapped);
+    PreprocessedText_free(processed);
+    free(str);
+
+    float defaultLine = TextUtils_lineStride(font) * font->scaleY;
+    float lineSep = (sep < 0.0f) ? defaultLine : sep;
+    return RValue_makeReal((GMLReal) ((float) (lineCount - 1) * lineSep + defaultLine));
+}
 
 // Color functions
 static RValue builtin_make_color_rgb(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
@@ -14354,6 +14730,13 @@ static RValue builtin_layer_get_element_type(VMContext* ctx, RValue* args, MAYBE
     return RValue_makeReal((GMLReal) el->type);
 }
 
+static RValue builtin_layer_get_element_layer(VMContext *ctx, RValue *args, MAYBE_UNUSED int32_t argCount) {
+  RuntimeLayer *owner = NULL;
+  Runner_findLayerElementById(ctx->runner, RValue_toInt32(args[0]), &owner);
+  if (!owner) return RValue_makeReal(-1.0);
+  return RValue_makeReal((GMLReal)owner->id);
+}
+
 static RValue builtin_layer_element_move(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t elementId = RValue_toInt32(args[0]);
@@ -14392,6 +14775,18 @@ static bool isValidLayerSpriteElement(RuntimeLayerElement* element) {
         return false;
     requireNotNull(element->spriteElement); // If this crashes then something went DEEPLY wrong
     return true;
+}
+
+static RValue builtin_layer_sprite_exists(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t layerId = resolveLayerIdArg(ctx->runner, args[0]);
+    int32_t elementId = RValue_toInt32(args[1]);
+    RuntimeLayer* rl = Runner_findRuntimeLayerById(ctx->runner, layerId);
+    if (!rl) return RValue_makeBool(false);
+    repeat(arrlenu(rl->elements), i) {
+      if ((int32_t)rl->elements[i].id == elementId && isValidLayerSpriteElement(&rl->elements[i]))
+        return RValue_makeBool(true);
+    }
+    return RValue_makeBool(false);
 }
 
 static RValue builtin_layer_sprite_get_id(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -14519,12 +14914,66 @@ static RValue builtin_layer_sprite_speed(VMContext* ctx, RValue* args, MAYBE_UNU
     return RValue_makeUndefined();
 }
 
+static RValue builtin_layer_sprite_angle(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->rotation = (float) RValue_toReal(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_alpha(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->alpha = (float) RValue_toReal(args[1]);
+    return RValue_makeUndefined();
+}
+
 static RValue builtin_layer_sprite_blend(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t id = RValue_toInt32(args[0]);
     RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
     if (isValidLayerSpriteElement(el))
-        el->blend = RValue_toBool(args[1]);
+        el->blend = (uint32_t) RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_x(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->x = RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_y(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->y = RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_xscale(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->scaleX = RValue_toInt32(args[1]);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_layer_sprite_yscale(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    RuntimeLayerElement* el = Runner_findLayerElementById(runner, id, nullptr);
+    if (isValidLayerSpriteElement(el))
+        el->spriteElement->scaleY = RValue_toInt32(args[1]);
     return RValue_makeUndefined();
 }
 
@@ -16975,6 +17424,17 @@ static RValue fontAddSpriteImpl(VMContext* ctx, int32_t spriteIndex, uint16_t* c
     return RValue_makeReal((GMLReal) newFontIndex);
 }
 
+static RValue builtin_font_exists(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) {
+        logWarn("[font_exists] Expected 1 argument, got 0");
+        return RValue_makeBool(false);
+    }
+    
+    int32_t fontIndex = RValue_toInt32(args[0]);
+    if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeBool(false);
+    return RValue_makeBool(ctx->dataWin->font.fonts[fontIndex].present);
+}
+
 static RValue builtin_font_get_name(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) {
         logWarn("[font_get_name] Expected 1 argument, got 0");
@@ -16984,6 +17444,28 @@ static RValue builtin_font_get_name(VMContext* ctx, RValue* args, int32_t argCou
     int32_t fontIndex = RValue_toInt32(args[0]);
     if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeUndefined();
     return RValue_makeString(ctx->dataWin->font.fonts[fontIndex].name);
+}
+
+static RValue builtin_font_get_bold(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) {
+        logWarn("[font_exists] Expected 1 argument, got 0");
+        return RValue_makeBool(false);
+    }
+    
+    int32_t fontIndex = RValue_toInt32(args[0]);
+    if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeBool(false);
+    return RValue_makeBool(ctx->dataWin->font.fonts[fontIndex].bold);
+}
+
+static RValue builtin_font_get_italic(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) {
+        logWarn("[font_exists] Expected 1 argument, got 0");
+        return RValue_makeBool(false);
+    }
+    
+    int32_t fontIndex = RValue_toInt32(args[0]);
+    if (0 > fontIndex || (uint32_t) fontIndex >= ctx->dataWin->font.count) return RValue_makeBool(false);
+    return RValue_makeBool(ctx->dataWin->font.fonts[fontIndex].italic);
 }
 
 static RValue builtin_font_get_size(VMContext* ctx, RValue* args, int32_t argCount) {
@@ -18619,6 +19101,9 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "cos", builtin_cos);
     VM_registerBuiltin(ctx, "dsin", builtin_dsin);
     VM_registerBuiltin(ctx, "dcos", builtin_dcos);
+    VM_registerBuiltin(ctx, "dtan", builtin_dtan);
+    VM_registerBuiltin(ctx, "darcsin", builtin_darcsin);
+    VM_registerBuiltin(ctx, "darccos", builtin_darccos);
     VM_registerBuiltin(ctx, "darctan", builtin_darctan);
     VM_registerBuiltin(ctx, "darctan2", builtin_darctan2);
     VM_registerBuiltin(ctx, "degtorad", builtin_degtorad);
@@ -18628,6 +19113,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "tan", builtin_tan);
     VM_registerBuiltin(ctx, "dot_product", builtin_dot_product);
     VM_registerBuiltin(ctx, "dot_product_3d", builtin_dot_product_3d);
+    VM_registerBuiltin(ctx, "dot_product_3d_normalized", builtin_dot_product_3d_normalised);
+    VM_registerBuiltin(ctx, "dot_product_normalized", builtin_dot_product_normalised);    
     VM_registerBuiltin(ctx, "dot_product_3d_normalised", builtin_dot_product_3d_normalised);
     VM_registerBuiltin(ctx, "dot_product_normalised", builtin_dot_product_normalised);    
     VM_registerBuiltin(ctx, "point_distance", builtin_point_distance);
@@ -18789,6 +19276,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_map_find_next", builtin_ds_map_find_next);
     VM_registerBuiltin(ctx, "ds_map_size", builtin_ds_map_size);
     VM_registerBuiltin(ctx, "ds_map_destroy", builtin_ds_map_destroy);
+    VM_registerBuiltin(ctx, "ds_map_read", builtin_ds_map_read);
+    VM_registerBuiltin(ctx, "ds_map_write", builtin_ds_map_write);
 
     // ds_list
     VM_registerBuiltin(ctx, "ds_list_create", builtin_ds_list_create);
@@ -18816,6 +19305,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_grid_get", builtin_ds_grid_get);
     VM_registerBuiltin(ctx, "ds_grid_add", builtin_ds_grid_add);
     VM_registerBuiltin(ctx, "ds_grid_resize", builtin_ds_grid_resize);
+    VM_registerBuiltin(ctx, "ds_grid_read", builtin_ds_grid_read);
+    VM_registerBuiltin(ctx, "ds_grid_write", builtin_ds_grid_write);
 
     // ds_stack
     VM_registerBuiltin(ctx, "ds_stack_create", builtin_ds_stack_create);
@@ -19216,6 +19707,12 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_ellipse", builtin_draw_ellipse);
     VM_registerBuiltin(ctx, "draw_ellipse_colour", builtin_draw_ellipse_color);
     VM_registerBuiltin(ctx, "draw_ellipse_color", builtin_draw_ellipse_color);
+    VM_registerBuiltin(ctx, "draw_roundrect", builtin_draw_roundrect);
+    VM_registerBuiltin(ctx, "draw_roundrect_ext", builtin_draw_roundrect_ext);
+    VM_registerBuiltin(ctx, "draw_roundrect_colour", builtin_draw_roundrect_color);
+    VM_registerBuiltin(ctx, "draw_roundrect_color", builtin_draw_roundrect_color);
+    VM_registerBuiltin(ctx, "draw_roundrect_colour_ext", builtin_draw_roundrect_color_ext);
+    VM_registerBuiltin(ctx, "draw_roundrect_color_ext", builtin_draw_roundrect_color_ext);
     VM_registerBuiltin(ctx, "draw_set_circle_precision", builtin_draw_set_circle_precision);
     VM_registerBuiltin(ctx, "draw_get_circle_precision", builtin_draw_get_circle_precision);
     VM_registerBuiltin(ctx, "draw_set_colour", builtin_draw_set_colour);
@@ -19376,6 +19873,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_instance_get_instance", builtin_layer_instance_get_instance);
 #endif
     VM_registerBuiltin(ctx, "layer_get_element_type", builtin_layer_get_element_type);
+    VM_registerBuiltin(ctx, "layer_get_element_layer", builtin_layer_get_element_layer);
+    VM_registerBuiltin(ctx, "layer_sprite_exists", builtin_layer_sprite_exists);
     VM_registerBuiltin(ctx, "layer_sprite_get_id", builtin_layer_sprite_get_id);
     VM_registerBuiltin(ctx, "layer_sprite_get_sprite", builtin_layer_sprite_get_sprite);
     VM_registerBuiltin(ctx, "layer_sprite_get_x", builtin_layer_sprite_get_x);
@@ -19387,8 +19886,14 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "layer_sprite_get_angle", builtin_layer_sprite_get_angle);
     VM_registerBuiltin(ctx, "layer_sprite_get_alpha", builtin_layer_sprite_get_alpha);
     VM_registerBuiltin(ctx, "layer_sprite_get_blend", builtin_layer_sprite_get_blend);
+    VM_registerBuiltin(ctx, "layer_sprite_x", builtin_layer_sprite_x);
+    VM_registerBuiltin(ctx, "layer_sprite_y", builtin_layer_sprite_y);
+    VM_registerBuiltin(ctx, "layer_sprite_xscale", builtin_layer_sprite_xscale);
+    VM_registerBuiltin(ctx, "layer_sprite_yscale", builtin_layer_sprite_yscale);
     VM_registerBuiltin(ctx, "layer_sprite_speed", builtin_layer_sprite_speed);
     VM_registerBuiltin(ctx, "layer_sprite_index", builtin_layer_sprite_index);
+    VM_registerBuiltin(ctx, "layer_sprite_angle", builtin_layer_sprite_angle);
+    VM_registerBuiltin(ctx, "layer_sprite_alpha", builtin_layer_sprite_alpha);
     VM_registerBuiltin(ctx, "layer_sprite_blend", builtin_layer_sprite_blend);
     VM_registerBuiltin(ctx, "layer_sprite_destroy", builtin_layer_sprite_destroy);
     VM_registerBuiltin(ctx, "layer_tile_visible", builtin_layer_tile_visible);
@@ -19651,7 +20156,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "json_encode", builtin_json_encode);
     VM_registerBuiltin(ctx, "font_add_sprite", builtin_font_add_sprite);
     VM_registerBuiltin(ctx, "font_add_sprite_ext", builtin_font_add_sprite_ext);
+    VM_registerBuiltin(ctx, "font_exists", builtin_font_exists);
     VM_registerBuiltin(ctx, "font_get_name", builtin_font_get_name);
+    VM_registerBuiltin(ctx, "font_get_bold", builtin_font_get_bold);
+    VM_registerBuiltin(ctx, "font_get_italic", builtin_font_get_italic);
     VM_registerBuiltin(ctx, "font_get_size", builtin_font_get_size);
     VM_registerBuiltin(ctx, "font_get_info", builtin_font_get_info);
     VM_registerBuiltin(ctx, "object_exists", builtin_object_exists);

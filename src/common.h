@@ -52,6 +52,12 @@
         #define YIELD() __asm__ volatile("rep; nop" : : : "memory")
     #elif defined(__aarch64__) || (defined(__arm__) && defined(__ARM_ARCH) && (__ARM_ARCH >= 7))
         #define YIELD() __asm__ volatile("yield" : : : "memory")
+    #elif defined(__powerpc__) || defined(__ppc__) || defined(__PPC__)
+        #define YIELD() __asm__ volatile("or 27, 27, 27" : : : "memory")
+    #elif defined(__mips__)
+        #define YIELD() __asm__ volatile(".word 0x00000140" : : : "memory")
+    #elif defined(__loongarch__)
+        #define YIELD() __asm__ volatile("ibar 0" : : : "memory")
     #elif defined(__riscv)
         #define YIELD() __asm__ volatile(".insn i 0x0F, 0, x0, x0, 1" : : : "memory")
     #else
