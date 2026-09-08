@@ -19,9 +19,6 @@ jobs:
   Haiku:
     uses: ./.github/workflows/build-haiku.yml
 
-  OpenIndiana:
-    uses: ./.github/workflows/build-openindiana.yml
-
   Consoles:
     uses: ./.github/workflows/build-console.yml
 

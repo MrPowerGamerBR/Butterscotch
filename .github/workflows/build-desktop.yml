@@ -191,3 +191,64 @@ jobs:
         with:
           name: Butterscotch-${{ matrix.os_config.name }}-${{ matrix.arch_config.name }}
           path: build/butterscotch${{ matrix.os_config.executable_suffix }}
+
+
+  build-sdl2-openindiana:
+    name: Build (SDL2 OpenIndiana x86_64)
+    runs-on: ubuntu-24.04
+    env:
+      CCACHE_DIR: ".ccache"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup ccache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: openindiana-ccache-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            openindiana-ccache-${{ github.ref_name }}-
+            openindiana-ccache-
+
+      - name: Run Build inside OpenIndiana VM
+        uses: vmactions/openindiana-vm@v1
+        with:
+          envs: 'CCACHE_DIR'
+          prepare: |
+            sudo pkg refresh
+            sudo pkg install \
+              developer/build/cmake \
+              developer/build/ninja \
+              developer/build/pkg-config \
+              developer/gcc-13 \
+              developer/ccache \
+              library/sdl2 \
+              library/audio/openal \
+              x11/library/libx11
+          run: |
+            export CCACHE_DIR="$PWD/$CCACHE_DIR"
+            export CCACHE_BASEDIR="$PWD"
+            export CCACHE_COMPILERCHECK=content
+            export CCACHE_NOHASHDIR=true
+            
+            mkdir -p "$CCACHE_DIR"
+            ccache -z
+
+            export CC=/usr/gcc/13/bin/gcc
+            export CXX=/usr/gcc/13/bin/g++
+
+            cmake -B build -G Ninja \
+              -DBACKEND=sdl2 \
+              -DAUDIO_BACKEND=openal \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            cmake --build build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: butterscotch-sdl2-openindiana-x86-64
+          path: build/butterscotch
