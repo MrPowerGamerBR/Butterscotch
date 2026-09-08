@@ -75,12 +75,12 @@ SWTexture* swrCropSectionFromTexture(SWTexture* src, int32_t width, int32_t heig
     int32_t *mapRows = NULL, *mapCols = NULL;
     
     if (cropWidth != width) {
-        mapCols = safeCalloc(width, sizeof(int32_t));
+        mapCols = (int32_t *)safeCalloc(width, sizeof(int32_t));
         for (int32_t i = 0; i < width; i++)
             mapCols[i] = i * (cropRight - cropLeft) / width + cropLeft;
     }
     if (cropHeight != height) {
-        mapRows = safeCalloc(height, sizeof(int32_t));
+        mapRows = (int32_t *)safeCalloc(height, sizeof(int32_t));
         for (int32_t i = 0; i < height; i++)
             mapRows[i] = i * (cropBottom - cropTop) / height + cropTop;
     }
