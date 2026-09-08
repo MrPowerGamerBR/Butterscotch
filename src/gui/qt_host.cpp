@@ -13,6 +13,7 @@
 #include <QTabWidget>
 #include <QTableView>
 #include <QTimer>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -133,7 +134,7 @@ static QString chooseGameFile(QWidget* parent) {
     QFileDialog dialog(parent,
                        "Open a data.win or game.unx file",
                        QDir::homePath(),
-                       "Game files (*.win *.unx);;All files (*)");
+                       "Game files (*.win *.unx, *.ios);;All files (*)");
     dialog.setWindowModality(Qt::WindowModal);
     dialog.setFileMode(QFileDialog::ExistingFile);
     dialog.setAcceptMode(QFileDialog::AcceptOpen);
@@ -281,16 +282,52 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
 
 class VariableTableScrollFilter : public QObject {
 public:
-    explicit VariableTableScrollFilter(QTimer* refreshTimer) : refreshTimer_(refreshTimer) {}
+    VariableTableScrollFilter(QTimer* refreshTimer,
+                             QTabWidget* tabs,
+                             QWidget* variablesTab,
+                             QWidget* instancesTab,
+                             QComboBox* variableRefreshModeSelector,
+                             QComboBox* instanceRefreshModeSelector)
+        : refreshTimer_(refreshTimer),
+          tabs_(tabs),
+          variablesTab_(variablesTab),
+          instancesTab_(instancesTab),
+          variableRefreshModeSelector_(variableRefreshModeSelector),
+          instanceRefreshModeSelector_(instanceRefreshModeSelector) {}
 
     bool eventFilter(QObject* watched, QEvent* event) override {
-        Q_UNUSED(watched);
-
         if (event->type() == QEvent::Wheel ||
             event->type() == QEvent::MouseButtonPress ||
             event->type() == QEvent::MouseMove ||
             event->type() == QEvent::KeyPress) {
             if (refreshTimer_ != nullptr) {
+                refreshTimer_->stop();
+            }
+            return QObject::eventFilter(watched, event);
+        }
+
+        if (event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::KeyRelease) {
+            if (refreshTimer_ == nullptr || tabs_ == nullptr) {
+                return QObject::eventFilter(watched, event);
+            }
+
+            QComboBox* activeModeSelector = nullptr;
+            if (tabs_->currentWidget() == variablesTab_) {
+                activeModeSelector = variableRefreshModeSelector_;
+            } else if (tabs_->currentWidget() == instancesTab_) {
+                activeModeSelector = instanceRefreshModeSelector_;
+            }
+
+            if (activeModeSelector == nullptr) {
+                refreshTimer_->stop();
+                return QObject::eventFilter(watched, event);
+            }
+
+            if (activeModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+                refreshTimer_->start(1000);
+            } else if (activeModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+                refreshTimer_->start(100);
+            } else {
                 refreshTimer_->stop();
             }
         }
@@ -300,6 +337,11 @@ public:
 
 private:
     QTimer* refreshTimer_;
+    QTabWidget* tabs_;
+    QWidget* variablesTab_;
+    QWidget* instancesTab_;
+    QComboBox* variableRefreshModeSelector_;
+    QComboBox* instanceRefreshModeSelector_;
 };
 
 int main(int argc, char* argv[]) {
@@ -360,9 +402,17 @@ int main(int argc, char* argv[]) {
         stopGameProcess();
     });
 
-    VariableTableScrollFilter scrollFilter(&variableSnapshotTimer);
-    variableTable->viewport()->installEventFilter(&scrollFilter);
-    variableTable->installEventFilter(&scrollFilter);
+    auto* instanceTreeWidget = instancesTab->tableView();
+    auto* tableInteractionFilter = new VariableTableScrollFilter(&variableSnapshotTimer,
+                                                                tabs,
+                                                                variablesTab,
+                                                                instancesTab,
+                                                                refreshModeSelector,
+                                                                instanceRefreshModeSelector);
+    variableTable->viewport()->installEventFilter(tableInteractionFilter);
+    variableTable->installEventFilter(tableInteractionFilter);
+    instanceTreeWidget->viewport()->installEventFilter(tableInteractionFilter);
+    instanceTreeWidget->installEventFilter(tableInteractionFilter);
 
     QObject::connect(variableTable->verticalScrollBar(), &QScrollBar::sliderPressed, [&variableSnapshotTimer]() {
         variableSnapshotTimer.stop();
@@ -456,6 +506,19 @@ int main(int argc, char* argv[]) {
             variableSnapshotTimer.stop();
         }
     };
+    QObject::connect(qApp, &QGuiApplication::applicationStateChanged,
+                     [tabs, variablesTab, instancesTab, &updateSnapshotTimerFromActiveTab](Qt::ApplicationState) {
+                         if (!g_variablesTabOpen && !g_instancesTabOpen) {
+                             return;
+                         }
+                         updateSnapshotTimerFromActiveTab();
+                         if (tabs->currentWidget() == variablesTab) {
+                             requestVariableSnapshot();
+                         }
+                         if (tabs->currentWidget() == instancesTab) {
+                             requestInstanceSnapshot();
+                         }
+                     });
 
     QObject::connect(refreshModeSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
                      [updateSnapshotTimerFromActiveTab](int) {

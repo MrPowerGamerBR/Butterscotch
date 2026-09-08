@@ -44,7 +44,7 @@ QString chooseGameFile(QWidget* parent) {
     QFileDialog dialog(parent,
                        "Open a data.win or game.unx file",
                        QDir::homePath(),
-                       "Game files (*.win *.unx);;All files (*)");
+                       "Game files (*.win *.unx, *.ios);;All files (*)");
     dialog.setWindowModality(Qt::WindowModal);
     dialog.setFileMode(QFileDialog::ExistingFile);
     dialog.setAcceptMode(QFileDialog::AcceptOpen);

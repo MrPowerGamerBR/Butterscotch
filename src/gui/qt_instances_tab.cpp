@@ -1,6 +1,5 @@
 #include "qt_instances_tab.h"
 
-#include <QAbstractTableModel>
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -9,11 +8,13 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLineEdit>
+#include <QPainter>
 #include <QPushButton>
-#include <QTableView>
+#include <QStyledItemDelegate>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 #include <QVBoxLayout>
 
-#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -21,12 +22,58 @@ namespace {
 
 constexpr int kMaxVisibleInstanceRows = 250;
 
+class SelfVarValueDelegate : public QStyledItemDelegate {
+public:
+    explicit SelfVarValueDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override {
+        if (index.parent().isValid() && index.column() == 2) {
+            const auto* tree = qobject_cast<const QTreeWidget*>(option.widget);
+            if (tree != nullptr) {
+                QRect spanRect = option.rect;
+                const int left = tree->columnViewportPosition(2);
+                const int right = tree->columnViewportPosition(4) + tree->columnWidth(4);
+                spanRect.setLeft(left - tree->viewport()->x());
+                spanRect.setRight(right - tree->viewport()->x());
+
+                QStyleOptionViewItem modOption = option;
+                modOption.rect = spanRect;
+                modOption.text = index.data(Qt::DisplayRole).toString();
+                modOption.displayAlignment = Qt::AlignLeft | Qt::AlignVCenter;
+                modOption.state &= ~QStyle::State_HasFocus;
+
+                QStyledItemDelegate::paint(painter, modOption, index);
+                return;
+            }
+        }
+
+        QStyledItemDelegate::paint(painter, option, index);
+    }
+};
+
+struct InstanceSelfVarRow {
+    QString name;
+    QString value;
+};
+
 struct InstanceTableRow {
     QString id;
     QString objectName;
     QString x;
     QString y;
     QString depth;
+    std::vector<InstanceSelfVarRow> selfVariables;
+    bool expanded = false;
+};
+
+struct VisibleInstanceRow {
+    enum class Kind {
+        Instance,
+        SelfVariable
+    };
+    int instanceIndex = -1;
+    int selfVariableIndex = -1;
+    Kind kind = Kind::Instance;
 };
 
 static QString jsonValueToDisplayString(const QJsonValue& value) {
@@ -79,98 +126,62 @@ std::vector<InstanceTableRow> parseInstanceRowsFromJson(const QString& jsonText,
         if (idText.isEmpty() && objectNameText.isEmpty()) {
             continue;
         }
+
+        InstanceTableRow row{ idText, objectNameText, xText, yText, depthText, {}, false };
+        const QJsonValue selfVariablesValue = entryObject.value(QStringLiteral("selfVariables"));
+        if (selfVariablesValue.isObject()) {
+            const QJsonObject selfVariablesObject = selfVariablesValue.toObject();
+            for (auto it = selfVariablesObject.constBegin(); it != selfVariablesObject.constEnd(); ++it) {
+                row.selfVariables.push_back({it.key(), jsonValueToDisplayString(it.value())});
+            }
+        }
+
         if (!lowerFilter.isEmpty()) {
             const QString candidate = QStringLiteral("%1 %2 %3 %4 %5").arg(idText, objectNameText, xText, yText, depthText).toLower();
             if (!candidate.contains(lowerFilter)) {
-                continue;
+                bool matchedSelfVar = false;
+                for (const auto& selfVar : row.selfVariables) {
+                    if ((selfVar.name + QStringLiteral(" ") + selfVar.value).toLower().contains(lowerFilter)) {
+                        matchedSelfVar = true;
+                        break;
+                    }
+                }
+                if (!matchedSelfVar) {
+                    continue;
+                }
             }
         }
-        rows.push_back({idText, objectNameText, xText, yText, depthText});
+
+        rows.push_back(std::move(row));
     }
     return rows;
 }
 
 } // namespace
 
-class InstancesTab::Model : public QAbstractTableModel {
-public:
-    explicit Model(QObject* parent = nullptr) : QAbstractTableModel(parent) {}
-
-    void setRows(std::vector<InstanceTableRow> rows) {
-        if (rows.size() == rows_.size() && std::equal(rows.begin(), rows.end(), rows_.begin(),
-                                                    [](const InstanceTableRow& left, const InstanceTableRow& right) {
-                                                        return left.id == right.id && left.objectName == right.objectName &&
-                                                               left.x == right.x && left.y == right.y && left.depth == right.depth;
-                                                    })) {
-            return;
-        }
-        beginResetModel();
-        rows_ = std::move(rows);
-        endResetModel();
-    }
-
-    int rowCount(const QModelIndex& parent = QModelIndex()) const override {
-        Q_UNUSED(parent);
-        return static_cast<int>(rows_.size());
-    }
-
-    int columnCount(const QModelIndex& parent = QModelIndex()) const override {
-        Q_UNUSED(parent);
-        return 5;
-    }
-
-    QVariant data(const QModelIndex& index, int role) const override {
-        if (!index.isValid() || role != Qt::DisplayRole || index.row() < 0 || index.row() >= static_cast<int>(rows_.size())) {
-            return {};
-        }
-
-        const InstanceTableRow& row = rows_[index.row()];
-        switch (index.column()) {
-        case 0: return row.id;
-        case 1: return row.objectName;
-        case 2: return row.x;
-        case 3: return row.y;
-        case 4: return row.depth;
-        default: return {};
-        }
-    }
-
-    QVariant headerData(int section, Qt::Orientation orientation, int role) const override {
-        if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
-            switch (section) {
-            case 0: return QStringLiteral("ID");
-            case 1: return QStringLiteral("Object");
-            case 2: return QStringLiteral("X");
-            case 3: return QStringLiteral("Y");
-            case 4: return QStringLiteral("Depth");
-            default: return {};
-            }
-        }
-        return {};
-    }
-
-private:
-    std::vector<InstanceTableRow> rows_;
-};
-
-InstancesTab::InstancesTab(QWidget* parent) : QWidget(parent), model_(new Model(this)) {
-    tableView_ = new QTableView(this);
-    tableView_->setModel(model_);
-    tableView_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-    tableView_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    tableView_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Interactive);
-    tableView_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Interactive);
-    tableView_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Interactive);
+InstancesTab::InstancesTab(QWidget* parent) : QWidget(parent) {
+    tableView_ = new QTreeWidget(this);
+    tableView_->setColumnCount(5);
+    tableView_->setHeaderLabels({QStringLiteral("ID"), QStringLiteral("Object"), QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Depth")});
+    tableView_->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    tableView_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    tableView_->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+    tableView_->header()->setSectionResizeMode(3, QHeaderView::Interactive);
+    tableView_->header()->setSectionResizeMode(4, QHeaderView::Interactive);
     tableView_->setColumnWidth(0, 80);
-    tableView_->setColumnWidth(2, 100);
-    tableView_->setColumnWidth(3, 100);
-    tableView_->setColumnWidth(4, 80);
+    tableView_->setColumnWidth(1, 180);
+    tableView_->setColumnWidth(2, 180);
+    tableView_->setColumnWidth(3, 180);
+    tableView_->setColumnWidth(4, 180);
     tableView_->setAlternatingRowColors(true);
     tableView_->setSelectionMode(QAbstractItemView::NoSelection);
     tableView_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableView_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     tableView_->setSortingEnabled(false);
-    tableView_->verticalHeader()->setVisible(false);
+    tableView_->setRootIsDecorated(true);
+    tableView_->setUniformRowHeights(true);
+    tableView_->setAnimated(true);
+    tableView_->setItemDelegateForColumn(2, new SelfVarValueDelegate(this));
 
     searchBox_ = new QLineEdit(this);
     searchBox_->setPlaceholderText("Search instances...");
@@ -190,13 +201,38 @@ InstancesTab::InstancesTab(QWidget* parent) : QWidget(parent), model_(new Model(
     layout->addLayout(toolbarLayout);
     layout->addWidget(tableView_);
 
+    connect(tableView_, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int column) {
+        Q_UNUSED(column);
+        if (item == nullptr || item->parent() != nullptr) {
+            return;
+        }
+        if (item->childCount() == 0) {
+            return;
+        }
+
+        const QString instanceId = item->text(0).trimmed();
+        const bool wasExpanded = item->isExpanded();
+
+        if (wasExpanded) {
+            tableView_->collapseItem(item);
+            if (!instanceId.isEmpty()) {
+                expandedInstanceIds_.remove(instanceId);
+            }
+        } else {
+            tableView_->expandItem(item);
+            if (!instanceId.isEmpty()) {
+                expandedInstanceIds_.insert(instanceId);
+            }
+        }
+    });
+
     connect(searchBox_, &QLineEdit::textChanged, this, [this](const QString& text) {
         filterText_ = text;
         refresh();
     });
 }
 
-QTableView* InstancesTab::tableView() const {
+QTreeWidget* InstancesTab::tableView() const {
     return tableView_;
 }
 
@@ -219,20 +255,67 @@ void InstancesTab::setSnapshot(const QString& jsonText) {
 }
 
 void InstancesTab::refresh() {
+    QSet<QString> expandedBeforeRefresh;
+    for (int i = 0; i < tableView_->topLevelItemCount(); ++i) {
+        auto* item = tableView_->topLevelItem(i);
+        if (item != nullptr && item->childCount() > 0) {
+            const QString id = item->text(0).trimmed();
+            if (!id.isEmpty() && item->isExpanded()) {
+                expandedBeforeRefresh.insert(id);
+            }
+        }
+    }
+    if (!expandedBeforeRefresh.isEmpty()) {
+        expandedInstanceIds_ = expandedBeforeRefresh;
+    }
+
+    tableView_->clear();
+    tableView_->setHeaderLabels({QStringLiteral("ID"), QStringLiteral("Object"), QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Depth")});
+
     if (processRunning_ && !snapshot_.isEmpty()) {
         std::vector<InstanceTableRow> rows = parseInstanceRowsFromJson(snapshot_, filterText_);
         if (rows.empty()) {
-            rows.push_back({QStringLiteral(""), filterText_.trimmed().isEmpty() ? QStringLiteral("No active instances") : QStringLiteral("No matching instances"), QStringLiteral(""), QStringLiteral(""), QStringLiteral("")});
-        } else if (rows.size() > static_cast<size_t>(kMaxVisibleInstanceRows)) {
+            auto* statusItem = new QTreeWidgetItem(tableView_);
+            statusItem->setText(1, filterText_.trimmed().isEmpty() ? QStringLiteral("No active instances") : QStringLiteral("No matching instances"));
+            statusItem->setExpanded(false);
+            return;
+        }
+        if (rows.size() > static_cast<size_t>(kMaxVisibleInstanceRows)) {
             rows.resize(kMaxVisibleInstanceRows);
         }
-        model_->setRows(std::move(rows));
-        tableView_->verticalHeader()->setVisible(false);
+
+        for (const auto& row : rows) {
+            auto* instanceItem = new QTreeWidgetItem(tableView_);
+            instanceItem->setText(0, row.id);
+            instanceItem->setText(1, row.objectName);
+            instanceItem->setText(2, row.x);
+            instanceItem->setText(3, row.y);
+            instanceItem->setText(4, row.depth);
+
+            if (!row.selfVariables.empty()) {
+                for (const auto& selfVar : row.selfVariables) {
+                    auto* selfVarItem = new QTreeWidgetItem(instanceItem);
+                    selfVarItem->setText(0, QString());
+                    selfVarItem->setText(1, selfVar.name);
+                    selfVarItem->setText(2, selfVar.value);
+                    selfVarItem->setText(3, QString());
+                    selfVarItem->setText(4, QString());
+                }
+
+                const bool shouldExpand = !row.id.isEmpty() && expandedInstanceIds_.contains(row.id);
+                instanceItem->setExpanded(shouldExpand);
+            }
+        }
         return;
     }
 
     const QString statusText = processRunning_ ? QStringLiteral("Waiting for instance stream...") : QStringLiteral("No running game");
     const QString detailText = processRunning_ ? QStringLiteral("Process is running; waiting for IPC snapshot") : QString();
-    model_->setRows({{QStringLiteral(""), statusText, QStringLiteral(""), QStringLiteral(""), QStringLiteral("")},
-                     {QStringLiteral(""), detailText, QStringLiteral(""), QStringLiteral(""), QStringLiteral("")}});
+
+    auto* statusItem = new QTreeWidgetItem(tableView_);
+    statusItem->setText(1, statusText);
+    if (!detailText.isEmpty()) {
+        auto* detailItem = new QTreeWidgetItem(statusItem);
+        detailItem->setText(1, detailText);
+    }
 }

@@ -2588,6 +2588,8 @@ void Runner_snapshotGlobalVariables(Runner* runner, RunnerVariableSnapshot* out)
     Runner_snapshotMap(runner, &runner->vmContext->globalScopeInstance->selfVars, -1, STRUCT_OBJECT_INDEX, out);
 }
 
+static void writeRValueJson(JsonWriter* w, RValue val);
+
 char* Runner_dumpGlobalVariablesJson(Runner* runner) {
     if (runner == nullptr || runner->vmContext == nullptr || runner->vmContext->globalScopeInstance == nullptr) {
         return nullptr;
@@ -2640,6 +2642,31 @@ char* Runner_dumpInstancesJson(Runner* runner) {
         JsonWriter_propertyDouble(&w, "x", inst->x);
         JsonWriter_propertyDouble(&w, "y", inst->y);
         JsonWriter_propertyInt(&w, "depth", inst->depth);
+
+        JsonWriter_key(&w, "selfVariables");
+        JsonWriter_beginObject(&w);
+        repeat(inst->selfVars.capacity, svIdx) {
+            IntRValueEntry* entry = &inst->selfVars.entries[svIdx];
+            if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+
+            int32_t varID = entry->key;
+            RValue val = entry->value;
+            if (val.type == RVALUE_UNDEFINED) continue;
+
+            const char* varName = "?";
+            repeat(runner->dataWin->vari.variableCount, varIdx) {
+                Variable* var = &runner->dataWin->vari.variables[varIdx];
+                if (var->instanceType == INSTANCE_SELF && var->varID == varID) {
+                    varName = var->name;
+                    break;
+                }
+            }
+
+            JsonWriter_key(&w, varName);
+            writeRValueJson(&w, val);
+        }
+        JsonWriter_endObject(&w);
+
         JsonWriter_endObject(&w);
     }
     JsonWriter_endArray(&w);
