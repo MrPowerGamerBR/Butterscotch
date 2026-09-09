@@ -16301,9 +16301,11 @@ static void timelineAppendScript(Timeline* timeline, uint32_t step, int32_t code
 }
 
 static int32_t timelineResolveScript(VMContext* ctx, RValue arg) {
+#if IS_WAD17_OR_HIGHER_ENABLED
     if (arg.type == RVALUE_METHOD && arg.method != nullptr) {
         return arg.method->codeIndex;
     }
+#endif
     if (arg.type == RVALUE_STRING && arg.string != nullptr) {
         ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) arg.string);
         if (idx >= 0) return ctx->codeIndexByName[idx].value;
