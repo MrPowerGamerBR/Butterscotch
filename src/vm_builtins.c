@@ -2435,7 +2435,7 @@ static void appendSplitSegment(GMLArray* arr, int32_t* count, const char* start,
 }
 
 static RValue builtin_string_split(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
-    if (2 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    if (2 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     char* string = RValue_toString(args[0], ctx->runner->dataWin);
     char* delimiter = RValue_toString(args[1], ctx->runner->dataWin);
     bool removeEmpty = argCount > 2 ? RValue_toBool(args[2]) : false;
@@ -2448,10 +2448,10 @@ static RValue builtin_string_split(MAYBE_UNUSED VMContext* ctx, RValue* args, in
     if ((argCount > 3 && 0.0 >= maxSplits) || delimiterLen == 0) {
         free(string);
         free(delimiter);
-        return RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+        return RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     }
 
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+    GMLArray* out = GMLArray_create(ctx->dataWin, 0);
     int32_t count = 0;
 
     int32_t stringLen = (int32_t) strlen(string);
@@ -3059,8 +3059,8 @@ static bool matrixFromGml(Matrix4f *mat, GMLArray *arr) {
     }
     return true;
 }
-static GMLArray *matrixToGml(int32_t wadVersion, const Matrix4f *mat) {
-    GMLArray *out = GMLArray_create(wadVersion, 4 * 4);
+static GMLArray *matrixToGml(DataWin *dw, const Matrix4f *mat) {
+    GMLArray *out = GMLArray_create(dw, 4 * 4);
     repeat (16, i) {
         *GMLArray_slot(out, i) = RValue_makeReal(mat->m[i]);
     }
@@ -3068,7 +3068,7 @@ static GMLArray *matrixToGml(int32_t wadVersion, const Matrix4f *mat) {
 }
 static RValue builtin_matrix_build_identity(MAYBE_UNUSED VMContext *ctx, MAYBE_UNUSED RValue *args, MAYBE_UNUSED int32_t argCount) {
     Matrix4f id;
-    return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, Matrix4f_identity(&id)));
+    return RValue_makeArray(matrixToGml(ctx->dataWin, Matrix4f_identity(&id)));
 }
 static RValue builtin_matrix_inverse(MAYBE_UNUSED VMContext *ctx, RValue *args, int32_t argCount) {
     if (argCount < 1 || argCount > 2) return RValue_makeUndefined();
@@ -3083,7 +3083,7 @@ static RValue builtin_matrix_inverse(MAYBE_UNUSED VMContext *ctx, RValue *args, 
     if (!Matrix4f_inverse(&inverse, &source)) {
         return RValue_makeUndefined();
     } else if (!toPrevMatrix) {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &inverse));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &inverse));
     } else {
         repeat (16, i) {
             *GMLArray_slot(destArray, i) = RValue_makeReal(inverse.m[i]);
@@ -3106,7 +3106,7 @@ static RValue builtin_matrix_multiply(MAYBE_UNUSED VMContext *ctx, RValue *args,
     Matrix4f_multiply(&r, &a, &b);
 
     if (!toPrevMatrix) {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &r));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &r));
     } else {
         repeat (16, i) {
             *GMLArray_slot(destArray, i) = RValue_makeReal(r.m[i]);
@@ -3130,7 +3130,7 @@ static RValue builtin_matrix_build_projection_ortho(MAYBE_UNUSED VMContext *ctx,
     Matrix4f_Orthographic(&mat, width, height, zfar, znear);
 
     if (!toPrevMatrix) {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &mat));
     } else {
         repeat (16, i) {
             *GMLArray_slot(destArray, i) = RValue_makeReal(mat.m[i]);
@@ -3163,7 +3163,7 @@ static RValue builtin_matrix_build_projection_perspective_fov(MAYBE_UNUSED VMCon
     mat.m[Matrix_getIndex(3, 2)] = 1.;
 
     if (!toPrevMatrix) {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &mat));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &mat));
     } else {
         repeat (16, i) {
             *GMLArray_slot(destArray, i) = RValue_makeReal(mat.m[i]);
@@ -3179,7 +3179,7 @@ static RValue builtin_matrix_get(MAYBE_UNUSED VMContext *ctx, RValue *args, int3
     if (toPrevMatrix && !rvalueIsMatrix(args[1])) return RValue_makeUndefined();
 
     if (!toPrevMatrix) {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &ctx->runner->renderer->gmlMatrices[Matrix]));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &ctx->runner->renderer->gmlMatrices[Matrix]));
     } else {
         repeat (16, i) {
             *GMLArray_slot(destArray, i) = RValue_makeReal(ctx->runner->renderer->gmlMatrices[Matrix].m[i]);
@@ -3230,7 +3230,7 @@ static RValue builtin_matrix_build_lookat(MAYBE_UNUSED VMContext *ctx, RValue *a
         }
         return RValue_makeArrayWeak(destArray);
     } else {
-        return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &matrix));
+        return RValue_makeArray(matrixToGml(ctx->dataWin, &matrix));
     }
 }
 
@@ -3353,7 +3353,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
     VM_structSetAndFreeVal(ctx, ret, "clearViewportBackground", RValue_makeBool(true), -1);
 
     if (wantViews && room->views != nullptr) {
-        GMLArray* views = GMLArray_create(ctx->dataWin->gen8.wadVersion, MAX_VIEWS);
+        GMLArray* views = GMLArray_create(ctx->dataWin, MAX_VIEWS);
         repeat(MAX_VIEWS, i) {
             RoomView* v = &room->views[i];
             Instance* vs = Runner_createStruct(ctx->runner);
@@ -3379,7 +3379,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
 
     if (wantInsts) {
         int32_t count = (int32_t) room->gameObjectCount;
-        GMLArray* insts = GMLArray_create(ctx->dataWin->gen8.wadVersion, count > 0 ? count : 1);
+        GMLArray* insts = GMLArray_create(ctx->dataWin, count > 0 ? count : 1);
         repeat(count, i) {
             RoomGameObject* go = &room->gameObjects[i];
             Instance* is = Runner_createStruct(ctx->runner);
@@ -3403,7 +3403,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
 
     if (wantLayers && room->layers != nullptr) {
         int32_t count = (int32_t) room->layerCount;
-        GMLArray* layers = GMLArray_create(ctx->dataWin->gen8.wadVersion, count > 0 ? count : 1);
+        GMLArray* layers = GMLArray_create(ctx->dataWin, count > 0 ? count : 1);
         repeat(count, i) {
             RoomLayer* lay = &room->layers[i];
             Instance* ls = Runner_createStruct(ctx->runner);
@@ -3421,7 +3421,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                 GMLArray* elements = nullptr;
                 switch ((RoomLayerType) lay->type) {
                     case RoomLayerType_Background: {
-                        elements = GMLArray_create(ctx->dataWin->gen8.wadVersion, 1);
+                        elements = GMLArray_create(ctx->dataWin, 1);
                         GMLArray_growTo(elements, 1);
                         Instance* es = Runner_createStruct(ctx->runner);
                         RoomLayerBackgroundData* bg = lay->backgroundData;
@@ -3443,7 +3443,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                     case RoomLayerType_Instances: {
                         RoomLayerInstancesData* id = lay->instancesData;
                         int32_t ic = (id != nullptr) ? (int32_t) id->instanceCount : 0;
-                        elements = GMLArray_create(ctx->dataWin->gen8.wadVersion, ic > 0 ? ic : 1);
+                        elements = GMLArray_create(ctx->dataWin, ic > 0 ? ic : 1);
                         if (ic > 0) GMLArray_growTo(elements, ic);
                         for (int32_t j = 0; ic > j; j++) {
                             Instance* es = Runner_createStruct(ctx->runner);
@@ -3454,7 +3454,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                         break;
                     }
                     case RoomLayerType_Tiles: {
-                        elements = GMLArray_create(ctx->dataWin->gen8.wadVersion, 1);
+                        elements = GMLArray_create(ctx->dataWin, 1);
                         GMLArray_growTo(elements, 1);
                         Instance* es = Runner_createStruct(ctx->runner);
                         RoomLayerTilesData* td = lay->tilesData;
@@ -3467,7 +3467,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                             VM_structSetAndFreeVal(ctx, es, "tileset_index", RValue_makeInt32(td->backgroundIndex), -1);
                             if (wantTilemap && td->tileData != nullptr) {
                                 int32_t total = (int32_t) (td->tilesX * td->tilesY);
-                                GMLArray* tiles = GMLArray_create(ctx->dataWin->gen8.wadVersion, total > 0 ? total : 1);
+                                GMLArray* tiles = GMLArray_create(ctx->dataWin, total > 0 ? total : 1);
                                 if (total > 0) GMLArray_growTo(tiles, total);
                                 for (int32_t k = 0; total > k; k++) {
                                     *GMLArray_slot(tiles, k) = RValue_makeInt32((int32_t) td->tileData[k]);
@@ -3480,7 +3480,7 @@ static RValue builtin_room_get_info(VMContext* ctx, RValue* args, int32_t argCou
                     }
                     default:
                         // Asset/Path/Effect layers: emit an empty element list. Filling these out matches the HTML5 runner but isn't required for room_goto navigation.
-                        elements = GMLArray_create(ctx->dataWin->gen8.wadVersion, 1);
+                        elements = GMLArray_create(ctx->dataWin, 1);
                         break;
                 }
                 if (elements != nullptr) VM_structSetAndFreeVal(ctx, ls, "elements", RValue_makeArray(elements), -1);
@@ -3758,14 +3758,14 @@ static RValue builtin_camera_get_view_mat(VMContext* ctx, RValue* args, int32_t 
     Runner* runner = ctx->runner;
     GMLCamera* camera = Runner_getCameraById(runner, RValue_toInt32(args[0]));
     if (camera == nullptr) return RValue_makeUndefined();
-    return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &camera->viewMatrix));
+    return RValue_makeArray(matrixToGml(ctx->dataWin, &camera->viewMatrix));
 }
 
 static RValue builtin_camera_get_proj_mat(VMContext* ctx, RValue* args, int32_t argCount) {
     Runner* runner = ctx->runner;
     GMLCamera* camera = Runner_getCameraById(runner, RValue_toInt32(args[0]));
     if (camera == nullptr) return RValue_makeUndefined();
-    return RValue_makeArray(matrixToGml(ctx->dataWin->gen8.wadVersion, &camera->projectionMatrix));
+    return RValue_makeArray(matrixToGml(ctx->dataWin, &camera->projectionMatrix));
 }
 
 static RValue builtin_camera_set_proj_mat(VMContext* ctx, RValue* args, int32_t argCount) {
@@ -4196,7 +4196,7 @@ static RValue builtin_variable_struct_exists(VMContext* ctx, RValue* args, int32
 static RValue builtin_struct_get_names(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeUndefined();
 
-    GMLArray* array = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+    GMLArray* array = GMLArray_create(ctx->dataWin, 0);
 
     Instance* targetInstance;
     if (args[0].type == RVALUE_STRUCT) {
@@ -4980,7 +4980,7 @@ static int dsHexNibble(char c) {
 // Mirror of dsStreamWriteValue."version" selects how ARRAY is laid out:
 // * 0 = current format (magic 303): flat "len + values".
 // * 3 = older native format (magic 302): outer "len_1d", then per-row "len + values" (jagged 2D).
-static RValue dsStreamReadValue(int32_t wadVersion, DsReadStream* s, int32_t version) {
+static RValue dsStreamReadValue(DataWin *dw, DsReadStream* s, int32_t version) {
     uint32_t tag = dsStreamReadU32(s);
     if (s->error) return RValue_makeUndefined();
     switch (tag) {
@@ -5003,7 +5003,7 @@ static RValue dsStreamReadValue(int32_t wadVersion, DsReadStream* s, int32_t ver
             return RValue_makeOwnedString(str);
         }
         case DS_STREAM_VALUE_ARRAY: {
-            GMLArray* arr = GMLArray_create(wadVersion, 0);
+            GMLArray* arr = GMLArray_create(dw, 0);
             if (version == 3) {
                 int32_t len1d = dsStreamReadS32(s);
                 if (s->error || 0 > len1d) { s->error = true; GMLArray_decRef(arr); return RValue_makeUndefined(); }
@@ -5012,7 +5012,7 @@ static RValue dsStreamReadValue(int32_t wadVersion, DsReadStream* s, int32_t ver
                     if (s->error || 0 > len) { s->error = true; GMLArray_decRef(arr); return RValue_makeUndefined(); }
                     if (len > 0) GMLArray_growTo(arr, len);
                     for (int32_t i = 0; len > i && !s->error; i++) {
-                        RValue v = dsStreamReadValue(wadVersion, s, version);
+                        RValue v = dsStreamReadValue(dw, s, version);
                         RValue* slot = GMLArray_slot(arr, i);
                         if (slot != nullptr) { RValue_free(slot); *slot = v; } else { RValue_free(&v); }
                     }
@@ -5022,7 +5022,7 @@ static RValue dsStreamReadValue(int32_t wadVersion, DsReadStream* s, int32_t ver
                         if (s->error || 0 > len) { s->error = true; break; }
                         if (len > 0) GMLArray_growTo(arr, o * GML_LEGACY_ARRAY_STRIDE + len);
                         for (int32_t i = 0; len > i && !s->error; i++) {
-                            RValue v = dsStreamReadValue(wadVersion, s, version);
+                            RValue v = dsStreamReadValue(dw, s, version);
                             RValue* slot = GMLArray_slot(arr, o * GML_LEGACY_ARRAY_STRIDE + i);
                             if (slot != nullptr) { RValue_free(slot); *slot = v; } else { RValue_free(&v); }
                         }
@@ -5033,7 +5033,7 @@ static RValue dsStreamReadValue(int32_t wadVersion, DsReadStream* s, int32_t ver
                 if (s->error || 0 > len) { s->error = true; GMLArray_decRef(arr); return RValue_makeUndefined(); }
                 if (len > 0) GMLArray_growTo(arr, len);
                 for (int32_t i = 0; len > i && !s->error; i++) {
-                    RValue v = dsStreamReadValue(wadVersion, s, version);
+                    RValue v = dsStreamReadValue(dw, s, version);
                     RValue* slot = GMLArray_slot(arr, i);
                     if (slot != nullptr) { RValue_free(slot); *slot = v; } else { RValue_free(&v); }
                 }
@@ -5100,7 +5100,7 @@ static RValue builtin_ds_list_read(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 
     {
     repeat(len, i) {
-        RValue v = dsStreamReadValue(ctx->dataWin->gen8.wadVersion, &s, version);
+        RValue v = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) { RValue_free(&v); free(bytes); return RValue_makeBool(false); }
         arrput(list->items, v);
     }
@@ -5452,11 +5452,10 @@ static RValue dsMapReadNative(VMContext* ctx, DsMapEntry** mapPtr, const char* h
     shfree(*mapPtr);
     *mapPtr = nullptr;
 
-    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
     for (int32_t i = 0; count > i && !s.error; i++) {
-        RValue key = dsStreamReadValue(wadVersion, &s, version);
+        RValue key = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) { RValue_free(&key); break; }
-        RValue val = dsStreamReadValue(wadVersion, &s, version);
+        RValue val = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) { RValue_free(&key); RValue_free(&val); break; }
 
         RValue addArgs[3];
@@ -5525,10 +5524,9 @@ static RValue dsGridReadNative(VMContext* ctx, DsGrid* grid, const char* hex) {
     size_t count = (size_t) width * (size_t) height;
     RValue* items = count > 0 ? (RValue *)safeCalloc(count, sizeof(RValue)) : nullptr;
 
-    int32_t wadVersion = ctx->dataWin->gen8.wadVersion;
     size_t i = 0;
     for (i = 0; count > i && !s.error; i++) {
-        items[i] = dsStreamReadValue(wadVersion, &s, version);
+        items[i] = dsStreamReadValue(ctx->dataWin, &s, version);
     }
 
     if (s.error) {
@@ -5804,7 +5802,7 @@ static RValue builtin_ds_stack_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 
     {
     repeat(len, i) {
-        RValue v = dsStreamReadValue(ctx->dataWin->gen8.wadVersion, &s, version);
+        RValue v = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) {
             RValue_free(&v);
             free(bytes);
@@ -5984,7 +5982,7 @@ static RValue builtin_ds_queue_read(VMContext* ctx, RValue* args, MAYBE_UNUSED i
 
     {
     repeat(last, i) {
-        RValue v = dsStreamReadValue(ctx->dataWin->gen8.wadVersion, &s, version);
+        RValue v = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) { RValue_free(&v); free(bytes); return RValue_makeBool(false); }
         if (first <= 0) {
             arrput(q->items, v);
@@ -6336,7 +6334,7 @@ static RValue builtin_ds_priority_read(VMContext* ctx, RValue* args, MAYBE_UNUSE
     RValue* tempVal = (RValue*) safeMalloc((size_t) len * sizeof(RValue));
 
     repeat(len, i) {
-        RValue p = dsStreamReadValue(ctx->dataWin->gen8.wadVersion, &s, version);
+        RValue p = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) {
             RValue_free(&p);
             free(tempPri);
@@ -6350,7 +6348,7 @@ static RValue builtin_ds_priority_read(VMContext* ctx, RValue* args, MAYBE_UNUSE
 
     {
     repeat(len, i) {
-        RValue v = dsStreamReadValue(ctx->dataWin->gen8.wadVersion, &s, version);
+        RValue v = dsStreamReadValue(ctx->dataWin, &s, version);
         if (s.error) {
             RValue_free(&v);
             repeat(i, j) RValue_free(&tempVal[j]);
@@ -6476,7 +6474,7 @@ static RValue builtin_array_pop(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
 
 // array_concat(array, arrays...) - concatenate each provided array onto a copy of the first array.
 static RValue builtin_array_concat(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
-    if (1 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    if (1 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     if (args[0].type != RVALUE_ARRAY || args[0].array == nullptr) return RValue_makeUndefined();
 
     GMLArray* out = GMLArray_clone(args[0].array, IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : nullptr);
@@ -13946,7 +13944,7 @@ static RValue builtin_tile_get_ids_at_depth(VMContext* ctx, RValue* args, MAYBE_
             if (room->tiles[i].tileDepth == depth) matchCount++;
         }
     }
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, matchCount > 0 ? matchCount : 1);
+    GMLArray* out = GMLArray_create(ctx->dataWin, matchCount > 0 ? matchCount : 1);
     if (matchCount > 0) {
         int32_t w = 0;
         repeat(room->tileCount, i) {
@@ -14706,7 +14704,7 @@ static RValue builtin_layer_tile_get_region(VMContext* ctx, RValue* args, MAYBE_
     RoomTile* tile = findTileElement(ctx->runner, args[0]);
     if (tile == nullptr)
         return RValue_makeReal(-1.0);
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 4));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 4));
     GMLArray_setOnArrayRef(&arr, 0, RValue_makeReal((GMLReal) tile->sourceX));
     GMLArray_setOnArrayRef(&arr, 1, RValue_makeReal((GMLReal) tile->sourceY));
     GMLArray_setOnArrayRef(&arr, 2, RValue_makeReal((GMLReal) tile->width));
@@ -14719,7 +14717,7 @@ static RValue builtin_layer_get_all_elements(VMContext* ctx, RValue* args, MAYBE
     Runner* runner = ctx->runner;
     int32_t id = resolveLayerIdArg(runner, args[0]);
 
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     RuntimeLayer* runtimeLayer = Runner_findRuntimeLayerById(runner, id);
     if (runtimeLayer == nullptr)
         return arr;
@@ -15493,7 +15491,7 @@ static RValue builtin_tile_set_rotate(MAYBE_UNUSED VMContext* ctx, RValue* args,
 static RValue builtin_layer_get_all(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     size_t count = arrlenu(runner->runtimeLayers);
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, (int32_t) count));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, (int32_t) count));
     repeat(count, layerIndex) {
         GMLArray_setOnArrayRef(&arr, layerIndex, RValue_makeReal((GMLReal) runner->runtimeLayers[layerIndex].id));
     }
@@ -15503,7 +15501,7 @@ static RValue builtin_layer_get_all(VMContext* ctx, MAYBE_UNUSED RValue* args, M
 static RValue builtin_layer_get_id_at_depth(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     Runner* runner = ctx->runner;
     int32_t targetDepth = RValue_toInt32(args[0]);
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     size_t count = arrlenu(runner->runtimeLayers);
     bool found = false;
     repeat(count, layerIndex) {
@@ -15533,7 +15531,7 @@ static RValue builtin_layer_vspeed(VMContext* ctx, RValue* args, MAYBE_UNUSED in
 // @@NewGMLArray@@ - GMS2 internal function to create a new array literal (e.g. `[1, 2, 3]`).
 // Allocates a fresh GMLArray populated with the argument values.
 static RValue builtin_NewGMLArray(VMContext* ctx, RValue* args, int32_t argCount) {
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, argCount));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, argCount));
     repeat(argCount, i) {
         GMLArray_setOnArrayRef(&arr, i, args[i]);
     }
@@ -15543,7 +15541,7 @@ static RValue builtin_NewGMLArray(VMContext* ctx, RValue* args, int32_t argCount
 // array_create - GMS2 internal function to create a new array.
 // Allocates a fresh GMLArray populated with the argument values.
 static RValue builtin_array_create(VMContext* ctx, RValue* args, int32_t argCount) {
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 0));
     RValue fill = (argCount > 1) ? args[1] : RValue_makeUndefined();
     repeat(RValue_toReal(args[0]), i) {
         GMLArray_setOnArrayRef(&arr, i, fill);
@@ -17806,7 +17804,7 @@ static RValue builtin_gpu_get_blendmode(VMContext* ctx, RValue* args, int32_t ar
 static RValue builtin_gpu_get_blendmode_ext(VMContext* ctx, RValue* args, int32_t argCount) {
     BlendFactors factors = ctx->runner->renderer->vtable->gpuGetBlendFactors(ctx->runner->renderer);
 
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 2));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 2));
     GMLArray_setOnArrayRef(&arr, 0, RValue_makeInt32(factors.src));
     GMLArray_setOnArrayRef(&arr, 1, RValue_makeInt32(factors.dst));
 
@@ -17816,7 +17814,7 @@ static RValue builtin_gpu_get_blendmode_ext(VMContext* ctx, RValue* args, int32_
 static RValue builtin_gpu_get_blendmode_ext_sepalpha(VMContext* ctx, RValue* args, int32_t argCount) {
     BlendFactors factors = ctx->runner->renderer->vtable->gpuGetBlendFactors(ctx->runner->renderer);
 
-    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 4));
+    RValue arr = RValue_makeArray(GMLArray_create(ctx->dataWin, 4));
     GMLArray_setOnArrayRef(&arr, 0, RValue_makeInt32(factors.src));
     GMLArray_setOnArrayRef(&arr, 1, RValue_makeInt32(factors.dst));
     GMLArray_setOnArrayRef(&arr, 2, RValue_makeInt32(factors.srcAlpha));
@@ -17914,7 +17912,7 @@ static RValue builtin_gpu_set_colorwriteenable(VMContext* ctx, RValue* args, int
 static RValue builtin_gpu_get_colorwriteenable(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     bool r, g, b, a;
     ctx->runner->renderer->vtable->gpuGetColorWriteEnable(ctx->runner->renderer, &r, &g, &b, &a);
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, 4);
+    GMLArray* out = GMLArray_create(ctx->dataWin, 4);
     *GMLArray_slot(out, 0) = RValue_makeReal(r ? 1.0 : 0.0);
     *GMLArray_slot(out, 1) = RValue_makeReal(g ? 1.0 : 0.0);
     *GMLArray_slot(out, 2) = RValue_makeReal(b ? 1.0 : 0.0);
@@ -18098,7 +18096,7 @@ static RValue builtin_sprite_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, 
     float NormHeightS = (float) ctx->dataWin->tpag.items[TpagIndex].sourceHeight / (float) ctx->dataWin->tpag.items[TpagIndex].boundingHeight;
 
 
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, 8);
+    GMLArray* out = GMLArray_create(ctx->dataWin, 8);
     *GMLArray_slot(out, 0) = RValue_makeReal(left);
     *GMLArray_slot(out, 1) = RValue_makeReal(top);
     *GMLArray_slot(out, 2) = RValue_makeReal(right);
@@ -18157,7 +18155,7 @@ static RValue builtin_font_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args, MA
     float right = (float)  left + (ctx->dataWin->tpag.items[TpagIndex].sourceWidth * DivW);
     float bottom = (float) top + (ctx->dataWin->tpag.items[TpagIndex].sourceHeight * DivH);
 
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, 4);
+    GMLArray* out = GMLArray_create(ctx->dataWin, 4);
     *GMLArray_slot(out, 0) = RValue_makeReal(left);
     *GMLArray_slot(out, 1) = RValue_makeReal(top);
     *GMLArray_slot(out, 2) = RValue_makeReal(right);
@@ -18182,7 +18180,7 @@ static RValue builtin_texture_get_uvs(VMContext* ctx, MAYBE_UNUSED RValue* args,
     // Default to the full page (0,0,1,1) if the renderer can't resolve the handle.
     float uvs[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
     ctx->runner->renderer->vtable->textureGetUVs(ctx->runner->renderer, texID, uvs);
-    GMLArray* out = GMLArray_create(ctx->dataWin->gen8.wadVersion, 4);
+    GMLArray* out = GMLArray_create(ctx->dataWin, 4);
     *GMLArray_slot(out, 0) = RValue_makeReal(uvs[0]);
     *GMLArray_slot(out, 1) = RValue_makeReal(uvs[1]);
     *GMLArray_slot(out, 2) = RValue_makeReal(uvs[2]);
@@ -18221,7 +18219,7 @@ static RValue builtin_sprite_get_info(VMContext* ctx, RValue* args, int32_t argC
     VM_structSetAndFreeVal(ctx, ret, "frame_speed", RValue_makeReal(sprite->gms2PlaybackSpeed), -1);
     VM_structSetAndFreeVal(ctx, ret, "frame_type", RValue_makeReal(sprite->gms2PlaybackSpeedType), -1);
 
-    GMLArray* frames = GMLArray_create(ctx->dataWin->gen8.wadVersion, (int32_t)sprite->textureCount);
+    GMLArray* frames = GMLArray_create(ctx->dataWin, (int32_t)sprite->textureCount);
     repeat(sprite->textureCount, i) {
         Instance* frame = Runner_createStruct(ctx->runner);
         int32_t idx = sprite->tpagIndices[i];
