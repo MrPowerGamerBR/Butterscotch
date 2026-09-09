@@ -97,3 +97,7 @@ void platformSleepUntil(uint64_t time) {
         YIELD();
     }
 }
+
+void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
+    (void)framebuffer, (void)width, (void)height;
+}

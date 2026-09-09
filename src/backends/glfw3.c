@@ -329,7 +329,7 @@ void platformInitFunctions(Runner *runner) {
 static uint32_t* nextFb = NULL;
 static int fbWidth = 0, fbHeight = 0;
 
-void Runner_setNextFrame(uint32_t* framebuffer, int width, int height) {
+void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
     nextFb = framebuffer;
     fbWidth = width;
     fbHeight = height;

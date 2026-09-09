@@ -291,7 +291,7 @@ void platformInitFunctions(Runner *runner) {
 
 static SDL_Surface* nextFb = NULL;
 
-void Runner_setNextFrame(uint32_t* framebuffer, int width, int height) {
+void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
     if (nextFb) {
         SDL_FreeSurface(nextFb);
         nextFb = NULL;
