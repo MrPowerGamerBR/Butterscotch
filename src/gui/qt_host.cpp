@@ -41,6 +41,9 @@ static constexpr int kLiveVariableRefreshMode = 0;
 static constexpr int kEverySecondVariableRefreshMode = 1;
 
 static QString resolveGameExecutablePath();
+static QStringList makeHostChildLaunchArgs(const QString& gamePath) {
+    return QStringList{ gamePath, QStringLiteral("--host-child") };
+}
 
 static void requestVariableSnapshot() {
     if (!g_variablesTabOpen || g_gameProcess == nullptr || g_gameProcess->state() != QProcess::Running || g_variableSnapshotRequestPending) {
@@ -94,10 +97,7 @@ static void resetGameProcess() {
     }
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, QStringList{
-        g_lastGamePath,
-        QStringLiteral("--host-child")
-    });
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath));
 }
 
 static void stopGameProcess() {
@@ -272,10 +272,7 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
     });
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, QStringList{
-        path,
-        QStringLiteral("--host-child")
-    });
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path));
 }
 
 class VariableTableScrollFilter : public QObject {
