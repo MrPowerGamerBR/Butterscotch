@@ -1,8 +1,6 @@
 #include "qt_games_tab.h"
 
 #include <QDateTime>
-#include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -12,6 +10,8 @@
 #include <QSettings>
 #include <QTableWidget>
 #include <QVBoxLayout>
+
+#include "qt_game_file_dialog.h"
 
 extern "C" {
 #include "data_win.h"
@@ -38,23 +38,6 @@ QString formatPlayedTime(qint64 seconds) {
 QString formatLastPlayed(const QString& timestamp) {
     const QDateTime dateTime = QDateTime::fromString(timestamp, Qt::ISODate);
     return dateTime.isValid() ? QLocale::system().toString(dateTime.date(), QLocale::ShortFormat) : QString();
-}
-
-QString chooseGameFile(QWidget* parent) {
-    QFileDialog dialog(parent,
-                       "Open a data.win or game.unx file",
-                       QDir::homePath(),
-                       "Game files (*.win *.unx, *.ios);;All files (*)");
-    dialog.setWindowModality(Qt::WindowModal);
-    dialog.setFileMode(QFileDialog::ExistingFile);
-    dialog.setAcceptMode(QFileDialog::AcceptOpen);
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return {};
-    }
-
-    const QStringList selectedFiles = dialog.selectedFiles();
-    return selectedFiles.isEmpty() ? QString() : selectedFiles.constFirst();
 }
 
 QString gameTitleFromDataWin(const QString& path) {

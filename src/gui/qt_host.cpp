@@ -17,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "qt_game_file_dialog.h"
 #include "qt_games_tab.h"
 #include "qt_instances_tab.h"
 #include "qt_log_tab.h"
@@ -127,27 +128,6 @@ static QString resolveGameExecutablePath() {
         return localBinary;
     }
     return QStringLiteral("butterscotch");
-}
-
-static QString chooseGameFile(QWidget* parent) {
-    QFileDialog dialog(parent,
-                       "Open a data.win or game.unx file",
-                       QDir::homePath(),
-                       "Game files (*.win *.unx, *.ios);;All files (*)");
-    dialog.setWindowModality(Qt::WindowModal);
-    dialog.setFileMode(QFileDialog::ExistingFile);
-    dialog.setAcceptMode(QFileDialog::AcceptOpen);
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return {};
-    }
-
-    const QStringList selectedFiles = dialog.selectedFiles();
-    if (selectedFiles.isEmpty()) {
-        return {};
-    }
-
-    return selectedFiles.constFirst();
 }
 
 static void launchGameFromPathProcess(const QString& path, VariablesTab* variablesTab, GameLogTab* logTab, QTabWidget* tabs, InstancesTab* instancesTab = nullptr) {
