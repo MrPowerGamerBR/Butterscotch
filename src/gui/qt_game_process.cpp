@@ -248,7 +248,27 @@ void launchGameFromPathProcess(const QString& path,
     });
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path, saveFolder, g_lastGameOsType));
+    const QStringList launchArgs = makeHostChildLaunchArgs(path, saveFolder, g_lastGameOsType);
+    QString launchCommand;
+    if (executablePath.isEmpty() || executablePath.contains(QLatin1Char(' ')) || executablePath.contains(QLatin1Char('"')) || executablePath.contains(QLatin1Char('\''))) {
+        QString escapedExecutable = executablePath;
+        escapedExecutable.replace(QStringLiteral("\""), QStringLiteral("\\\""));
+        launchCommand = QStringLiteral("\"") + escapedExecutable + QStringLiteral("\"");
+    } else {
+        launchCommand = executablePath;
+    }
+    for (const QString& arg : launchArgs) {
+        launchCommand += QLatin1Char(' ');
+        if (arg.isEmpty() || arg.contains(QLatin1Char(' ')) || arg.contains(QLatin1Char('"')) || arg.contains(QLatin1Char('\''))) {
+            QString escapedArg = arg;
+            escapedArg.replace(QStringLiteral("\""), QStringLiteral("\\\""));
+            launchCommand += QStringLiteral("\"") + escapedArg + QStringLiteral("\"");
+        } else {
+            launchCommand += arg;
+        }
+    }
+    logTab->appendText(QStringLiteral("$ %1\n").arg(launchCommand));
+    g_gameProcess->start(executablePath, launchArgs);
 }
 
 } // namespace qt_game_process
