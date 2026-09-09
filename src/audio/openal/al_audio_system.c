@@ -138,15 +138,12 @@ static SoundInstance* findFreeSlot(AlAudioSystem* ma) {
 }
 
 static SoundInstance* findInstanceById(AlAudioSystem* ma, int32_t instanceId) {
-    int32_t slotIndex = instanceId - SOUND_INSTANCE_ID_BASE;
-    if (0 > slotIndex || slotIndex >= MAX_SOUND_INSTANCES)
-        return nullptr;
-
-    SoundInstance* inst = &ma->instances[slotIndex];
-    if (!inst->active || inst->instanceId != instanceId)
-        return nullptr;
-
-    return inst;
+    for (int32_t i = 0; i < MAX_SOUND_INSTANCES; i++) {
+        SoundInstance* inst = &ma->instances[i];
+        if (inst->active && inst->instanceId == instanceId)
+            return inst;
+    }
+    return nullptr;
 }
 
 // Helper: resolve external audio file path from Sound entry
@@ -379,8 +376,6 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
         return -1;
     }
 
-    int32_t slotIndex = (int32_t) (slot - ma->instances);
-
     slot->streaming = false;
     slot->vorbis = nullptr;
     slot->decodeScratch = nullptr;
@@ -566,7 +561,7 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
     // Set up instance tracking
     slot->active = true;
     slot->soundIndex = soundIndex;
-    slot->instanceId = SOUND_INSTANCE_ID_BASE + slotIndex;
+    slot->instanceId = SOUND_INSTANCE_ID_BASE + ma->nextInstanceCounter++;
     slot->currentGain = volume;
     slot->targetGain = volume;
     slot->fadeTimeRemaining = 0.0f;
