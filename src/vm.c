@@ -549,7 +549,7 @@ static inline bool tryFastVarRead(VMContext* ctx, int32_t instanceType, Variable
 #if IS_WAD17_OR_HIGHER_ENABLED
 // Static variables: Each code index has its own "struct" for static variables.
 // Lazily create a struct for each codeIndex that needs a static variable.
-static Instance* getOrCreateStaticStruct(VMContext* ctx, int32_t codeIndex) {
+Instance* VM_getOrCreateStaticStruct(VMContext* ctx, int32_t codeIndex) {
     if (ctx->staticStructs == nullptr || 0 > codeIndex || (uint32_t) codeIndex >= ctx->dataWin->code.count) return nullptr;
     Instance* staticStruct = ctx->staticStructs[codeIndex];
     if (staticStruct == nullptr) {
@@ -605,8 +605,8 @@ void VM_copyStatic(VMContext* ctx, RValue* parentRef) {
         }
     }
     if (0 > parentCodeIndex) return;
-    Instance* childStatic = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
-    Instance* parentStatic = getOrCreateStaticStruct(ctx, parentCodeIndex);
+    Instance* childStatic = VM_getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+    Instance* parentStatic = VM_getOrCreateStaticStruct(ctx, parentCodeIndex);
     if (childStatic != nullptr && parentStatic != nullptr && childStatic != parentStatic) {
         childStatic->staticParent = parentStatic;
     }
@@ -710,7 +710,7 @@ static RValue resolveVariableRead(VMContext* ctx, int32_t instanceType, uint32_t
 #if IS_WAD17_OR_HIGHER_ENABLED
     } else if (instanceType == INSTANCE_STATIC) {
         // "static" scope: read from the current constructor's shared static struct via the normal slot path below.
-        targetInstance = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+        targetInstance = VM_getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
 #endif
     } else if (IS_WAD17_OR_HIGHER(ctx) && instanceType == INSTANCE_ARG) {
         // BC17: argument0..argument15 via INSTANCE_ARG instance type (builtinVarId pre-resolved at parse time)
@@ -940,7 +940,7 @@ static void resolveVariableWrite(VMContext* ctx, int32_t instanceType, uint32_t 
 
     // "static" scope: write to the current constructor's shared static struct (runs once, guarded by isstaticok/setstatic).
     if (instanceType == INSTANCE_STATIC) {
-        Instance* staticStruct = getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+        Instance* staticStruct = VM_getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
         if (staticStruct != nullptr) {
             writeSingleInstanceVariable(ctx, staticStruct, varDef, &access, val);
         }
