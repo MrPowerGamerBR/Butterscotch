@@ -563,11 +563,6 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
         args->dataWinPath = argv[optind];
     }
 
-    const char* defaultDataWinPaths[4] = {"data.win", "assets/game.unx", "assets/game.droid", "../Resources/game.ios"}; // default WAD paths for Windows/Linux/Android/macOS
-    static char resolvedPath[2048];
-
-    args->dataWinPath = argv[optind];
-
 #ifdef ENABLE_SCREENSHOTS
     if (hmlen(args->screenshotFrames) > 0 && args->screenshotPattern == nullptr) {
         logError("--screenshot-at-frame requires --screenshot to be set\n");
