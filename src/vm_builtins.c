@@ -1757,8 +1757,6 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
 
             Room* room = resolveRoomForBuiltinAccess(runner);
             if (room != nullptr) room->speed = (uint32_t) RValue_toInt32(val);
-            // Keep pre-room fallback reads consistent if scripts touch room_speed before room init.
-            if (runner->currentRoom == nullptr) runner->dataWin->gen8.gms2FPS = (float) speedValue;
             return;
         }
 
@@ -3320,7 +3318,7 @@ static RValue builtin_game_set_speed(VMContext* ctx, MAYBE_UNUSED RValue* args, 
 
     Room* room = ctx->runner->currentRoom;
     if (room != nullptr) room->speed = (uint32_t) fps;
-    else ctx->runner->dataWin->gen8.gms2FPS = (float) fps;
+    ctx->runner->dataWin->gen8.gms2FPS = (float) fps;
 
     return RValue_makeUndefined();
 }

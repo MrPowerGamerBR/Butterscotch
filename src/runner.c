@@ -2132,6 +2132,7 @@ void Runner_reset(Runner* runner) {
     runner->lives = -1.0;
     runner->health = 0.0;
     runner->gameStartFired = false;
+    runner->gameSpeedOverride = 0.0;
     runner->currentRoomIndex = -1;
     runner->currentRoomOrderPosition = -1;
     runner->nextInstanceId = runner->dataWin->gen8.lastObj + 1;
