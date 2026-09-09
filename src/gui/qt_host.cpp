@@ -18,6 +18,7 @@
 #include <QWidget>
 
 #include "qt_game_file_dialog.h"
+#include "qt_game_process.h"
 #include "qt_games_tab.h"
 #include "qt_instances_tab.h"
 #include "qt_log_tab.h"
@@ -25,234 +26,6 @@
 
 extern "C" {
     int guiMainImpl(int argc, char* argv[]);
-}
-
-static QProcess* g_gameProcess = nullptr;
-static QString g_lastGamePath;
-static QString g_processOutputBuffer;
-static bool g_variableSnapshotRequestPending = false;
-static bool g_instanceSnapshotRequestPending = false;
-static bool g_variablesTabOpen = false;
-static bool g_instancesTabOpen = false;
-static QTimer* g_variableSnapshotTimeoutTimer = nullptr;
-static GamesTab* g_gamesTab = nullptr;
-static QDateTime g_gameStartedAt;
-
-static constexpr int kLiveVariableRefreshMode = 0;
-static constexpr int kEverySecondVariableRefreshMode = 1;
-
-static QString resolveGameExecutablePath();
-static QStringList makeHostChildLaunchArgs(const QString& gamePath) {
-    return QStringList{ gamePath, QStringLiteral("--host-child") };
-}
-
-static void requestVariableSnapshot() {
-    if (!g_variablesTabOpen || g_gameProcess == nullptr || g_gameProcess->state() != QProcess::Running || g_variableSnapshotRequestPending) {
-        return;
-    }
-
-    if (g_gameProcess->write("BS_REQUEST_VARS\n") > 0) {
-        g_variableSnapshotRequestPending = true;
-        if (g_variableSnapshotTimeoutTimer != nullptr) {
-            g_variableSnapshotTimeoutTimer->start();
-        }
-    }
-}
-
-static void requestInstanceSnapshot() {
-    if (!g_instancesTabOpen || g_gameProcess == nullptr || g_gameProcess->state() != QProcess::Running || g_instanceSnapshotRequestPending) {
-        return;
-    }
-
-    if (g_gameProcess->write("BS_REQUEST_INSTANCES\n") > 0) {
-        g_instanceSnapshotRequestPending = true;
-        if (g_variableSnapshotTimeoutTimer != nullptr) {
-            g_variableSnapshotTimeoutTimer->start();
-        }
-    }
-}
-
-static void sendPauseCommand(bool paused) {
-    if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
-        return;
-    }
-
-    const QByteArray payload = QByteArray("BS_PAUSE ") + (paused ? "1\n" : "0\n");
-    g_gameProcess->write(payload);
-}
-
-static void resetGameProcess() {
-    if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning || g_lastGamePath.isEmpty()) {
-        return;
-    }
-
-    g_gameProcess->terminate();
-    if (!g_gameProcess->waitForFinished(1000)) {
-        g_gameProcess->kill();
-        g_gameProcess->waitForFinished(1000);
-    }
-
-    if (g_gamesTab != nullptr && g_gameStartedAt.isValid()) {
-        g_gamesTab->addPlayedTime(g_lastGamePath, g_gameStartedAt.secsTo(QDateTime::currentDateTime()));
-        g_gameStartedAt = {};
-    }
-
-    const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath));
-}
-
-static void stopGameProcess() {
-    if (g_gameProcess == nullptr) {
-        return;
-    }
-
-    if (g_gamesTab != nullptr && g_gameStartedAt.isValid()) {
-        g_gamesTab->addPlayedTime(g_lastGamePath, g_gameStartedAt.secsTo(QDateTime::currentDateTime()));
-        g_gameStartedAt = {};
-    }
-    if (g_gameProcess->state() != QProcess::NotRunning) {
-        g_gameProcess->terminate();
-        if (!g_gameProcess->waitForFinished(1000)) {
-            g_gameProcess->kill();
-            g_gameProcess->waitForFinished(1000);
-        }
-    }
-    delete g_gameProcess;
-    g_gameProcess = nullptr;
-    g_variableSnapshotRequestPending = false;
-}
-
-static QString resolveGameExecutablePath() {
-    const QString localBinary = QCoreApplication::applicationDirPath() + QStringLiteral("/butterscotch");
-    if (QFileInfo(localBinary).exists() && QFileInfo(localBinary).isFile()) {
-        return localBinary;
-    }
-    return QStringLiteral("butterscotch");
-}
-
-static void launchGameFromPathProcess(const QString& path, VariablesTab* variablesTab, GameLogTab* logTab, QTabWidget* tabs, InstancesTab* instancesTab = nullptr) {
-    if (path.isEmpty()) {
-        return;
-    }
-
-    g_lastGamePath = path;
-    tabs->setCurrentWidget(logTab);
-
-    stopGameProcess();
-
-    g_gameProcess = new QProcess(QCoreApplication::instance());
-    g_processOutputBuffer.clear();
-    g_variableSnapshotRequestPending = false;
-    g_instanceSnapshotRequestPending = false;
-    logTab->clearLog();
-    logTab->setPaused(false);
-    logTab->pauseButton()->setEnabled(true);
-    logTab->resetButton()->setEnabled(true);
-    logTab->quitButton()->setEnabled(true);
-    if (variablesTab != nullptr) {
-        variablesTab->setSnapshot(QString());
-        variablesTab->setProcessRunning(false);
-    }
-    if (instancesTab != nullptr) {
-        instancesTab->setSnapshot(QString());
-        instancesTab->setProcessRunning(false);
-    }
-    g_gameProcess->setProcessChannelMode(QProcess::MergedChannels);
-    QObject::connect(g_gameProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                     [variablesTab, instancesTab, logTab, path](int exitCode, QProcess::ExitStatus status) {
-                         Q_UNUSED(status);
-                         if (g_gamesTab != nullptr && g_gameStartedAt.isValid()) {
-                             g_gamesTab->addPlayedTime(path, g_gameStartedAt.secsTo(QDateTime::currentDateTime()));
-                             g_gameStartedAt = {};
-                         }
-                         logTab->setPaused(false);
-                         logTab->pauseButton()->setEnabled(false);
-                         logTab->resetButton()->setEnabled(false);
-                         logTab->quitButton()->setEnabled(false);
-                         if (variablesTab != nullptr) {
-                             variablesTab->setProcessRunning(false);
-                         }
-                         if (instancesTab != nullptr) {
-                             instancesTab->setProcessRunning(false);
-                         }
-                         g_variableSnapshotRequestPending = false;
-                         g_instanceSnapshotRequestPending = false;
-                         if (g_variableSnapshotTimeoutTimer != nullptr) {
-                             g_variableSnapshotTimeoutTimer->stop();
-                         }
-                         if (exitCode != 0) {
-                             qWarning() << "Game process exited with code" << exitCode;
-                         }
-                     });
-    QObject::connect(g_gameProcess, &QProcess::readyReadStandardOutput, [variablesTab, instancesTab, logTab]() {
-        QByteArray data = g_gameProcess->readAllStandardOutput();
-        if (data.isEmpty()) {
-            return;
-        }
-
-        g_processOutputBuffer += QString::fromUtf8(data);
-        while (true) {
-            const qsizetype newlineIndex = g_processOutputBuffer.indexOf('\n');
-            if (newlineIndex < 0) {
-                break;
-            }
-
-            QString line = g_processOutputBuffer.left(newlineIndex);
-            g_processOutputBuffer.remove(0, newlineIndex + 1);
-            if (line.endsWith('\r')) {
-                line.chop(1);
-            }
-            if (line.startsWith(QStringLiteral("BS_VARS_JSON "))) {
-                const QString payload = line.mid(QStringLiteral("BS_VARS_JSON ").size());
-                if (variablesTab != nullptr) {
-                    variablesTab->setSnapshot(payload);
-                }
-                g_variableSnapshotRequestPending = false;
-                if (g_variableSnapshotTimeoutTimer != nullptr) {
-                    g_variableSnapshotTimeoutTimer->stop();
-                }
-                continue;
-            }
-            if (line.startsWith(QStringLiteral("BS_INSTANCES_JSON "))) {
-                const QString payload = line.mid(QStringLiteral("BS_INSTANCES_JSON ").size());
-                if (instancesTab != nullptr) {
-                    instancesTab->setSnapshot(payload);
-                }
-                g_instanceSnapshotRequestPending = false;
-                if (g_variableSnapshotTimeoutTimer != nullptr) {
-                    g_variableSnapshotTimeoutTimer->stop();
-                }
-                continue;
-            }
-            logTab->appendText(line + QStringLiteral("\n"));
-        }
-    });
-    QObject::connect(g_gameProcess, &QProcess::started, [variablesTab, instancesTab, logTab, path]() {
-        g_gameStartedAt = QDateTime::currentDateTime();
-        g_gamesTab->recordGameStarted(path);
-        logTab->setPaused(false);
-        logTab->pauseButton()->setEnabled(true);
-        logTab->resetButton()->setEnabled(true);
-        logTab->quitButton()->setEnabled(true);
-        if (variablesTab != nullptr) {
-            variablesTab->setProcessRunning(true);
-        }
-        if (instancesTab != nullptr) {
-            instancesTab->setProcessRunning(true);
-        }
-        QTimer::singleShot(150, [variablesTab]() {
-            if (variablesTab == nullptr) {
-                return;
-            }
-            if (variablesTab->refreshModeSelector()->currentIndex() != kLiveVariableRefreshMode) {
-                return;
-            }
-            requestVariableSnapshot();
-        });
-    });
-
-    const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path));
 }
 
 class VariableTableScrollFilter : public QObject {
@@ -291,9 +64,9 @@ public:
             return;
         }
 
-        if (activeModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+        if (activeModeSelector->currentIndex() == qt_game_process::kEverySecondVariableRefreshMode) {
             refreshTimer_->start(1000);
-        } else if (activeModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+        } else if (activeModeSelector->currentIndex() == qt_game_process::kLiveVariableRefreshMode) {
             refreshTimer_->start(100);
         } else {
             refreshTimer_->stop();
@@ -370,9 +143,9 @@ int main(int argc, char* argv[]) {
     auto* gameLog = new GameLogTab(&hostWindow);
     auto* tabs = new QTabWidget(&hostWindow);
     auto* gamesTab = new GamesTab([variablesTab, instancesTab, gameLog, tabs](const QString& path) {
-        launchGameFromPathProcess(path, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::launchGameFromPathProcess(path, variablesTab, gameLog, tabs, instancesTab);
     }, &hostWindow);
-    g_gamesTab = gamesTab;
+    qt_game_process::g_gamesTab = gamesTab;
     tabs->addTab(gamesTab, "Games");
     tabs->addTab(gameLog, "Log");
     tabs->addTab(variablesTab, "Variables");
@@ -388,9 +161,9 @@ int main(int argc, char* argv[]) {
     QTimer variableSnapshotTimeoutTimer(&hostWindow);
     variableSnapshotTimeoutTimer.setSingleShot(true);
     variableSnapshotTimeoutTimer.setInterval(1000);
-    g_variableSnapshotTimeoutTimer = &variableSnapshotTimeoutTimer;
+    qt_game_process::g_variableSnapshotTimeoutTimer = &variableSnapshotTimeoutTimer;
     QObject::connect(&app, &QCoreApplication::aboutToQuit, []() {
-        stopGameProcess();
+        qt_game_process::stopGameProcess();
     });
 
     auto* instanceTreeWidget = instancesTab->tableView();
@@ -414,67 +187,67 @@ int main(int argc, char* argv[]) {
         variableSnapshotTimer.stop();
     });
     QObject::connect(variableTable->verticalScrollBar(), &QScrollBar::sliderReleased, [&variableSnapshotTimer, refreshModeSelector]() {
-        if (!g_variablesTabOpen) {
+        if (!qt_game_process::g_variablesTabOpen) {
             return;
         }
-        if (refreshModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+        if (refreshModeSelector->currentIndex() == qt_game_process::kLiveVariableRefreshMode) {
             variableSnapshotTimer.start(100);
-        } else if (refreshModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+        } else if (refreshModeSelector->currentIndex() == qt_game_process::kEverySecondVariableRefreshMode) {
             variableSnapshotTimer.start(1000);
         }
     });
 
     QPushButton* refreshButton = variablesTab->refreshButton();
     QObject::connect(refreshButton, &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
-        if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
-            if (!g_lastGamePath.isEmpty()) {
-                launchGameFromPathProcess(g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+        if (qt_game_process::g_gameProcess == nullptr || qt_game_process::g_gameProcess->state() == QProcess::NotRunning) {
+            if (!qt_game_process::g_lastGamePath.isEmpty()) {
+                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
             }
         }
-        requestVariableSnapshot();
+        qt_game_process::requestVariableSnapshot();
         variablesTab->refresh();
     });
     QPushButton* instancesRefreshButton = instancesTab->refreshButton();
     QObject::connect(instancesRefreshButton, &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
-        if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
-            if (!g_lastGamePath.isEmpty()) {
-                launchGameFromPathProcess(g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+        if (qt_game_process::g_gameProcess == nullptr || qt_game_process::g_gameProcess->state() == QProcess::NotRunning) {
+            if (!qt_game_process::g_lastGamePath.isEmpty()) {
+                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
             }
         }
-        requestInstanceSnapshot();
+        qt_game_process::requestInstanceSnapshot();
         if (instancesTab != nullptr) {
             instancesTab->refresh();
         }
     });
     QObject::connect(gameLog->pauseButton(), &QPushButton::clicked, [gameLog]() {
-        if (g_gameProcess == nullptr || g_gameProcess->state() == QProcess::NotRunning) {
+        if (qt_game_process::g_gameProcess == nullptr || qt_game_process::g_gameProcess->state() == QProcess::NotRunning) {
             return;
         }
 
         const bool paused = !gameLog->isPaused();
-        sendPauseCommand(paused);
+        qt_game_process::sendPauseCommand(paused);
         gameLog->setPaused(paused);
     });
     QObject::connect(gameLog->resetButton(), &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
-        if (g_lastGamePath.isEmpty()) {
+        if (qt_game_process::g_lastGamePath.isEmpty()) {
             return;
         }
 
-        launchGameFromPathProcess(g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
     });
     QObject::connect(gameLog->quitButton(), &QPushButton::clicked, []() {
-        stopGameProcess();
+        qt_game_process::stopGameProcess();
     });
     QObject::connect(&variableSnapshotTimer, &QTimer::timeout, []() {
-        requestVariableSnapshot();
-        requestInstanceSnapshot();
+        qt_game_process::requestVariableSnapshot();
+        qt_game_process::requestInstanceSnapshot();
     });
     QObject::connect(&variableSnapshotTimeoutTimer, &QTimer::timeout, []() {
-        g_variableSnapshotRequestPending = false;
-        g_instanceSnapshotRequestPending = false;
+        qt_game_process::g_variableSnapshotRequestPending = false;
+        qt_game_process::g_instanceSnapshotRequestPending = false;
     });
     auto updateSnapshotTimerFromActiveTab = [&]() {
-        if (!g_variablesTabOpen && !g_instancesTabOpen) {
+        if (!qt_game_process::g_variablesTabOpen && !qt_game_process::g_instancesTabOpen) {
             variableSnapshotTimer.stop();
             return;
         }
@@ -491,9 +264,9 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        if (activeModeSelector->currentIndex() == kEverySecondVariableRefreshMode) {
+        if (activeModeSelector->currentIndex() == qt_game_process::kEverySecondVariableRefreshMode) {
             variableSnapshotTimer.start(1000);
-        } else if (activeModeSelector->currentIndex() == kLiveVariableRefreshMode) {
+        } else if (activeModeSelector->currentIndex() == qt_game_process::kLiveVariableRefreshMode) {
             variableSnapshotTimer.start(100);
         } else {
             variableSnapshotTimer.stop();
@@ -501,15 +274,15 @@ int main(int argc, char* argv[]) {
     };
     QObject::connect(qApp, &QGuiApplication::applicationStateChanged,
                      [tabs, variablesTab, instancesTab, &updateSnapshotTimerFromActiveTab](Qt::ApplicationState) {
-                         if (!g_variablesTabOpen && !g_instancesTabOpen) {
+                         if (!qt_game_process::g_variablesTabOpen && !qt_game_process::g_instancesTabOpen) {
                              return;
                          }
                          updateSnapshotTimerFromActiveTab();
                          if (tabs->currentWidget() == variablesTab) {
-                             requestVariableSnapshot();
+                             qt_game_process::requestVariableSnapshot();
                          }
                          if (tabs->currentWidget() == instancesTab) {
-                             requestInstanceSnapshot();
+                             qt_game_process::requestInstanceSnapshot();
                          }
                      });
 
@@ -522,24 +295,24 @@ int main(int argc, char* argv[]) {
                          updateSnapshotTimerFromActiveTab();
                      });
     QObject::connect(tabs, &QTabWidget::currentChanged, [tabs, variablesTab, instancesTab, &variableSnapshotTimer, &updateSnapshotTimerFromActiveTab](int) {
-        g_variablesTabOpen = tabs->currentWidget() == variablesTab;
-        g_instancesTabOpen = tabs->currentWidget() == instancesTab;
-        if (!g_variablesTabOpen && !g_instancesTabOpen) {
+        qt_game_process::g_variablesTabOpen = tabs->currentWidget() == variablesTab;
+        qt_game_process::g_instancesTabOpen = tabs->currentWidget() == instancesTab;
+        if (!qt_game_process::g_variablesTabOpen && !qt_game_process::g_instancesTabOpen) {
             variableSnapshotTimer.stop();
-            g_variableSnapshotRequestPending = false;
-            g_instanceSnapshotRequestPending = false;
-            if (g_variableSnapshotTimeoutTimer != nullptr) {
-                g_variableSnapshotTimeoutTimer->stop();
+            qt_game_process::g_variableSnapshotRequestPending = false;
+            qt_game_process::g_instanceSnapshotRequestPending = false;
+            if (qt_game_process::g_variableSnapshotTimeoutTimer != nullptr) {
+                qt_game_process::g_variableSnapshotTimeoutTimer->stop();
             }
             return;
         }
 
         updateSnapshotTimerFromActiveTab();
-        if (g_variablesTabOpen) {
-            requestVariableSnapshot();
+        if (qt_game_process::g_variablesTabOpen) {
+            qt_game_process::requestVariableSnapshot();
         }
-        if (g_instancesTabOpen) {
-            requestInstanceSnapshot();
+        if (qt_game_process::g_instancesTabOpen) {
+            qt_game_process::requestInstanceSnapshot();
         }
     });
 
@@ -552,8 +325,8 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        g_lastGamePath = selectedPath;
-        launchGameFromPathProcess(selectedPath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::g_lastGamePath = selectedPath;
+        qt_game_process::launchGameFromPathProcess(selectedPath, variablesTab, gameLog, tabs, instancesTab);
     });
 
     hostWindow.show();
@@ -564,8 +337,8 @@ int main(int argc, char* argv[]) {
         }
 
         QString launchPath = QString::fromLocal8Bit(argv[1]);
-        g_lastGamePath = launchPath;
-        launchGameFromPathProcess(launchPath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::g_lastGamePath = launchPath;
+        qt_game_process::launchGameFromPathProcess(launchPath, variablesTab, gameLog, tabs, instancesTab);
     });
 
     return app.exec();
