@@ -1,6 +1,7 @@
 #include "qt_games_tab.h"
 
 #include <QDateTime>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
@@ -11,6 +12,10 @@
 #include <QSettings>
 #include <QTableWidget>
 #include <QVBoxLayout>
+
+#if defined(Q_OS_MAC)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 #include "qt_game_file_dialog.h"
 
@@ -24,9 +29,81 @@ constexpr int kLastPlayedRole = Qt::UserRole + 1;
 constexpr int kTimePlayedSecondsRole = Qt::UserRole + 2;
 constexpr int kSaveFolderRole = Qt::UserRole + 3;
 
-QString chooseGameSaveFolder(QWidget* parent, const QString& gamePath) {
-    const QString defaultDirectory = QFileInfo(gamePath).absolutePath();
-    return QFileDialog::getExistingDirectory(parent, "Choose save folder", defaultDirectory);
+QString gameTitleFromDataWin(const QString& path);
+
+QString bundleIdentifierFromGamePath(const QString& gamePath) {
+#if defined(Q_OS_MAC)
+    const QFileInfo gameInfo(gamePath);
+    const QString infoPlistPath = gameInfo.dir().absoluteFilePath(QStringLiteral("../Info.plist"));
+    QFile infoPlist(infoPlistPath);
+    if (!infoPlist.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    const QByteArray plistData = infoPlist.readAll();
+    CFDataRef dataRef = CFDataCreate(kCFAllocatorDefault,
+                                    reinterpret_cast<const UInt8*>(plistData.constData()),
+                                    plistData.size());
+    if (dataRef == nullptr) {
+        return {};
+    }
+
+    CFErrorRef error = nullptr;
+    CFPropertyListRef propertyList = CFPropertyListCreateWithData(kCFAllocatorDefault,
+                                                                  dataRef,
+                                                                  kCFPropertyListImmutable,
+                                                                  nullptr,
+                                                                  &error);
+    CFRelease(dataRef);
+
+    if (propertyList == nullptr || error != nullptr) {
+        if (error != nullptr) {
+            CFRelease(error);
+        }
+        return {};
+    }
+
+    if (CFGetTypeID(propertyList) != CFDictionaryGetTypeID()) {
+        CFRelease(propertyList);
+        return {};
+    }
+
+    const void* bundleId = CFDictionaryGetValue((CFDictionaryRef) propertyList, CFSTR("CFBundleIdentifier"));
+    if (bundleId == nullptr || CFGetTypeID(bundleId) != CFStringGetTypeID()) {
+        CFRelease(propertyList);
+        return {};
+    }
+
+    const QString bundleIdentifier = QString::fromCFString((CFStringRef) bundleId);
+    CFRelease(propertyList);
+    return bundleIdentifier;
+#else
+    Q_UNUSED(gamePath);
+    return {};
+#endif
+}
+
+QString defaultGameSaveFolder(const QString& gamePath) {
+    QString safeGameName;
+
+#if defined(Q_OS_MAC)
+    safeGameName = bundleIdentifierFromGamePath(gamePath);
+#endif
+
+    if (safeGameName.isEmpty()) {
+        const QString gameName = gameTitleFromDataWin(gamePath);
+        safeGameName = gameName.isEmpty() ? QFileInfo(gamePath).completeBaseName() : gameName;
+    }
+
+#if defined(Q_OS_WIN)
+    const QByteArray localAppData = qgetenv("LOCALAPPDATA");
+    const QString basePath = localAppData.isEmpty() ? QDir::homePath() + QStringLiteral("/AppData/Local") : QString::fromLocal8Bit(localAppData);
+    return QDir(basePath).filePath(safeGameName);
+#elif defined(Q_OS_MAC)
+    return QDir(QDir::homePath() + QStringLiteral("/Library/Application Support")).filePath(safeGameName);
+#else
+    return QDir(QDir::homePath() + QStringLiteral("/.config")).filePath(safeGameName);
+#endif
 }
 
 QString formatPlayedTime(qint64 seconds) {
@@ -96,10 +173,9 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
         if (path.isEmpty()) {
             return;
         }
-        const QString saveFolder = chooseGameSaveFolder(this, path);
-        if (saveFolder.isEmpty()) {
-            return;
-        }
+
+        const QString saveFolder = defaultGameSaveFolder(path);
+        QDir().mkpath(saveFolder);
         addGame(path, saveFolder);
     });
     connect(gameTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
@@ -223,9 +299,14 @@ void GamesTab::loadGames() {
     for (int index = 0; index < gameCount; ++index) {
         settings.setArrayIndex(index);
         const QString name = settings.value("name").toString();
-        const QString saveFolder = settings.value("saveFolder").toString();
+        const QString path = settings.value("path").toString();
+        QString saveFolder = settings.value("saveFolder").toString();
+        if (saveFolder.isEmpty() && !path.isEmpty()) {
+            saveFolder = defaultGameSaveFolder(path);
+            needsSave = true;
+        }
         needsSave |= name.isEmpty();
-        addGame(settings.value("path").toString(), saveFolder, name, settings.value("lastPlayed").toString(),
+        addGame(path, saveFolder, name, settings.value("lastPlayed").toString(),
             settings.value("timePlayedSeconds", 0).toLongLong(), false);
     }
     settings.endArray();
