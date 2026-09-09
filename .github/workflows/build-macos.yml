@@ -43,14 +43,14 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
-        run: cmake --build build
+      #- name: Build
+      #  run: cmake --build build
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: butterscotch-sdl-macos-${{ matrix.arch }}
-          path: build/butterscotch
+      #- name: Upload artifact
+      #  uses: actions/upload-artifact@v7
+      #  with:
+      #    name: butterscotch-sdl-macos-${{ matrix.arch }}
+      #    path: build/butterscotch
   build-appkit-macos:
     name: Build (AppKit ${{ matrix.label }})
     strategy:
