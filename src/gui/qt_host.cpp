@@ -331,8 +331,13 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        qt_game_process::g_lastGamePath = selectedPath;
-        qt_game_process::launchGameFromPathProcess(selectedPath, QString(), variablesTab, gameLog, tabs, instancesTab);
+        const QString resolvedPath = resolveGamePath(selectedPath);
+        if (resolvedPath.isEmpty()) {
+            return;
+        }
+
+        qt_game_process::g_lastGamePath = resolvedPath;
+        qt_game_process::launchGameFromPathProcess(resolvedPath, QString(), variablesTab, gameLog, tabs, instancesTab);
     });
 
     hostWindow.show();
@@ -342,7 +347,11 @@ int main(int argc, char* argv[]) {
             return;
         }
 
-        QString launchPath = QString::fromLocal8Bit(argv[1]);
+        QString launchPath = resolveGamePath(QString::fromLocal8Bit(argv[1]));
+        if (launchPath.isEmpty()) {
+            return;
+        }
+
         qt_game_process::g_lastGamePath = launchPath;
         qt_game_process::launchGameFromPathProcess(launchPath, QString(), variablesTab, gameLog, tabs, instancesTab);
     });

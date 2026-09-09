@@ -169,7 +169,12 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
     layout->addWidget(addGameButton);
 
     connect(addGameButton, &QPushButton::clicked, this, [this]() {
-        const QString path = chooseGameFile(this);
+        const QString selectedPath = chooseGameFile(this);
+        if (selectedPath.isEmpty()) {
+            return;
+        }
+
+        const QString path = resolveGamePath(selectedPath);
         if (path.isEmpty()) {
             return;
         }
