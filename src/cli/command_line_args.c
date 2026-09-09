@@ -149,7 +149,7 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
         {"print-shaders", no_argument,               nullptr, 998},
         {"print-declared-functions", no_argument,  nullptr, 'p'},
         {"print-unknown-functions", no_argument, nullptr, 'u'},
-        {"host-child", no_argument, nullptr, 1000},
+        {"host-child", no_argument, nullptr, 1006},
 #ifdef ENABLE_VM_TRACING
         {"trace-variable-reads", required_argument,  nullptr, 'R'},
         {"trace-variable-writes", required_argument, nullptr, 'W'},
@@ -279,7 +279,7 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
             case 'u':
                 args->printUnknownFunctions = true;
                 break;
-            case 1000:
+            case 1006:
                 /* internal flag used by the Qt host to launch a child game process */
                 args->disableLogColours = false;
                 args->hostChild = true;
