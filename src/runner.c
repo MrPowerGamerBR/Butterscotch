@@ -2331,6 +2331,12 @@ static void validateRendererVtable(Renderer* renderer) {
     #undef requireNotNullFunction
 }
 
+static Runner* g_currentRunner = nullptr;
+
+Runner* Runner_getCurrentRunner(void) {
+    return g_currentRunner;
+}
+
 void Runner_setPaused(Runner* runner, bool paused) {
     if (runner == nullptr) {
         return;
@@ -2480,11 +2486,216 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
 
     // Link runner to VM context
     vm->runner = (struct Runner*) runner;
+    g_currentRunner = runner;
 
     renderer->vtable->init(renderer, dataWin);
     audioSystem->vtable->init(audioSystem, dataWin, fileSystem);
 
     return runner;
+}
+
+static void Runner_appendVariableSnapshot(Runner* runner, RunnerVariableSnapshot* snapshot, const char* name, RValue value, int32_t instanceId, int32_t objectIndex) {
+    if (runner == nullptr || snapshot == nullptr || name == nullptr) {
+        return;
+    }
+
+    RunnerVariableEntry entry = {0};
+    entry.name = safeStrdup(name);
+    entry.value = RValue_toStringFancy(value, runner->dataWin);
+    entry.instanceId = instanceId;
+    entry.objectIndex = objectIndex;
+    entry.isArray = (value.type == RVALUE_ARRAY);
+
+    arrput(snapshot->entries, entry);
+    snapshot->count = (size_t) arrlen(snapshot->entries);
+}
+
+void Runner_freeVariableSnapshot(RunnerVariableSnapshot* snapshot) {
+    if (snapshot == nullptr) {
+        return;
+    }
+
+    repeat((int32_t) snapshot->count, i) {
+        free(snapshot->entries[i].name);
+        free(snapshot->entries[i].value);
+    }
+
+    arrfree(snapshot->entries);
+    snapshot->entries = nullptr;
+    snapshot->count = 0;
+}
+
+static void Runner_snapshotMap(Runner* runner, IntRValueHashMap* map, int32_t instanceId, int32_t objectIndex, RunnerVariableSnapshot* out) {
+    if (runner == nullptr || out == nullptr || map == nullptr) {
+        return;
+    }
+
+    repeat(map->capacity, i) {
+        IntRValueEntry* entry = &map->entries[i];
+        if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) {
+            continue;
+        }
+
+        RValue val = entry->value;
+        if (val.type == RVALUE_UNDEFINED) {
+            continue;
+        }
+
+        const char* name = VM_getVariableNameByVarId(runner->vmContext, entry->key);
+        if (name == nullptr) {
+            name = "<unnamed>";
+        }
+
+        Runner_appendVariableSnapshot(runner, out, name, val, instanceId, objectIndex);
+    }
+}
+
+char* Runner_getLiveVariableString(Runner* runner, int32_t instanceId, const char* name) {
+    if (runner == nullptr || runner->vmContext == nullptr || name == nullptr) {
+        return nullptr;
+    }
+
+    Instance* inst = nullptr;
+    if (instanceId >= 0) {
+        inst = hmget(runner->instancesById, instanceId);
+    } else {
+        inst = runner->vmContext->globalScopeInstance;
+    }
+
+    if (inst == nullptr) {
+        return nullptr;
+    }
+
+    ptrdiff_t nameSlot = shgeti(runner->vmContext->varNameMap, (char*) name);
+    if (nameSlot < 0) {
+        return safeStrdup("undefined");
+    }
+
+    int32_t varID = runner->vmContext->varNameMap[nameSlot].value;
+    RValue value = Instance_getSelfVar(inst, varID);
+    if (value.type == RVALUE_UNDEFINED) {
+        return safeStrdup("undefined");
+    }
+
+    return RValue_toStringFancy(value, runner->dataWin);
+}
+
+void Runner_snapshotGlobalVariables(Runner* runner, RunnerVariableSnapshot* out) {
+    if (runner == nullptr || out == nullptr || runner->vmContext == nullptr || runner->vmContext->globalScopeInstance == nullptr) {
+        return;
+    }
+
+    memset(out, 0, sizeof(*out));
+    Runner_snapshotMap(runner, &runner->vmContext->globalScopeInstance->selfVars, -1, STRUCT_OBJECT_INDEX, out);
+}
+
+static void writeRValueJson(JsonWriter* w, RValue val);
+
+char* Runner_dumpGlobalVariablesJson(Runner* runner) {
+    if (runner == nullptr || runner->vmContext == nullptr || runner->vmContext->globalScopeInstance == nullptr) {
+        return nullptr;
+    }
+
+    RunnerVariableSnapshot snapshot = {0};
+    Runner_snapshotGlobalVariables(runner, &snapshot);
+    JsonWriter w = JsonWriter_create();
+    JsonWriter_beginObject(&w);
+    JsonWriter_key(&w, "variables");
+    JsonWriter_beginArray(&w);
+    for (size_t i = 0; i < snapshot.count; ++i) {
+        JsonWriter_beginObject(&w);
+        JsonWriter_propertyString(&w, "name", snapshot.entries[i].name != nullptr ? snapshot.entries[i].name : "");
+        JsonWriter_propertyString(&w, "value", snapshot.entries[i].value != nullptr ? snapshot.entries[i].value : "undefined");
+        JsonWriter_endObject(&w);
+    }
+    JsonWriter_endArray(&w);
+    JsonWriter_endObject(&w);
+    char* json = JsonWriter_copyOutput(&w);
+    JsonWriter_free(&w);
+    Runner_freeVariableSnapshot(&snapshot);
+    return json;
+}
+
+char* Runner_dumpInstancesJson(Runner* runner) {
+    if (runner == nullptr || runner->dataWin == nullptr) {
+        return nullptr;
+    }
+
+    JsonWriter w = JsonWriter_create();
+    JsonWriter_beginObject(&w);
+    JsonWriter_key(&w, "instances");
+    JsonWriter_beginArray(&w);
+    repeat((int32_t) arrlen(runner->instances), i) {
+        Instance* inst = runner->instances[i];
+        if (!inst->active) {
+            continue;
+        }
+
+        const char* objectName = "";
+        if (inst->objectIndex >= 0 && runner->dataWin->objt.count > (uint32_t) inst->objectIndex) {
+            objectName = runner->dataWin->objt.objects[inst->objectIndex].name;
+        }
+
+        JsonWriter_beginObject(&w);
+        JsonWriter_propertyInt(&w, "instanceId", inst->instanceId);
+        JsonWriter_propertyString(&w, "objectName", objectName);
+        JsonWriter_propertyInt(&w, "objectIndex", inst->objectIndex);
+        JsonWriter_propertyDouble(&w, "x", inst->x);
+        JsonWriter_propertyDouble(&w, "y", inst->y);
+        JsonWriter_propertyInt(&w, "depth", inst->depth);
+
+        JsonWriter_key(&w, "selfVariables");
+        JsonWriter_beginObject(&w);
+        repeat(inst->selfVars.capacity, svIdx) {
+            IntRValueEntry* entry = &inst->selfVars.entries[svIdx];
+            if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+
+            int32_t varID = entry->key;
+            RValue val = entry->value;
+            if (val.type == RVALUE_UNDEFINED) continue;
+
+            const char* varName = "?";
+            repeat(runner->dataWin->vari.variableCount, varIdx) {
+                Variable* var = &runner->dataWin->vari.variables[varIdx];
+                if (var->instanceType == INSTANCE_SELF && var->varID == varID) {
+                    varName = var->name;
+                    break;
+                }
+            }
+
+            JsonWriter_key(&w, varName);
+            writeRValueJson(&w, val);
+        }
+        JsonWriter_endObject(&w);
+
+        JsonWriter_endObject(&w);
+    }
+    JsonWriter_endArray(&w);
+    JsonWriter_endObject(&w);
+    char* json = JsonWriter_copyOutput(&w);
+    JsonWriter_free(&w);
+    return json;
+}
+
+void Runner_snapshotInstanceVariables(Runner* runner, int32_t instanceId, RunnerVariableSnapshot* out) {
+    if (runner == nullptr || out == nullptr || runner->vmContext == nullptr) {
+        return;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    Instance* inst = nullptr;
+    if (instanceId >= 0) {
+        inst = hmget(runner->instancesById, instanceId);
+    } else {
+        inst = runner->vmContext->globalScopeInstance;
+    }
+
+    if (inst == nullptr) {
+        return;
+    }
+
+    Runner_snapshotMap(runner, &inst->selfVars, instanceId, inst->objectIndex, out);
 }
 
 static inline void dispatchInstanceCreationEvents(Runner* runner, Instance* inst) {
@@ -4687,6 +4898,9 @@ char* Runner_dumpStateJson(Runner* runner) {
 }
 
 void Runner_free(Runner* runner) {
+    if (g_currentRunner == runner) {
+        g_currentRunner = nullptr;
+    }
     if (runner == nullptr) return;
 
     cleanupState(runner);

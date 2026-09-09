@@ -2956,7 +2956,7 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
             parseTXTR(&reader, dw, chunkEnd, options.lazyLoadTextures);
         } else if (options.parseAudo && memcmp(chunkName, "AUDO", 4) == 0) {
             parseAUDO(&reader, dw, options.lazyLoadAudio);
-        } else {
+        } else if (!options.suppressUnknownChunkLogs) {
             logInfo("Unknown chunk: %.4s (length %u at offset 0x%zX)\n", chunkName, chunkLength, chunkDataStart - 8);
         }
 

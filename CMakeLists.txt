@@ -28,7 +28,7 @@ set(BACKEND "sdl2")
 
 endif()
 
-project(butterscotch C)
+project(butterscotch C CXX)
 
 if (PLATFORM STREQUAL "vita")
 include("${VITASDK}/share/vita.cmake" REQUIRED)
@@ -71,8 +71,14 @@ set(PLATFORM "cli" CACHE STRING "Platform backend")
 set(BACKEND "" CACHE STRING "Desktop platform backend")
 set(AUDIO_BACKEND "" CACHE STRING "Audio backend")
 
-if(PLATFORM STREQUAL "cli" AND BACKEND STREQUAL "")
-    message(FATAL_ERROR "You need to set a BACKEND!")
+if (PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "gui")
+    if(BACKEND STREQUAL "")
+        message(FATAL_ERROR "You need to set a BACKEND!")
+    endif()
+endif()
+
+if(PLATFORM STREQUAL "gui")
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
 endif()
 
 # Build metadata
@@ -176,6 +182,9 @@ else()
 endif()
 # Platform specific files builds
 file(GLOB PLATFORM_SOURCES src/${PLATFORM}/*.c)
+if(PLATFORM STREQUAL "gui")
+    list(APPEND PLATFORM_SOURCES src/cli/command_line_args.c)
+endif()
 
 if(PLATFORM STREQUAL "android")
     add_library(butterscotch SHARED ${SOURCES} ${PLATFORM_SOURCES} ${AUDIO_SOURCES})
@@ -260,7 +269,7 @@ if(ENABLE_VM_EXCEPTIONS_LOGS)
     add_compile_definitions(ENABLE_VM_EXCEPTIONS_LOGS)
 endif()
 
-if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "switch")
+if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "gui" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "switch")
     if(PLATFORM STREQUAL "vita")
         # Normally, __VITA__ should already be defined, but for some reason,
         # in my case, this didn't really work... so just in case, when we're
@@ -420,6 +429,21 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
         add_compile_definitions(USE_NOOP)
         set(BACKEND_LIBRARIES "")
     endif()
+
+    if(PLATFORM STREQUAL "gui")
+        add_compile_definitions(USE_QT6_HOST_WINDOW)
+        target_sources(butterscotch PRIVATE
+            src/gui/qt_game_os_type.cpp
+            src/gui/qt_game_process.cpp
+            src/gui/qt_games_tab.cpp
+            src/gui/qt_host.cpp
+            src/gui/qt_instances_tab.cpp
+            src/gui/qt_log_tab.cpp
+            src/gui/qt_variables_tab.cpp
+        )
+        target_link_libraries(butterscotch PRIVATE Qt6::Widgets)
+    endif()
+
     if (PLATFORM STREQUAL "vita")
         target_link_libraries(butterscotch PRIVATE
             ${BACKEND_LIBRARIES}

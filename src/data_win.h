@@ -43,6 +43,7 @@ typedef struct {
     bool parseStrg;
     bool parseTxtr;
     bool parseAudo;
+    bool suppressUnknownChunkLogs;
     // If true, precise masks will be skipped when the sprite does not have a precise state set
     bool skipLoadingPreciseMasksForNonPreciseSprites;
 

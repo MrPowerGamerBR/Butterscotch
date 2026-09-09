@@ -75,6 +75,7 @@ const GLuint *hostFramebuffer;
 
 #ifndef _WIN32
 #include <fcntl.h>
+#include <sys/select.h>
 #include <unistd.h>
 #else
 /* we define this ourselves because psapi.h isn't available in msvc 4.0 */
@@ -91,6 +92,90 @@ typedef struct {
     size_t PeakPagefileUsage;
 } BS_PROCESS_MEMORY_COUNTERS;
 #endif
+
+static void hostSnapshotRequests(Runner* runner, bool* outVariableRequested, bool* outInstanceRequested) {
+    static char commandBuffer[64];
+    static size_t commandLength = 0;
+    char input[64];
+    size_t inputLength = 0;
+
+#ifdef _WIN32
+    DWORD bytesAvailable = 0;
+    HANDLE inputHandle = GetStdHandle(STD_INPUT_HANDLE);
+    if (inputHandle == INVALID_HANDLE_VALUE || !PeekNamedPipe(inputHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr) || bytesAvailable == 0) {
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
+    }
+    DWORD bytesRead = 0;
+    if (!ReadFile(inputHandle, input, (DWORD)sizeof(input), &bytesRead, nullptr) || bytesRead == 0) {
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
+    }
+    inputLength = (size_t)bytesRead;
+#else
+    fd_set inputFds;
+    FD_ZERO(&inputFds);
+    FD_SET(STDIN_FILENO, &inputFds);
+    struct timeval timeout = {0, 0};
+    if (select(STDIN_FILENO + 1, &inputFds, nullptr, nullptr, &timeout) <= 0) {
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
+    }
+    ssize_t bytesRead = read(STDIN_FILENO, input, sizeof(input));
+    if (bytesRead <= 0) {
+        if (outVariableRequested != nullptr) *outVariableRequested = false;
+        if (outInstanceRequested != nullptr) *outInstanceRequested = false;
+        return;
+    }
+    inputLength = (size_t)bytesRead;
+#endif
+
+    bool variableRequested = false;
+    bool instanceRequested = false;
+    for (size_t i = 0; i < inputLength; ++i) {
+        if (input[i] == '\n') {
+            commandBuffer[commandLength] = '\0';
+            if (strcmp(commandBuffer, "BS_REQUEST_VARS") == 0) {
+                variableRequested = true;
+            } else if (strcmp(commandBuffer, "BS_REQUEST_INSTANCES") == 0) {
+                instanceRequested = true;
+            } else if (strncmp(commandBuffer, "BS_PAUSE ", 9) == 0) {
+                const char* value = commandBuffer + 9;
+                const bool paused = strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "on") == 0;
+                Runner_setPaused(runner, paused);
+            }
+            commandLength = 0;
+        } else if (commandLength + 1 < sizeof(commandBuffer)) {
+            commandBuffer[commandLength++] = input[i];
+        } else {
+            commandLength = 0;
+        }
+    }
+
+    if (outVariableRequested != nullptr) *outVariableRequested = variableRequested;
+    if (outInstanceRequested != nullptr) *outInstanceRequested = instanceRequested;
+}
+
+static void dumpHostVariableSnapshot(Runner* runner) {
+    char* json = Runner_dumpGlobalVariablesJson(runner);
+    if (json != nullptr) {
+        fprintf(stdout, "BS_VARS_JSON %s\n", json);
+        fflush(stdout);
+        free(json);
+    }
+}
+
+static void dumpHostInstanceSnapshot(Runner* runner) {
+    char* json = Runner_dumpInstancesJson(runner);
+    if (json != nullptr) {
+        fprintf(stdout, "BS_INSTANCES_JSON %s\n", json);
+        fflush(stdout);
+        free(json);
+    }
+}
 
 static size_t get_used_memory(void) {
 #if defined(__linux__)
@@ -1020,6 +1105,12 @@ int loop(CommandLineArgs args, const char *argv0) {
                 shouldWindowClose = true;
                 continue;
             }
+          
+            bool hostVariableSnapshotRequestedFlag = false;
+            bool hostInstanceSnapshotRequestedFlag = false;
+            if (args.hostChild) {
+                hostSnapshotRequests(runner, &hostVariableSnapshotRequestedFlag, &hostInstanceSnapshotRequestedFlag);
+            }
             
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_F8)) {
                 bool isPaused = Runner_isPaused(runner);
@@ -1349,6 +1440,15 @@ int loop(CommandLineArgs args, const char *argv0) {
                 platformSwapBuffers();
             if (shouldStep) {
                 Runner_handlePendingRoomChange(runner);
+            }
+
+            if (args.hostChild) {
+                if (hostVariableSnapshotRequestedFlag) {
+                    dumpHostVariableSnapshot(runner);
+                }
+                if (hostInstanceSnapshotRequestedFlag) {
+                    dumpHostInstanceSnapshot(runner);
+                }
             }
 
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)) {

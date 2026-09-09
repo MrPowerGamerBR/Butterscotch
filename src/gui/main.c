@@ -1,4 +1,4 @@
-#include "command_line_args.h"
+#include <cli/command_line_args.h>
 #include <loop.h>
 
 /* For SDL_main */
@@ -10,11 +10,12 @@
 #include <SDL3/SDL_main.h>
 #endif
 
-int main(int argc, char* argv[]) {
+int guiMainImpl(int argc, char* argv[]) {
+    setbuf(stdout, NULL);
     setbuf(stderr, NULL);
 
     CommandLineArgs args;
-    parseCommandLineArgs(&args, argc, argv, false);
+    parseCommandLineArgs(&args, argc, argv, true);
     setLogColours(!args.disableLogColours);
     int ret = loop(args, argv[0]);
     freeCommandLineArgs(&args);
