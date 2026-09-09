@@ -229,11 +229,7 @@ int main(int argc, char* argv[]) {
         gameLog->setPaused(paused);
     });
     QObject::connect(gameLog->resetButton(), &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
-        if (qt_game_process::g_lastGamePath.isEmpty()) {
-            return;
-        }
-
-        qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::resetGameProcess();
     });
     QObject::connect(gameLog->quitButton(), &QPushButton::clicked, []() {
         qt_game_process::stopGameProcess();
