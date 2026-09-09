@@ -1108,7 +1108,7 @@ int loop(CommandLineArgs args, const char *argv0) {
           
             bool hostVariableSnapshotRequestedFlag = false;
             bool hostInstanceSnapshotRequestedFlag = false;
-            if (args.hostVariableJson && args.hostVariableJsonOnDemand) {
+            if (args.hostChild) {
                 hostSnapshotRequests(runner, &hostVariableSnapshotRequestedFlag, &hostInstanceSnapshotRequestedFlag);
             }
             
@@ -1442,17 +1442,13 @@ int loop(CommandLineArgs args, const char *argv0) {
                 Runner_handlePendingRoomChange(runner);
             }
 
-            bool shouldDumpHostVariables = args.hostVariableJson &&
-                (hostVariableSnapshotRequestedFlag ||
-                 (!args.hostVariableJsonOnDemand && shouldStep && args.hostVariableJsonInterval > 0 && runner->frameCount % args.hostVariableJsonInterval == 0));
-            bool shouldDumpHostInstances = args.hostVariableJson &&
-                (hostInstanceSnapshotRequestedFlag ||
-                 (!args.hostVariableJsonOnDemand && shouldStep && args.hostVariableJsonInterval > 0 && runner->frameCount % args.hostVariableJsonInterval == 0));
-            if (shouldDumpHostVariables) {
-                dumpHostVariableSnapshot(runner);
-            }
-            if (shouldDumpHostInstances) {
-                dumpHostInstanceSnapshot(runner);
+            if (args.hostChild) {
+                if (hostVariableSnapshotRequestedFlag) {
+                    dumpHostVariableSnapshot(runner);
+                }
+                if (hostInstanceSnapshotRequestedFlag) {
+                    dumpHostInstanceSnapshot(runner);
+                }
             }
 
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_BACKSPACE)) {

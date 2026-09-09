@@ -96,8 +96,7 @@ static void resetGameProcess() {
     const QString executablePath = resolveGameExecutablePath();
     g_gameProcess->start(executablePath, QStringList{
         g_lastGamePath,
-        QStringLiteral("--host-child"),
-        QStringLiteral("--host-vars-json-on-demand")
+        QStringLiteral("--host-child")
     });
 }
 
@@ -275,8 +274,7 @@ static void launchGameFromPathProcess(const QString& path, VariablesTab* variabl
     const QString executablePath = resolveGameExecutablePath();
     g_gameProcess->start(executablePath, QStringList{
         path,
-        QStringLiteral("--host-child"),
-        QStringLiteral("--host-vars-json-on-demand")
+        QStringLiteral("--host-child")
     });
 }
 
@@ -366,9 +364,7 @@ int main(int argc, char* argv[]) {
     bool isChildGameProcess = false;
     for (int i = 1; i < argc; ++i) {
         const QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == QStringLiteral("--host-child") ||
-            arg == QStringLiteral("--host-vars-json") ||
-            arg.startsWith(QStringLiteral("--host-vars-json-interval"))) {
+        if (arg == QStringLiteral("--host-child")) {
             isChildGameProcess = true;
             break;
         }

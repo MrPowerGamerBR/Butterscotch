@@ -149,10 +149,7 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
         {"print-shaders", no_argument,               nullptr, 998},
         {"print-declared-functions", no_argument,  nullptr, 'p'},
         {"print-unknown-functions", no_argument, nullptr, 'u'},
-        {"host-child", no_argument, nullptr, 1006},
-        {"host-vars-json", no_argument, nullptr, 1004},
-        {"host-vars-json-on-demand", no_argument, nullptr, 1007},
-        {"host-vars-json-interval", required_argument, nullptr, 1005},
+        {"host-child", no_argument, nullptr, 1000},
 #ifdef ENABLE_VM_TRACING
         {"trace-variable-reads", required_argument,  nullptr, 'R'},
         {"trace-variable-writes", required_argument, nullptr, 'W'},
@@ -282,26 +279,10 @@ void parseCommandLineArgs(CommandLineArgs* args, int argc, char* argv[], bool al
             case 'u':
                 args->printUnknownFunctions = true;
                 break;
-            case 1004:
-                args->hostVariableJson = true;
-                break;
-            case 1007:
-                args->hostVariableJson = true;
-                args->hostVariableJsonOnDemand = true;
-                break;
-            case 1005: {
-                char* endPtr;
-                int interval = strtol(optarg, &endPtr, 10);
-                if (*endPtr != '\0' || interval <= 0) {
-                    logError("Invalid interval '%s' for --host-vars-json-interval\n", optarg);
-                    exit(1);
-                }
-                args->hostVariableJsonInterval = interval;
-                break;
-            }
-            case 1006:
+            case 1000:
                 /* internal flag used by the Qt host to launch a child game process */
                 args->disableLogColours = false;
+                args->hostChild = true;
                 break;
             case 'L':
                 args->lazyTextures = true;
