@@ -56,16 +56,10 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
         # equivalent to -fomit-frame-pointer
         add_compile_options(/Oy)
     else()
-        add_compile_options(-ffast-math -fno-finite-math-only -ffunction-sections -fdata-sections)
-        add_link_options(-Wl,--gc-sections)
-        include(CheckLinkerFlag)
-        check_linker_flag("-Wl,--icf=all" HAS_ICF_ALL)
-        if(HAS_ICF_ALL)
-            add_link_options(-Wl,--icf=all)
-        endif()
+        add_compile_options(-ffast-math -fno-finite-math-only)
 
         # some targets don't support -fomit-frame-pointer IIRC
-        include(CheckCCompilerFlag)    
+        include(CheckCCompilerFlag)
         check_c_compiler_flag("-fomit-frame-pointer" HAS_FOMIT_FRAME_POINTER)
         if(HAS_FOMIT_FRAME_POINTER)
             add_compile_options(-fomit-frame-pointer)
