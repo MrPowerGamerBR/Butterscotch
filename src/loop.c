@@ -1362,7 +1362,8 @@ int loop(CommandLineArgs args, const char *argv0) {
             wasPaused = runner->paused;
 
             // Limit frame rate to room speed (skip in headless mode for max speed!!)
-            if (!args.headless && runner->currentRoom->speed > 0) {
+            double effectiveGameSpeed = Runner_getEffectiveGameSpeed(runner);
+            if (!args.headless && effectiveGameSpeed > 0.0) {
                 bool fastForwardTabNow = RunnerKeyboard_checkPressed(runner->keyboard, VK_TAB);
                 if (args.fastForwardSpeed > 0.0 && fastForwardTabNow && !fastForwardTabPrev) {
                     fastForwardActive = !fastForwardActive;
@@ -1370,7 +1371,7 @@ int loop(CommandLineArgs args, const char *argv0) {
                 }
                 fastForwardTabPrev = fastForwardTabNow;
                 double effectiveSpeed = (args.fastForwardSpeed > 0.0 && fastForwardActive) ? args.fastForwardSpeed : args.speedMultiplier;
-                uint64_t targetFrameTime = 1000000000 / (runner->currentRoom->speed * effectiveSpeed);
+                uint64_t targetFrameTime = 1000000000 / (effectiveGameSpeed * effectiveSpeed);
                 uint64_t nextFrameTime = lastFrameTime + targetFrameTime;
                 platformSleepUntil(nextFrameTime);
             }

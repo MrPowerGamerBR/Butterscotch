@@ -915,13 +915,7 @@ RValue VMBuiltins_getVariable(VMContext* ctx, Instance* inst, int16_t builtinVar
         case BUILTIN_VAR_ROOM_LAST:
             return RValue_makeReal((GMLReal) runner->dataWin->gen8.roomOrder[runner->dataWin->gen8.roomOrderCount - 1]);
         case BUILTIN_VAR_ROOM_SPEED:
-            if (runner->currentRoom == nullptr) {
-                Room* room = resolveRoomForBuiltinAccess(runner);
-                if (room != nullptr) return RValue_makeReal((GMLReal) room->speed);
-                return RValue_makeReal((GMLReal) runner->dataWin->gen8.gms2FPS);
-            }
-
-            return RValue_makeReal((GMLReal) runner->currentRoom->speed);
+            return RValue_makeReal((GMLReal) Runner_getEffectiveGameSpeed(runner));
         case BUILTIN_VAR_ROOM_WIDTH:
             if (runner->currentRoom == nullptr)
                 return RValue_makeReal((GMLReal) -1.0);
@@ -1756,10 +1750,11 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
             return;
         }
         case BUILTIN_VAR_ROOM_SPEED: {
+            double speedValue = (double) RValue_toReal(val);
+            runner->gameSpeedOverride = speedValue;
+
             Room* room = resolveRoomForBuiltinAccess(runner);
             if (room != nullptr) room->speed = (uint32_t) RValue_toInt32(val);
-            // Keep pre-room fallback reads consistent if scripts touch room_speed before room init.
-            if (runner->currentRoom == nullptr) runner->dataWin->gen8.gms2FPS = (float) RValue_toReal(val);
             return;
         }
 
@@ -3304,10 +3299,26 @@ static RValue builtin_randomize(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
 static RValue builtin_game_get_speed(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
     if (1 > argCount) return RValue_makeUndefined();
     int32_t type = RValue_toInt32(args[0]);
-    GMLReal fps = (GMLReal) ctx->runner->currentRoom->speed;
+    GMLReal fps = Runner_getEffectiveGameSpeed(ctx->runner);
     // gamespeed_fps = 0, gamespeed_microseconds = 1
     if (type == 0) return RValue_makeReal(fps);
-    return RValue_makeReal((GMLReal) 1000000.0 / fps);
+    return RValue_makeReal(fps > 0.0 ? (GMLReal) (1000000.0 / fps) : 0.0);
+}
+
+static RValue builtin_game_set_speed(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+
+    int32_t type = RValue_toInt32(args[0]);
+    GMLReal speedValue = RValue_toReal(args[1]);
+    GMLReal fps = (type == 0) ? speedValue : (speedValue > 0.0 ? (GMLReal) (1000000.0 / speedValue) : 0.0);
+
+    ctx->runner->gameSpeedOverride = fps;
+
+    Room* room = ctx->runner->currentRoom;
+    if (room != nullptr) room->speed = (uint32_t) fps;
+    ctx->runner->dataWin->gen8.gms2FPS = (float) fps;
+
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_room_exists(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -19373,6 +19384,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // Room
     VM_registerBuiltin(ctx, "game_get_speed", builtin_game_get_speed);
+    VM_registerBuiltin(ctx, "game_set_speed", builtin_game_set_speed);
     VM_registerBuiltin(ctx, "room_exists", builtin_room_exists);
     VM_registerBuiltin(ctx, "room_get_name", builtin_room_get_name);
     VM_registerBuiltin(ctx, "room_get_info", builtin_room_get_info);
