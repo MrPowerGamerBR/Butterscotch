@@ -36,6 +36,8 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_C_COMPILER=powerpc-apple-darwin8-gcc \
             -DCMAKE_SYSTEM_NAME=Darwin \
+            -DCMAKE_AR=ppc-ar \
+            -DCMAKE_RANLIB=ppc-ranlib \
             -DWERROR=ON \
             -DBACKEND=noop \
             -DAUDIO_BACKEND=openal \
