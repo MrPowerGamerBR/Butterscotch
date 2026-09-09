@@ -1944,6 +1944,36 @@ static bool isRoomNameInEagerList(const char* name, StringBooleanEntry* eagerSet
     return shgeti(eagerSet, name) >= 0;
 }
 
+static bool probeRleTileLayer(BinaryReader* reader, uint32_t gridStart, uint32_t regionLen, uint32_t totalCells) {
+    if (regionLen == 0) return false;
+    BinaryReader_seek(reader, gridStart);
+    uint32_t produced = 0;
+    uint32_t consumed = 0;
+    while (produced < totalCells) {
+        if (consumed + 1 > regionLen) return false;
+        uint8_t length = BinaryReader_readUint8(reader);
+        consumed += 1;
+        if (length >= 128) {
+            uint32_t runLength = (length & 0x7F) + 1;
+            if (consumed + 4 > regionLen) return false;
+            BinaryReader_skip(reader, 4);
+            consumed += 4;
+            if (runLength > totalCells - produced) runLength = totalCells - produced;
+            produced += runLength;
+        } else {
+            uint32_t runLength = length;
+            if (runLength > totalCells - produced) runLength = totalCells - produced;
+            if (consumed + (size_t) runLength * 4 > regionLen) return false;
+            BinaryReader_skip(reader, (size_t) runLength * 4);
+            consumed += (size_t) runLength * 4;
+            produced += runLength;
+        }
+    }
+    // for you two watchin the stream, after every cell, only a 4-byte pad plus alignment may remain, and basically more means it isn't rle..
+    uint32_t remaining = regionLen - consumed;
+    return remaining <= 7;
+}
+
 static void parseROOM(BinaryReader* reader, DataWin* dw, bool lazyLoadRooms, StringBooleanEntry* eagerlyLoadedRooms) {
     RoomChunk* rc = &dw->room;
 
@@ -2077,11 +2107,12 @@ static void parseROOM(BinaryReader* reader, DataWin* dw, bool lazyLoadRooms, Str
 
                 uint32_t tileMapWidth = BinaryReader_readUint32(reader);
                 uint32_t tileMapHeight = BinaryReader_readUint32(reader);
-                uint32_t expectedRawSize = tileMapWidth * tileMapHeight * 4;
-                uint32_t actualRemaining = nextOffset - (uint32_t)BinaryReader_getPosition(reader);
+                uint32_t totalCells = tileMapWidth * tileMapHeight;
+                size_t gridStart = BinaryReader_getPosition(reader);
+                if (nextOffset <= (uint32_t) gridStart) continue;
+                uint32_t regionLen = nextOffset - (uint32_t) gridStart;
 
-                // If sizes don't match, it's RLE compressed -> 2024.2+
-                if (actualRemaining != expectedRawSize) {
+                if (totalCells > 0 && probeRleTileLayer(reader, (uint32_t) gridStart, regionLen, totalCells)) {
                     DataWin_bumpVersionTo(dw, 2024, 2, 0, 0);
                     found2024_2 = true;
                     break;
