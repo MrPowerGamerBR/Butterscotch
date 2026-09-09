@@ -1564,8 +1564,6 @@ void VMBuiltins_setVariable(VMContext* ctx, Instance* inst, int16_t builtinVarId
         case BUILTIN_VAR_TIMELINE_INDEX: {
             if (inst == nullptr) break;
             int32_t newIdx = RValue_toInt32(val);
-            uint32_t tmlnCount = runner->dataWin->tmln.count;
-            if (newIdx >= 0 && (uint32_t) newIdx >= tmlnCount) newIdx = -1;
             if (inst->timelineIndex != newIdx) {
                 inst->timelineIndex = newIdx;
                 inst->timelinePosition = 0.0f;
@@ -6474,6 +6472,36 @@ static RValue builtin_array_pop(MAYBE_UNUSED VMContext* ctx, RValue* args, int32
     // We are stealing the ownership, we don't need to increase the ref
     arr->modern.length--;
     return value;
+}
+
+// array_concat(array, arrays...) - concatenate each provided array onto a copy of the first array.
+static RValue builtin_array_concat(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeArray(GMLArray_create(ctx->dataWin->gen8.wadVersion, 0));
+    if (args[0].type != RVALUE_ARRAY || args[0].array == nullptr) return RValue_makeUndefined();
+
+    GMLArray* out = GMLArray_clone(args[0].array, IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : nullptr);
+    int32_t outLen = GMLArray_length1D(out);
+
+    for (int32_t i = 1; i < argCount; i++) {
+        if (args[i].type != RVALUE_ARRAY || args[i].array == nullptr) {
+            GMLArray_decRef(out);
+            return RValue_makeUndefined();
+        }
+
+        GMLArray* src = args[i].array;
+        int32_t addLen = GMLArray_length1D(src);
+        if (addLen > 0) {
+            GMLArray_growTo(out, outLen + addLen);
+            repeat(addLen, j) {
+                RValue* slot = GMLArray_slot(out, outLen + j);
+                *slot = RValue_makeIndependent(GMLArray_get(src, j));
+            }
+        }
+        outLen += addLen;
+    }
+
+    if (IS_WAD17_OR_HIGHER(ctx)) out->owner = ctx->currentArrayOwner;
+    return RValue_makeArray(out);
 }
 
 // array_insert(array, index, values...) - insert one or more values at "index", shifting the tail up. If "index" is past the end, fill the gap with real 0 (see the yyVariable.js for reference).
@@ -15553,10 +15581,16 @@ static RValue builtin_NullObject(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValu
 }
 
 // @@SetStatic@@() - GMS2.3+ internal function emitted at the top of constructor bodies.
-// TODO: Semi-stub! The native runner does more things than that
+// Native GameMaker creates or reuses the shared static object for this constructor and marks
+// the static block as initialized so all later static reads/writes resolve against that object.
 static RValue builtin_SetStatic(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
-    logSemiStubbedFunction(ctx, "@@SetStatic@@");
-    if (ctx->staticInitialized != nullptr) ctx->staticInitialized[ctx->currentCodeIndex] = true;
+    if (ctx->staticStructs != nullptr) {
+        // Lazily create the shared static object for this constructor, matching the native runner's `Code_CreateStatic` path.
+        (void) VM_getOrCreateStaticStruct(ctx, ctx->currentCodeIndex);
+    }
+    if (ctx->staticInitialized != nullptr) {
+        ctx->staticInitialized[ctx->currentCodeIndex] = true;
+    }
     return RValue_makeUndefined();
 }
 
@@ -15696,6 +15730,46 @@ static GamePath* getPath(Runner* runner, int32_t pathIdx) {
 static RValue builtin_path_exists(VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeBool(false);
     return RValue_makeBool(getPath(ctx->runner, RValue_toInt32(args[0])) != nullptr);
+}
+
+// draw_path(index, x, y, absolute) - draws a path outline using the current draw color/alpha
+static RValue builtin_draw_path(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    if (runner->renderer == nullptr) return RValue_makeUndefined();
+
+    int32_t index = RValue_toInt32(args[0]);
+    GMLReal x = RValue_toReal(args[1]);
+    GMLReal y = RValue_toReal(args[2]);
+    bool absolute = RValue_toBool(args[3]);
+
+    GamePath* path = getPath(runner, index);
+    if (path == nullptr) return RValue_makeUndefined();
+
+    PathPositionResult origin = GamePath_getPosition(path, 0.0f);
+
+    float xoff = absolute ? 0.0f : x - origin.x;
+    float yoff = absolute ? 0.0f : y - origin.y;
+
+    if (runner->applyOffsetForPrimitives) {
+        xoff += 1.0f;
+        yoff += 1.0f;
+    }
+
+    int maxsteps = (int) roundf(path->length / 4.0f);
+    if (maxsteps <= 0) return RValue_makeUndefined();
+
+    PathPositionResult prev = GamePath_getPosition(path, 0.0f);
+    for (int i = 1; i <= maxsteps; i++) {
+        float t = (float) i / (float) maxsteps;
+        PathPositionResult cur = GamePath_getPosition(path, t);
+        runner->renderer->vtable->drawLine(runner->renderer,
+            xoff + prev.x, yoff + prev.y,
+            xoff + cur.x, yoff + cur.y,
+            1.0f, runner->renderer->drawColor, runner->renderer->drawAlpha);
+        prev = cur;
+    }
+
+    return RValue_makeUndefined();
 }
 
 // path_add() - create a new empty path, return its index
@@ -15894,6 +15968,7 @@ static RValue builtin_path_duplicate(VMContext* ctx, RValue* args, int32_t argCo
     newPath->pointCount = source.pointCount;
     newPath->internalPointCount = source.internalPointCount;
     newPath->length = source.length;
+    newPath->exists = true;
 
     // Copy external points
     if (source.pointCount > 0) {
@@ -15989,7 +16064,6 @@ static RValue builtin_path_flip(VMContext* ctx, RValue* args, int32_t argCount) 
         return RValue_makeUndefined();
 
     for (uint32_t i = 0; i < p->pointCount; i++) {
-        p->points[i].x = b.centreX - (p->points[i].x - b.centreX);
         p->points[i].y = b.centreY - (p->points[i].y - b.centreY);
     }
 
@@ -16199,6 +16273,146 @@ static RValue builtin_timeline_size(VMContext* ctx, RValue* args, int32_t argCou
     Timeline* tl = resolveTimeline(ctx->runner, args[0]);
     if (tl == nullptr) return RValue_makeReal(0.0);
     return RValue_makeReal((GMLReal) tl->momentCount);
+}
+
+static void timelineAppendScript(Timeline* timeline, uint32_t step, int32_t codeId) {
+    uint32_t i = 0;
+    while (i < timeline->momentCount && timeline->moments[i].step < step) i++;
+
+    if (i < timeline->momentCount && timeline->moments[i].step == step) {
+        TimelineMoment* moment = &timeline->moments[i];
+        moment->actions = (EventAction*) safeRealloc(moment->actions, (moment->actionCount + 1) * sizeof(EventAction));
+        EventAction* action = &moment->actions[moment->actionCount];
+        memset(action, 0, sizeof(*action));
+        action->codeId = codeId;
+        action->libID = 1;
+        action->exeType = 2;
+        action->who = -1;
+        moment->actionCount++;
+        return;
+    }
+
+    timeline->moments = (TimelineMoment*) safeRealloc(timeline->moments, (timeline->momentCount + 1) * sizeof(TimelineMoment));
+    memmove(&timeline->moments[i + 1], &timeline->moments[i], (timeline->momentCount - i) * sizeof(TimelineMoment));
+    TimelineMoment* moment = &timeline->moments[i];
+    memset(moment, 0, sizeof(*moment));
+    moment->step = step;
+    moment->actions = (EventAction*) safeCalloc(1, sizeof(EventAction));
+    moment->actions[0].codeId = codeId;
+    moment->actions[0].libID = 1;
+    moment->actions[0].exeType = 2;
+    moment->actions[0].who = -1;
+    moment->actionCount = 1;
+    timeline->momentCount++;
+}
+
+static int32_t timelineResolveScript(VMContext* ctx, RValue arg) {
+#if IS_WAD17_OR_HIGHER_ENABLED
+    if (arg.type == RVALUE_METHOD && arg.method != nullptr) {
+        return arg.method->codeIndex;
+    }
+#endif
+    if (arg.type == RVALUE_STRING && arg.string != nullptr) {
+        ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) arg.string);
+        if (idx >= 0) return ctx->codeIndexByName[idx].value;
+        return -1;
+    }
+    int32_t rawArg = RValue_toInt32(arg);
+    if (0 > rawArg) return -1;
+#if IS_WAD17_OR_HIGHER_ENABLED
+    if (DataWin_isVersionAtLeast(ctx->dataWin, 2, 3, 0, 0) && (uint32_t) rawArg < ctx->dataWin->func.functionCount) {
+        const char* funcName = ctx->dataWin->func.functions[rawArg].name;
+        if (funcName != nullptr) {
+            ptrdiff_t idx = shgeti(ctx->codeIndexByName, (char*) funcName);
+            if (idx >= 0) return ctx->codeIndexByName[idx].value;
+        }
+        return -1;
+    }
+#endif
+    if ((uint32_t) rawArg < ctx->dataWin->scpt.count) {
+        return ctx->dataWin->scpt.scripts[rawArg].codeId;
+    }
+    return -1;
+}
+
+static RValue builtin_timeline_add(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    Runner* runner = ctx->runner;
+    Tmln* tmln = &runner->dataWin->tmln;
+    uint32_t newIdx = tmln->count;
+    tmln->timelines = (Timeline*) safeRealloc(tmln->timelines, (newIdx + 1) * sizeof(Timeline));
+    Timeline* timeline = &tmln->timelines[newIdx];
+    memset(timeline, 0, sizeof(*timeline));
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "__newtimeline%u", newIdx);
+    timeline->name = safeStrdup(buffer);
+    shput(runner->assetsByName, safeStrdup(buffer), (int32_t) newIdx);
+    timeline->present = true;
+    timeline->momentCount = 0;
+    timeline->moments = nullptr;
+    tmln->count = newIdx + 1;
+    return RValue_makeAssetRef((int32_t) newIdx, ASSET_TYPE_TIMELINE);
+}
+
+static RValue builtin_timeline_moment_add_script(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (3 > argCount) return RValue_makeUndefined();
+    Timeline* timeline = resolveTimeline(ctx->runner, args[0]);
+    if (timeline == nullptr) return RValue_makeUndefined();
+    int32_t codeId = timelineResolveScript(ctx, args[2]);
+    if (0 > codeId || (uint32_t) codeId >= ctx->dataWin->code.count) {
+        logWarn("VM: timeline_moment_add_script - invalid script reference\n");
+        return RValue_makeUndefined();
+    }
+    timelineAppendScript(timeline, (uint32_t) RValue_toInt32(args[1]), codeId);
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_timeline_delete(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+    int32_t idx = RValue_toInt32(args[0]);
+    if (0 > idx || (uint32_t) idx >= runner->dataWin->tmln.count) return RValue_makeUndefined();
+    Timeline* timeline = &runner->dataWin->tmln.timelines[idx];
+    if (!timeline->present) return RValue_makeUndefined();
+    timeline->present = false;
+    if (timeline->name != nullptr) {
+        shdel(runner->assetsByName, (char*) timeline->name);
+    }
+    repeat(timeline->momentCount, i) {
+        free(timeline->moments[i].actions);
+    }
+    free(timeline->moments);
+    timeline->moments = nullptr;
+    timeline->momentCount = 0;
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_timeline_moment_clear(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+    Timeline* timeline = resolveTimeline(ctx->runner, args[0]);
+    if (timeline == nullptr) return RValue_makeUndefined();
+    uint32_t step = (uint32_t) RValue_toInt32(args[1]);
+    repeat(timeline->momentCount, i) {
+        if (timeline->moments[i].step == step) {
+            free(timeline->moments[i].actions);
+            timeline->moments[i].actions = nullptr;
+            timeline->moments[i].actionCount = 0;
+            return RValue_makeUndefined();
+        }
+    }
+    return RValue_makeUndefined();
+}
+
+static RValue builtin_timeline_clear(VMContext* ctx, RValue* args, int32_t argCount) {
+    if (1 > argCount) return RValue_makeUndefined();
+    Timeline* timeline = resolveTimeline(ctx->runner, args[0]);
+    if (timeline == nullptr) return RValue_makeUndefined();
+    repeat(timeline->momentCount, i) {
+        free(timeline->moments[i].actions);
+    }
+    free(timeline->moments);
+    timeline->moments = nullptr;
+    timeline->momentCount = 0;
+    return RValue_makeUndefined();
 }
 
 // action_timeline_set's "pausedKind" argument from the DnD editor. Values >= TIMELINE_ACTION_KIND_STOP map to "stop" (treated like pause).
@@ -19363,6 +19577,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "array_set", builtin_array_set);
     VM_registerBuiltin(ctx, "array_push", builtin_array_push);
     VM_registerBuiltin(ctx, "array_pop", builtin_array_pop);
+    VM_registerBuiltin(ctx, "array_concat", builtin_array_concat);
     VM_registerBuiltin(ctx, "array_resize", builtin_array_resize);
     VM_registerBuiltin(ctx, "array_delete", builtin_array_delete);
     VM_registerBuiltin(ctx, "array_insert", builtin_array_insert);
@@ -19715,6 +19930,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "draw_roundrect_color_ext", builtin_draw_roundrect_color_ext);
     VM_registerBuiltin(ctx, "draw_set_circle_precision", builtin_draw_set_circle_precision);
     VM_registerBuiltin(ctx, "draw_get_circle_precision", builtin_draw_get_circle_precision);
+    VM_registerBuiltin(ctx, "draw_path", builtin_draw_path);
     VM_registerBuiltin(ctx, "draw_set_colour", builtin_draw_set_colour);
     VM_registerBuiltin(ctx, "draw_get_colour", builtin_draw_get_colour);
     VM_registerBuiltin(ctx, "draw_get_color", builtin_draw_get_color);
@@ -20026,7 +20242,12 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // Timeline
     VM_registerBuiltin(ctx, "timeline_exists", builtin_timeline_exists);
+    VM_registerBuiltin(ctx, "timeline_add", builtin_timeline_add);
+    VM_registerBuiltin(ctx, "timeline_delete", builtin_timeline_delete);
     VM_registerBuiltin(ctx, "timeline_get_name", builtin_timeline_get_name);
+    VM_registerBuiltin(ctx, "timeline_moment_add_script", builtin_timeline_moment_add_script);
+    VM_registerBuiltin(ctx, "timeline_moment_clear", builtin_timeline_moment_clear);
+    VM_registerBuiltin(ctx, "timeline_clear", builtin_timeline_clear);
     VM_registerBuiltin(ctx, "timeline_max_moment", builtin_timeline_max_moment);
     VM_registerBuiltin(ctx, "timeline_size", builtin_timeline_size);
 
