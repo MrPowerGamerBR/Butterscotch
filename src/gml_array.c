@@ -31,8 +31,8 @@ static void growLegacyRow(GMLArrayRow* row, int32_t minLength) {
     row->length = minLength;
 }
 
-GMLArray* GMLArray_create(int32_t wadVersion, int32_t initialLength) {
-    GMLArrayType type = wadVersion >= 17 ? GML_MODERN_ARRAY : GML_LEGACY_ARRAY;
+GMLArray* GMLArray_create(DataWin *dw, int32_t initialLength) {
+    GMLArrayType type = DataWin_isVersionAtLeast(dw, 2, 3, 0, 0) ? GML_MODERN_ARRAY : GML_LEGACY_ARRAY;
 #ifndef ENABLE_WAD17
     require(type == GML_LEGACY_ARRAY);
 #endif

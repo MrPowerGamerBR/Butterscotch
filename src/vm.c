@@ -275,7 +275,7 @@ static GMLArray* VM_arraySetWithCoW(VMContext* ctx, RValue* slot, int32_t index,
     // Case 1: slot doesn't hold an array yet, replace whatever's there with a fresh one.
     if (slot->type != RVALUE_ARRAY || slot->array == nullptr) {
         RValue_free(slot);
-        GMLArray* fresh = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+        GMLArray* fresh = GMLArray_create(ctx->dataWin, 0);
         fresh->owner = intendedOwner;
         *slot = RValue_makeArray(fresh);
         GMLArray_growTo(fresh, index + 1);
@@ -1228,7 +1228,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData,
                 // Materialise the top-level array in the slot if needed.
                 if (slot->type != RVALUE_ARRAY || slot->array == nullptr) {
                     RValue_free(slot);
-                    GMLArray* fresh = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+                    GMLArray* fresh = GMLArray_create(ctx->dataWin, 0);
                     fresh->owner = IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : (void*) slot;
                     *slot = RValue_makeArray(fresh);
                 } else if (forWrite) {
@@ -1240,7 +1240,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData,
                 // Materialise the sub-array at [firstIndex] if it's not already an array.
                 if (topSlot->type != RVALUE_ARRAY || topSlot->array == nullptr) {
                     RValue_free(topSlot);
-                    GMLArray* sub = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+                    GMLArray* sub = GMLArray_create(ctx->dataWin, 0);
                     sub->owner = top->owner;
                     *topSlot = RValue_makeArray(sub);
                 } else if (forWrite) {
@@ -1283,7 +1283,7 @@ static void handlePush(VMContext* ctx, uint32_t instr, const uint8_t* extraData,
 static void pushTopLevelArrayRef(VMContext* ctx, RValue* slot, bool forWrite) {
     if (slot->type != RVALUE_ARRAY || slot->array == nullptr) {
         RValue_free(slot);
-        GMLArray* fresh = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+        GMLArray* fresh = GMLArray_create(ctx->dataWin, 0);
         fresh->owner = IS_WAD17_OR_HIGHER(ctx) ? ctx->currentArrayOwner : (void*) slot;
         *slot = RValue_makeArray(fresh);
     } else if (forWrite) {
@@ -2711,7 +2711,7 @@ static void handleBreakPushAC(VMContext* ctx, uint32_t instrAddr) {
     RValue* parentSlot = GMLArray_slot(parent, idx);
     if (parentSlot->type != RVALUE_ARRAY || parentSlot->array == nullptr) {
         RValue_free(parentSlot);
-        GMLArray* sub = GMLArray_create(ctx->dataWin->gen8.wadVersion, 0);
+        GMLArray* sub = GMLArray_create(ctx->dataWin, 0);
         sub->owner = ctx->currentArrayOwner;
         *parentSlot = RValue_makeArray(sub);
     } else {
