@@ -993,6 +993,7 @@ int loop(CommandLineArgs args, const char *argv0) {
         bool debugShowCollisionMasks = false;
         bool freeCamActive = false;
         bool actuallyShuttingDown = false;
+        bool wasPaused = false;
         uint64_t lastFrameTime = nowNanos();
         uint64_t lastFrameStartTime = lastFrameTime; // for delta_time
         bool shouldWindowClose = false;
@@ -1024,11 +1025,16 @@ int loop(CommandLineArgs args, const char *argv0) {
                 bool isPaused = Runner_isPaused(runner);
                 Runner_setPaused(runner, !isPaused);
             }
+            bool enteringPause = runner->paused && !wasPaused;
             bool shouldStep = !runner->paused;
-            bool shouldRender = true;
+            bool shouldRender = !runner->paused || enteringPause;
             if (runner->debugMode && runner->paused) {
                 shouldStep = RunnerKeyboard_checkPressed(runner->keyboard, 'O');
-                if (shouldStep) logDebug("Frame advance (frame %d)\n", runner->frameCount);
+                if (shouldStep) {
+                    shouldRender = true;
+                    enteringPause = false;
+                    logDebug("Frame advance (frame %d)\n", runner->frameCount);
+                }
             }
 
             uint64_t frameStartTime = 0;
@@ -1211,7 +1217,7 @@ int loop(CommandLineArgs args, const char *argv0) {
             int32_t fbWidth, fbHeight;
             platformGetWindowSize(&fbWidth, &fbHeight);
 
-            if (!runner->debugMode) {
+            if (shouldRender) {
                 // Clear the default framebuffer (window background) to black
 #ifdef ENABLE_SW_RENDERER
                 if (gfx == SOFTWARE && shouldRender)
@@ -1263,51 +1269,49 @@ int loop(CommandLineArgs args, const char *argv0) {
                     }
                 }
 
-                if (shouldRender) {
-                    Runner_drawPre(runner, fbWidth, fbHeight);
+                Runner_drawPre(runner, fbWidth, fbHeight);
 
-                    // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
-                    int32_t winW, winH;
-                    platformGetScaledWindowSize(&winW, &winH);
+                // Calculate viewport (letterboxing) in screen coordinates for mouse mapping
+                int32_t winW, winH;
+                platformGetScaledWindowSize(&winW, &winH);
 
-                    Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
+                Runner_beginFrame(runner, gameW, gameH, winW, winH, fbWidth, fbHeight);
 
-                    double mx, my;
-                    platformGetMousePos(&mx, &my);
-                    Runner_updateMousePosition(runner, winW, winH, mx, my);
+                double mx, my;
+                platformGetMousePos(&mx, &my);
+                Runner_updateMousePosition(runner, winW, winH, mx, my);
 
-                    Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
-                    renderer->vtable->endFrameInit(renderer);
-                    Runner_drawPost(runner, fbWidth, fbHeight);
-                    renderer->vtable->endFrameEnd(renderer);
-                    Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+                Runner_drawViews(runner, gameW, gameH, debugShowCollisionMasks);
+                renderer->vtable->endFrameInit(renderer);
+                Runner_drawPost(runner, fbWidth, fbHeight);
+                renderer->vtable->endFrameEnd(renderer);
+                Runner_drawGUI(runner, fbWidth, fbHeight, gameW, gameH);
+            }
 
-                    if (runner->paused) {
-                        int32_t winW = fbWidth;
-                        int32_t winH = fbHeight;
+            if (runner->paused && enteringPause && !runner->debugMode) {
+                int32_t winW = fbWidth;
+                int32_t winH = fbHeight;
 
-                        renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
-                        renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
+                renderer->vtable->beginGUI(renderer, winW, winH, 0, 0, winW, winH, RENDER_TARGET_HOST_FRAMEBUFFER);
+                renderer->vtable->drawRectangle(renderer, 0.0f, 0.0f, (float) winW, (float) winH, 0x000000, 0.35f, false);
 
-                        // Keep the pause icon visually consistent across screen sizes/aspect ratios by scaling
-                        // from the shorter dimension instead of the full width, which changes on 4:3 vs 16:9.
-                        float middleX = 0.5f * (float) winW;
-                        float middleY = 0.5f * (float) winH;
-                        float smallerSide = (float) (winW < winH ? winW : winH);
+                // Keep the pause icon visually consistent across screen sizes/aspect ratios by scaling
+                // from the shorter dimension instead of the full width, which changes on 4:3 vs 16:9.
+                float middleX = 0.5f * (float) winW;
+                float middleY = 0.5f * (float) winH;
+                float smallerSide = (float) (winW < winH ? winW : winH);
 
-                        float barWidth = smallerSide * 0.025f;
-                        float barHeight = smallerSide * 0.1f;
-                        float gap = smallerSide * 0.028f;
+                float barWidth = smallerSide * 0.025f;
+                float barHeight = smallerSide * 0.1f;
+                float gap = smallerSide * 0.028f;
 
-                        float rightBarLeft = middleX + gap * 0.5f;
-                        float leftBarRight = middleX - gap * 0.5f;
+                float rightBarLeft = middleX + gap * 0.5f;
+                float leftBarRight = middleX - gap * 0.5f;
 
-                        renderer->vtable->drawRectangle(renderer, rightBarLeft, middleY - barHeight / 2.0f, rightBarLeft + barWidth, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
-                        renderer->vtable->drawRectangle(renderer, leftBarRight - barWidth, middleY - barHeight / 2.0f, leftBarRight, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
+                renderer->vtable->drawRectangle(renderer, rightBarLeft, middleY - barHeight / 2.0f, rightBarLeft + barWidth, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
+                renderer->vtable->drawRectangle(renderer, leftBarRight - barWidth, middleY - barHeight / 2.0f, leftBarRight, middleY + barHeight / 2.0f, 0xFFFFFF, 1.0f, false);
 
-                        renderer->vtable->endGUI(renderer);
-                    }
-                }
+                renderer->vtable->endGUI(renderer);
             }
 
 #ifdef ENABLE_SCREENSHOTS
@@ -1339,8 +1343,9 @@ int loop(CommandLineArgs args, const char *argv0) {
                 logInfo("Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
             }
 
-            // Always present the current frame so paused frames can still show the overlay.
-            if (runner->pendingRoom == -1)
+            // Only present a new frame when we actually rendered one. This includes the first paused frame so the
+            // pause overlay can be presented once, and all later paused frames stay frozen without re-swapping.
+            if (runner->pendingRoom == -1 && shouldRender)
                 platformSwapBuffers();
             if (shouldStep) {
                 Runner_handlePendingRoomChange(runner);
@@ -1353,6 +1358,8 @@ int loop(CommandLineArgs args, const char *argv0) {
                 else
                     logInfo("Memory use right now: %zu bytes (%.1f MB)\n", bytes_used, bytes_used / 1024.0f / 1024.0f);
             }
+
+            wasPaused = runner->paused;
 
             // Limit frame rate to room speed (skip in headless mode for max speed!!)
             if (!args.headless && runner->currentRoom->speed > 0) {
