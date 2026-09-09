@@ -96,11 +96,24 @@ typedef struct {
     bool inUse;            // false = freed row, kept so the table doesn't shrink
 } Surface;
 
+typedef struct {
+    float x, y, z;
+    float u, v;
+    uint8_t r, g, b, a;
+} GsPrimitiveVertex;
+
 // ===[ GsRenderer Struct ]===
 typedef struct {
     Renderer base; // Must be first field for struct embedding
 
     GSGLOBAL* gsGlobal;
+
+    GsPrimitiveVertex* primitiveVertices;
+    int32_t primitiveVertexCount;
+    int32_t primitiveCapacity;
+    int32_t primitiveType;
+    uint32_t primitiveTextureId;
+    bool primitiveHasTexture;
 
     // View transform state
     float scaleX;

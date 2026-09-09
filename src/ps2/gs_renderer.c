@@ -1104,6 +1104,7 @@ static void gsDestroy(Renderer* renderer) {
     free(gs->eeCache);
     free(gs->eeCacheEntries);
     free(gs->atlasDataSizes);
+    // free(gs->primitiveVertices);
     arrfree(gs->snapshotChunks);
     arrfree(gs->tpagToSnapshot);
     arrfree(gs->surfaces);
@@ -1752,6 +1753,35 @@ static void gsDrawSpritePos(Renderer* renderer, int32_t tpagIndex, float x1, flo
         0,
         gsColor
     );
+}
+
+static void gsPrimitiveBegin(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t primitiveType) {
+    return;
+}
+
+static void gsPrimitiveBeginTexture(MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED int32_t primitiveType, MAYBE_UNUSED int32_t texture) {
+    return;
+}
+
+static void gsPrimitiveEnd(MAYBE_UNUSED Renderer* renderer) {
+    return;
+}
+
+static void gsDrawVertex(
+    MAYBE_UNUSED Renderer* renderer,
+    MAYBE_UNUSED float x, MAYBE_UNUSED float y, MAYBE_UNUSED float z,
+    MAYBE_UNUSED uint32_t color, MAYBE_UNUSED float alpha,
+    MAYBE_UNUSED float u, MAYBE_UNUSED float v
+) {
+    return;
+}
+
+static void gsDrawVertexBuffer(
+    MAYBE_UNUSED Renderer* renderer, MAYBE_UNUSED VertexBuffer* buffer,
+    MAYBE_UNUSED int32_t primitive, MAYBE_UNUSED int32_t texture,
+    MAYBE_UNUSED int32_t offset, MAYBE_UNUSED int32_t count
+) {
+    return;
 }
 
 static void gsDrawRectangle(Renderer* renderer, float x1, float y1, float x2, float y2, uint32_t color, float alpha, bool outline) {
@@ -3130,6 +3160,11 @@ Renderer* GsRenderer_create(GSGLOBAL* gsGlobal, int64_t eeAtlasCacheMiB) {
     gsVtable.drawRectangleColor = gsDrawRectangleColor;
     gsVtable.drawLine = gsDrawLine;
     gsVtable.drawLineColor = gsDrawLineColor;
+    gsVtable.primitiveBegin = gsPrimitiveBegin;
+    gsVtable.primitiveBeginTexture = gsPrimitiveBeginTexture;
+    gsVtable.primitiveEnd = gsPrimitiveEnd;
+    gsVtable.drawVertex = gsDrawVertex;
+    gsVtable.drawVertexBuffer = gsDrawVertexBuffer;
     gsVtable.drawText = gsDrawText;
     gsVtable.drawTextColor = gsDrawTextColor;
     gsVtable.drawTriangle = gsDrawTriangle;

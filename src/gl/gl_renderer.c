@@ -347,6 +347,114 @@ static void flushIfNeededAndSetActiveState(GLRenderer* gl, BatchType batchType, 
     gl->currentTextureId = textureId;
 }
 
+static bool glResolveTextureHandle(GLRenderer* gl, uint32_t texHandle, TexturePageItem** outTpag, GLuint* outTexId, int32_t* outTexW, int32_t* outTexH);
+
+static GLenum primitiveTypeToGL(int32_t primitiveType) {
+    switch (primitiveType) {
+        case PRIMITIVE_POINTS:
+            return GL_POINTS;
+        case PRIMITIVE_LINES:
+            return GL_LINES;
+        case PRIMITIVE_LINE_STRIP:
+            return GL_LINE_STRIP;
+        case PRIMITIVE_TRIANGLES:
+            return GL_TRIANGLES;
+        case PRIMITIVE_TRIANGLE_STRIP:
+            return GL_TRIANGLE_STRIP;
+        case PRIMITIVE_TRIANGLE_FAN:
+            return GL_TRIANGLE_FAN;
+        default:
+            return GL_TRIANGLES;
+    }
+}
+
+static void glPrimitiveBegin(Renderer* renderer, int32_t primitiveType) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    flushBatch(gl);
+
+    gl->primitiveType = primitiveType;
+    gl->primitiveVertexCount = 0;
+    gl->primitiveTextureId = gl->whiteTexture;
+    gl->primitiveHasTexture = false;
+}
+
+static void glPrimitiveBeginTexture(Renderer* renderer, int32_t primitiveType, int32_t texture) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    glPrimitiveBegin(renderer, primitiveType);
+
+    if (texture > 0) {
+        TexturePageItem* tpag = nullptr;
+        GLuint resolvedTexId = 0;
+        int32_t resolvedTexW = 0;
+        int32_t resolvedTexH = 0;
+
+        if (glResolveTextureHandle(gl, (uint32_t) texture, &tpag, &resolvedTexId, &resolvedTexW, &resolvedTexH) && resolvedTexId != 0) {
+            gl->primitiveTextureId = resolvedTexId;
+            gl->primitiveHasTexture = true;
+        } else if (glIsTexture((GLuint) texture)) {
+            gl->primitiveTextureId = (GLuint) texture;
+            gl->primitiveHasTexture = true;
+        }
+    }
+}
+
+static void glPrimitiveEnd(Renderer* renderer) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+    if (gl->primitiveVertexCount <= 0) return;
+
+    GLuint textureId = gl->primitiveHasTexture ? gl->primitiveTextureId : gl->whiteTexture;
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+
+    glBindBuffer(GL_ARRAY_BUFFER, gl->vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(gl->primitiveVertexCount * sizeof(Vertex)), gl->vertexData, GL_DYNAMIC_DRAW);
+
+    if (hasVAO()) {
+        glBindVertexArray(gl->vao);
+    } else {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl->ebo);
+
+        int32_t stride = sizeof(Vertex);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, x));
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(Vertex, r));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(Vertex, u));
+        glEnableVertexAttribArray(2);
+    }
+
+    glDrawArrays(primitiveTypeToGL(gl->primitiveType), 0, gl->primitiveVertexCount);
+
+    if (!hasVAO()) {
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+    }
+
+    gl->primitiveVertexCount = 0;
+}
+
+static void glDrawVertex(Renderer* renderer, float x, float y, float z, uint32_t color, float alpha, float u, float v) {
+    GLRenderer* gl = (GLRenderer*) renderer;
+
+    if (gl->primitiveVertexCount < 0) {
+        gl->primitiveVertexCount = 0;
+    }
+
+    Vertex* vert = &gl->vertexData[gl->primitiveVertexCount];
+    vert->x = x;
+    vert->y = y;
+    vert->z = z;
+    vert->u = u;
+    vert->v = v;
+    vert->r = (uint8_t) BGR_R(color);
+    vert->g = (uint8_t) BGR_G(color);
+    vert->b = (uint8_t) BGR_B(color);
+    vert->a = floatToUnormByte(alpha);
+
+    gl->primitiveVertexCount++;
+}
+
 // ===[ Vtable Implementations ]===
 
 static bool compileProgram(GMLShader* gmlShader, const char* name, const char* vertexShaderSource, const char* fragmentShaderSource, uint32_t vertexAttributeCount, const char** vertexAttributes) {
@@ -1792,6 +1900,217 @@ static void glDrawTriangle(Renderer *renderer, float x1, float y1, float x2, flo
     }
 }
 
+static int vertex_type_components(int type)
+{
+    switch (type) {
+        case VERTEX_TYPE_FLOAT1:
+            return 1;
+        case VERTEX_TYPE_FLOAT2:
+            return 2;
+        case VERTEX_TYPE_FLOAT3:
+            return 3;
+        case VERTEX_TYPE_FLOAT4:
+            return 4;
+        case VERTEX_TYPE_UBYTE4:
+            return 4;
+        case VERTEX_TYPE_COLOR:
+            return 4;
+    }
+
+    return 4;
+}
+
+static bool glResolveTextureHandle(GLRenderer* gl, uint32_t texHandle, TexturePageItem** outTpag, GLuint* outTexId, int32_t* outTexW, int32_t* outTexH);
+
+static void glDrawVertexBuffer(MAYBE_UNUSED Renderer* renderer, VertexBuffer* buffer, int32_t primitive, int32_t texture, int32_t offset, int32_t number) {
+    if (!buffer || !buffer->format)
+        return;
+
+    GLRenderer* gl = (GLRenderer*) renderer;
+    flushBatch(gl);
+
+    typedef struct {
+        GLuint vbo;
+    } GLVertexBuffer;
+
+    GLVertexBuffer *glBuffer = (GLVertexBuffer *)buffer->rendererData;
+
+    if (!glBuffer) {
+        glBuffer = (GLVertexBuffer *)malloc(sizeof(*glBuffer));
+        glGenBuffers(1, &glBuffer->vbo);
+        buffer->rendererData = (void *) glBuffer;
+    }
+
+    GLenum mode;
+
+    switch (primitive) {
+        case PRIMITIVE_POINTS:
+            mode = GL_POINTS;
+            break;
+
+        case PRIMITIVE_LINES:
+            mode = GL_LINES;
+            break;
+
+        case PRIMITIVE_LINE_STRIP:
+            mode = GL_LINE_STRIP;
+            break;
+
+        case PRIMITIVE_TRIANGLES:
+            mode = GL_TRIANGLES;
+            break;
+
+        case PRIMITIVE_TRIANGLE_STRIP:
+            mode = GL_TRIANGLE_STRIP;
+            break;
+
+        case PRIMITIVE_TRIANGLE_FAN:
+            mode = GL_TRIANGLE_FAN;
+            break;
+
+        default:
+            return;
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, glBuffer->vbo);
+    glBufferData(GL_ARRAY_BUFFER, buffer->size, buffer->data, GL_DYNAMIC_DRAW);
+
+    bool hasColor = false;
+    bool hasTexcoord = false;
+
+    for (int i = 0; i < buffer->format->numElements; i++) {
+        VertexElement *e = &buffer->format->elements[i];
+
+        switch (e->usage) {
+            case VERTEX_USAGE_POSITION:
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(
+                    0,
+                    vertex_type_components(e->type),
+                    GL_FLOAT,
+                    GL_FALSE,
+                    buffer->format->stride,
+                    (void*)(intptr_t)e->offset
+                );
+                break;
+
+            case VERTEX_USAGE_COLOR:
+                hasColor = true;
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(
+                    1,
+                    4,
+                    GL_UNSIGNED_BYTE,
+                    GL_TRUE,
+                    buffer->format->stride,
+                    (void*)(intptr_t)e->offset
+                );
+                break;
+
+            case VERTEX_USAGE_NORMAL:
+                glEnableVertexAttribArray(3);
+                glVertexAttribPointer(
+                    3,
+                    3,
+                    GL_FLOAT,
+                    GL_FALSE,
+                    buffer->format->stride,
+                    (void*)(intptr_t)e->offset
+                );
+                break;
+
+            case VERTEX_USAGE_TEXCOORD:
+                hasTexcoord = true;
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(
+                    2,
+                    2,
+                    GL_FLOAT,
+                    GL_FALSE,
+                    buffer->format->stride,
+                    (void*)(intptr_t)e->offset
+                );
+                break;
+        }
+    }
+
+    if (!hasColor) {
+        glDisableVertexAttribArray(1);
+        glVertexAttrib4f(1, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    if (!hasTexcoord) {
+        glDisableVertexAttribArray(2);
+        glVertexAttrib2f(2, 0.5f, 0.5f);
+    }
+
+    GLuint drawTexture = gl->whiteTexture;
+    if (texture != -1) {
+        TexturePageItem* textureTpag = nullptr;
+        GLuint resolvedTexId = 0;
+        int32_t resolvedTexW = 0;
+        int32_t resolvedTexH = 0;
+
+        if (glResolveTextureHandle(gl, (uint32_t) texture, &textureTpag, &resolvedTexId, &resolvedTexW, &resolvedTexH) && resolvedTexId != 0) {
+            drawTexture = resolvedTexId;
+        } else if (glIsTexture((GLuint) texture)) {
+            // Backward compatibility with callers that already pass raw GL ids.
+            drawTexture = (GLuint) texture;
+        }
+    }
+
+    // Position/color-only vertex formats should render untextured.
+    if (!hasTexcoord) {
+        drawTexture = gl->whiteTexture;
+    }
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, drawTexture);
+
+    int vertexCount = buffer->size / buffer->format->stride;
+    if (vertexCount <= 0) {
+        for (int i = 0; i < buffer->format->numElements; i++) {
+            glDisableVertexAttribArray(i);
+        }
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        return;
+    }
+
+    if (offset < 0) offset = 0;
+    if (offset > vertexCount) offset = vertexCount;
+
+    if (number == -1) {
+        number = vertexCount - offset;
+    } else {
+        if (number < 0) number = 0;
+        if (offset + number > vertexCount) {
+            number = vertexCount - offset;
+        }
+    }
+
+    if (number <= 0) {
+        for (int i = 0; i < buffer->format->numElements; i++) {
+            glDisableVertexAttribArray(i);
+        }
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        return;
+    }
+
+    glDrawArrays(
+        mode,
+        offset,
+        number
+    );
+
+    for (int i = 0; i < buffer->format->numElements; i++) {
+        glDisableVertexAttribArray(i);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 // ===[ Text Drawing ]===
 
 // Resolved font state shared between glDrawText and glDrawTextColor
@@ -3012,8 +3331,13 @@ Renderer* GLRenderer_create(void) {
     glVtable.drawLine = glDrawLine;
     glVtable.drawLineColor = glDrawLineColor;
     glVtable.drawTriangle = glDrawTriangle;
+    glVtable.drawVertexBuffer = glDrawVertexBuffer;
     glVtable.drawText = glDrawText;
     glVtable.drawTextColor = glDrawTextColor;
+    glVtable.primitiveBegin = glPrimitiveBegin;
+    glVtable.primitiveBeginTexture = glPrimitiveBeginTexture;
+    glVtable.primitiveEnd = glPrimitiveEnd;
+    glVtable.drawVertex = glDrawVertex;
     glVtable.flush = glRendererFlush;
     glVtable.clearScreen = glClearScreen;
     glVtable.createSpriteFromSurface = glCreateSpriteFromSurface;
