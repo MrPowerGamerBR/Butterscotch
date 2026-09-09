@@ -12,6 +12,7 @@ namespace qt_game_process {
 
 QProcess* g_gameProcess = nullptr;
 QString g_lastGamePath;
+QString g_lastSaveFolder;
 QString g_processOutputBuffer;
 bool g_variableSnapshotRequestPending = false;
 bool g_instanceSnapshotRequestPending = false;
@@ -29,8 +30,12 @@ QString resolveGameExecutablePath() {
     return QStringLiteral("butterscotch");
 }
 
-QStringList makeHostChildLaunchArgs(const QString& gamePath) {
-    return QStringList{ gamePath, QStringLiteral("--host-child") };
+QStringList makeHostChildLaunchArgs(const QString& gamePath, const QString& saveFolder) {
+    QStringList args{ gamePath, QStringLiteral("--host-child") };
+    if (!saveFolder.isEmpty()) {
+        args << QStringLiteral("--save-folder") << saveFolder;
+    }
+    return args;
 }
 
 void requestVariableSnapshot() {
@@ -85,7 +90,7 @@ void resetGameProcess() {
     }
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath));
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath, g_lastSaveFolder));
 }
 
 void stopGameProcess() {
@@ -110,6 +115,7 @@ void stopGameProcess() {
 }
 
 void launchGameFromPathProcess(const QString& path,
+                              const QString& saveFolder,
                               VariablesTab* variablesTab,
                               GameLogTab* logTab,
                               QTabWidget* tabs,
@@ -119,6 +125,7 @@ void launchGameFromPathProcess(const QString& path,
     }
 
     g_lastGamePath = path;
+    g_lastSaveFolder = saveFolder;
     tabs->setCurrentWidget(logTab);
 
     stopGameProcess();
@@ -235,7 +242,7 @@ void launchGameFromPathProcess(const QString& path,
     });
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path));
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path, saveFolder));
 }
 
 } // namespace qt_game_process

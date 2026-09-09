@@ -142,8 +142,8 @@ int main(int argc, char* argv[]) {
     auto* instancesTab = new InstancesTab(&hostWindow);
     auto* gameLog = new GameLogTab(&hostWindow);
     auto* tabs = new QTabWidget(&hostWindow);
-    auto* gamesTab = new GamesTab([variablesTab, instancesTab, gameLog, tabs](const QString& path) {
-        qt_game_process::launchGameFromPathProcess(path, variablesTab, gameLog, tabs, instancesTab);
+    auto* gamesTab = new GamesTab([variablesTab, instancesTab, gameLog, tabs](const QString& path, const QString& saveFolder) {
+        qt_game_process::launchGameFromPathProcess(path, saveFolder, variablesTab, gameLog, tabs, instancesTab);
     }, &hostWindow);
     qt_game_process::g_gamesTab = gamesTab;
     tabs->addTab(gamesTab, "Games");
@@ -201,7 +201,12 @@ int main(int argc, char* argv[]) {
     QObject::connect(refreshButton, &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
         if (qt_game_process::g_gameProcess == nullptr || qt_game_process::g_gameProcess->state() == QProcess::NotRunning) {
             if (!qt_game_process::g_lastGamePath.isEmpty()) {
-                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath,
+                                                          qt_game_process::g_lastSaveFolder,
+                                                          variablesTab,
+                                                          gameLog,
+                                                          tabs,
+                                                          instancesTab);
             }
         }
         qt_game_process::requestVariableSnapshot();
@@ -211,7 +216,12 @@ int main(int argc, char* argv[]) {
     QObject::connect(instancesRefreshButton, &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
         if (qt_game_process::g_gameProcess == nullptr || qt_game_process::g_gameProcess->state() == QProcess::NotRunning) {
             if (!qt_game_process::g_lastGamePath.isEmpty()) {
-                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath, variablesTab, gameLog, tabs, instancesTab);
+                qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath,
+                                                          qt_game_process::g_lastSaveFolder,
+                                                          variablesTab,
+                                                          gameLog,
+                                                          tabs,
+                                                          instancesTab);
             }
         }
         qt_game_process::requestInstanceSnapshot();
@@ -228,7 +238,7 @@ int main(int argc, char* argv[]) {
         qt_game_process::sendPauseCommand(paused);
         gameLog->setPaused(paused);
     });
-    QObject::connect(gameLog->resetButton(), &QPushButton::clicked, [variablesTab, instancesTab, gameLog, tabs]() {
+    QObject::connect(gameLog->resetButton(), &QPushButton::clicked, []() {
         qt_game_process::resetGameProcess();
     });
     QObject::connect(gameLog->quitButton(), &QPushButton::clicked, []() {
@@ -322,7 +332,7 @@ int main(int argc, char* argv[]) {
         }
 
         qt_game_process::g_lastGamePath = selectedPath;
-        qt_game_process::launchGameFromPathProcess(selectedPath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::launchGameFromPathProcess(selectedPath, QString(), variablesTab, gameLog, tabs, instancesTab);
     });
 
     hostWindow.show();
@@ -334,7 +344,7 @@ int main(int argc, char* argv[]) {
 
         QString launchPath = QString::fromLocal8Bit(argv[1]);
         qt_game_process::g_lastGamePath = launchPath;
-        qt_game_process::launchGameFromPathProcess(launchPath, variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::launchGameFromPathProcess(launchPath, QString(), variablesTab, gameLog, tabs, instancesTab);
     });
 
     return app.exec();

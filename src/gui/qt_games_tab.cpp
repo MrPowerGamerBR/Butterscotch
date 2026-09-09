@@ -1,6 +1,7 @@
 #include "qt_games_tab.h"
 
 #include <QDateTime>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QInputDialog>
@@ -21,6 +22,12 @@ namespace {
 
 constexpr int kLastPlayedRole = Qt::UserRole + 1;
 constexpr int kTimePlayedSecondsRole = Qt::UserRole + 2;
+constexpr int kSaveFolderRole = Qt::UserRole + 3;
+
+QString chooseGameSaveFolder(QWidget* parent, const QString& gamePath) {
+    const QString defaultDirectory = QFileInfo(gamePath).absolutePath();
+    return QFileDialog::getExistingDirectory(parent, "Choose save folder", defaultDirectory);
+}
 
 QString formatPlayedTime(qint64 seconds) {
     const qint64 hours = seconds / 3600;
@@ -63,7 +70,7 @@ QString gameTitleFromDataWin(const QString& path) {
 
 } // namespace
 
-GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* parent)
+GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGame, QWidget* parent)
     : QWidget(parent), launchGame_(std::move(launchGame)), gameTable_(new QTableWidget(this)) {
     gameTable_->setColumnCount(4);
     gameTable_->setHorizontalHeaderLabels({"Game", "Path", "Last played", "Time played"});
@@ -85,10 +92,20 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
     layout->addWidget(addGameButton);
 
     connect(addGameButton, &QPushButton::clicked, this, [this]() {
-        addGame(chooseGameFile(this));
+        const QString path = chooseGameFile(this);
+        if (path.isEmpty()) {
+            return;
+        }
+        const QString saveFolder = chooseGameSaveFolder(this, path);
+        if (saveFolder.isEmpty()) {
+            return;
+        }
+        addGame(path, saveFolder);
     });
     connect(gameTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
-        launchGame_(gameTable_->item(row, 0)->data(Qt::UserRole).toString());
+        const QString path = gameTable_->item(row, 0)->data(Qt::UserRole).toString();
+        const QString saveFolder = gameTable_->item(row, 0)->data(kSaveFolderRole).toString();
+        launchGame_(path, saveFolder);
     });
     connect(gameTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
         QTableWidgetItem* item = gameTable_->itemAt(position);
@@ -100,6 +117,7 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
         gameTable_->selectRow(row);
         QMenu menu(this);
         QAction* renameAction = menu.addAction("Rename...");
+        QAction* editSaveFolderAction = menu.addAction("Edit save folder...");
         QAction* removeAction = menu.addAction("Remove");
         QAction* selectedAction = menu.exec(gameTable_->viewport()->mapToGlobal(position));
         if (selectedAction == renameAction) {
@@ -111,6 +129,15 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
                 titleItem->setText(name);
                 saveGames();
             }
+        } else if (selectedAction == editSaveFolderAction) {
+            QTableWidgetItem* titleItem = gameTable_->item(row, 0);
+            const QString currentSaveFolder = titleItem->data(kSaveFolderRole).toString();
+            const QString newSaveFolder = QFileDialog::getExistingDirectory(this, "Choose save folder",
+                                                                            currentSaveFolder.isEmpty() ? QFileInfo(titleItem->data(Qt::UserRole).toString()).absolutePath() : currentSaveFolder);
+            if (!newSaveFolder.isEmpty()) {
+                titleItem->setData(kSaveFolderRole, newSaveFolder);
+                saveGames();
+            }
         } else if (selectedAction == removeAction) {
             gameTable_->removeRow(row);
             saveGames();
@@ -120,7 +147,7 @@ GamesTab::GamesTab(std::function<void(const QString&)> launchGame, QWidget* pare
     loadGames();
 }
 
-void GamesTab::addGame(const QString& path, const QString& name, const QString& lastPlayed, qint64 timePlayedSeconds, bool save) {
+void GamesTab::addGame(const QString& path, const QString& saveFolder, const QString& name, const QString& lastPlayed, qint64 timePlayedSeconds, bool save) {
     if (path.isEmpty()) {
         return;
     }
@@ -140,6 +167,7 @@ void GamesTab::addGame(const QString& path, const QString& name, const QString& 
     titleItem->setData(Qt::UserRole, path);
     titleItem->setData(kLastPlayedRole, lastPlayed);
     titleItem->setData(kTimePlayedSecondsRole, timePlayedSeconds);
+    titleItem->setData(kSaveFolderRole, saveFolder);
     titleItem->setToolTip(path);
     gameTable_->setItem(row, 0, titleItem);
     auto* pathItem = new QTableWidgetItem(path);
@@ -195,8 +223,9 @@ void GamesTab::loadGames() {
     for (int index = 0; index < gameCount; ++index) {
         settings.setArrayIndex(index);
         const QString name = settings.value("name").toString();
+        const QString saveFolder = settings.value("saveFolder").toString();
         needsSave |= name.isEmpty();
-        addGame(settings.value("path").toString(), name, settings.value("lastPlayed").toString(),
+        addGame(settings.value("path").toString(), saveFolder, name, settings.value("lastPlayed").toString(),
             settings.value("timePlayedSeconds", 0).toLongLong(), false);
     }
     settings.endArray();
@@ -212,6 +241,7 @@ void GamesTab::saveGames() const {
         settings.setArrayIndex(row);
         settings.setValue("name", gameTable_->item(row, 0)->text());
         settings.setValue("path", gameTable_->item(row, 0)->data(Qt::UserRole).toString());
+        settings.setValue("saveFolder", gameTable_->item(row, 0)->data(kSaveFolderRole).toString());
         settings.setValue("lastPlayed", gameTable_->item(row, 0)->data(kLastPlayedRole).toString());
         settings.setValue("timePlayedSeconds", gameTable_->item(row, 0)->data(kTimePlayedSecondsRole));
     }
