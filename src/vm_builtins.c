@@ -4761,6 +4761,164 @@ static RValue builtin_ds_map_destroy(VMContext* ctx, RValue* args, int32_t argCo
     return RValue_makeUndefined();
 }
 
+// ===[ RValue ordering for sort funcs (based on HTML5 yyCompareVal) ]===
+
+static bool sortIsNumeric(RValue v) {
+    return v.type == RVALUE_REAL || v.type == RVALUE_INT32 || v.type == RVALUE_INT64 || v.type == RVALUE_BOOL || v.type == RVALUE_ASSETREF;
+}
+
+// Same prefix-number parsing as tryParseRealFromString in vm.c ("123abc" -> 123).
+static bool sortTryParseReal(const char* str, GMLReal* out) {
+    if (str == nullptr) return false;
+    while (*str == ' ' || *str == '\t' || *str == '\n' || *str == '\r') str++;
+    if (*str == '\0') return false;
+    char* endPtr = nullptr;
+    GMLReal value = GMLReal_strtod(str, &endPtr);
+    if (endPtr == str) return false;
+    *out = value;
+    return true;
+}
+
+static bool sortCompareEpsilon = false;
+
+static int sortCompareReals(GMLReal a, GMLReal b) {
+    if (isnan(a) || isnan(b)) {
+        if (isnan(a) && isnan(b)) return 0;
+        return isnan(a) ? 1 : -1;
+    }
+    if (a == b) return 0; 
+    if (sortCompareEpsilon) {
+        GMLReal f = a - b;
+        return GMLReal_fabs(f) <= GML_MATH_EPSILON ? 0 : (f < 0 ? -1 : 1);
+    }
+    return (a < b) ? -1 : ((a > b) ? 1 : 0);
+}
+
+// Ascending order, returns -1/0/1.
+static int sortCompareRValuesAsc(const void* pa, const void* pb) {
+    const RValue* a = (const RValue*) pa;
+    const RValue* b = (const RValue*) pb;
+    
+    bool aUndef = (a->type == RVALUE_UNDEFINED);
+    bool bUndef = (b->type == RVALUE_UNDEFINED);
+    if (aUndef || bUndef) {
+        if (aUndef && bUndef) return 0;
+        return aUndef ? 1 : -1; // undefined sorts last.
+    }
+    if (a->type == RVALUE_ASSETREF && b->type == RVALUE_ASSETREF) {
+        if (a->assetRefType != b->assetRefType) return a->assetRefType < b->assetRefType ? -1 : 1;
+        if (a->int32 != b->int32) return a->int32 < b->int32 ? -1 : 1;
+        return 0;
+    }
+    bool aNum = sortIsNumeric(*a);
+    bool bNum = sortIsNumeric(*b);
+#ifndef NO_RVALUE_INT64
+    if ((a->type == RVALUE_INT64 || a->type == RVALUE_INT32) &&
+        (b->type == RVALUE_INT64 || b->type == RVALUE_INT32)) {
+        int64_t ia = (a->type == RVALUE_INT64) ? a->int64 : (int64_t) a->int32;
+        int64_t ib = (b->type == RVALUE_INT64) ? b->int64 : (int64_t) b->int32;
+        return ia < ib ? -1 : (ia > ib ? 1 : 0);
+    }
+#endif
+    if (aNum && bNum) return sortCompareReals(RValue_toReal(*a), RValue_toReal(*b));
+    if (a->type == RVALUE_STRING && b->type == RVALUE_STRING) {
+        int c = strcmp(a->string != nullptr ? a->string : "", b->string != nullptr ? b->string : "");
+        return c < 0 ? -1 : (c > 0 ? 1 : 0);
+    }
+    if ((aNum || a->type == RVALUE_STRING) && (bNum || b->type == RVALUE_STRING)) {
+        GMLReal da = 0.0, db = 0.0;
+        bool aOk = aNum ? (da = RValue_toReal(*a), true) : sortTryParseReal(a->string, &da);
+        bool bOk = bNum ? (db = RValue_toReal(*b), true) : sortTryParseReal(b->string, &db);
+        if (aOk && bOk) return sortCompareReals(da, db);
+        if (aOk != bOk) return aOk ? -1 : 1;
+        int c = strcmp(a->string != nullptr ? a->string : "", b->string != nullptr ? b->string : "");
+        return c < 0 ? -1 : (c > 0 ? 1 : 0);
+    }
+    // Anything exotic (arrays, structs, methods): keep a stable order via identity.
+    if (a->type != b->type) return a->type < b->type ? -1 : 1;
+    switch (a->type) {
+        case RVALUE_ARRAY:
+            if (a->array == b->array) return 0;
+            break;
+        case RVALUE_STRUCT:
+            if (a->structInst == b->structInst) return 0;
+            break;
+#if IS_WAD17_OR_HIGHER_ENABLED
+        case RVALUE_METHOD:
+            if (a->method == b->method) return 0;
+            break;
+#endif
+        default:
+            return 0;
+    }
+    return (uintptr_t) a->structInst < (uintptr_t) b->structInst ? -1 : 1;
+}
+
+static int sortCompareRValuesDesc(const void* pa, const void* pb) {
+    const RValue* a = (const RValue*) pa;
+    const RValue* b = (const RValue*) pb;
+    
+    if (a->type == RVALUE_UNDEFINED || b->type == RVALUE_UNDEFINED) {
+        if (a->type == b->type) return 0;
+        return a->type == RVALUE_UNDEFINED ? 1 : -1;
+    }
+    return -sortCompareRValuesAsc(pa, pb);
+}
+
+#if IS_WAD17_OR_HIGHER_ENABLED
+typedef struct {
+    VMContext* ctx;
+    GMLMethod* method;
+    bool aborted;
+} SortCustomContext;
+static SortCustomContext sortCustomCtx = {0};
+
+// qsort comparator calling a GML method as func(a, b)
+static int sortCompareCustom(const void* pa, const void* pb) {
+    SortCustomContext* scc = &sortCustomCtx;
+    if (scc->aborted || scc->ctx == nullptr || scc->method == nullptr) return 0;
+    VMContext* ctx = scc->ctx;
+    GMLMethod* method = scc->method;
+    RValue callArgs[2];
+    callArgs[0] = RValue_makeIndependent(*(const RValue*) pa);
+    callArgs[1] = RValue_makeIndependent(*(const RValue*) pb);
+    RValue result;
+    if (method->builtin != nullptr) {
+        result = method->builtin(ctx, callArgs, 2);
+    } else if (method->codeIndex >= 0 && ctx->dataWin->code.count > (uint32_t) method->codeIndex) {
+        Instance* savedInstance = ctx->currentInstance;
+        if (method->boundInstanceId >= 0) {
+            Instance* bound = hmget(ctx->runner->instancesById, method->boundInstanceId);
+            if (bound != nullptr) ctx->currentInstance = bound;
+        }
+        result = VM_callCodeIndex(ctx, method->codeIndex, callArgs, 2);
+        ctx->currentInstance = savedInstance;
+    } else {
+        RValue_free(&callArgs[0]);
+        RValue_free(&callArgs[1]);
+        logWarn("VM: array_sort:  unresolvable comparator function\n");
+        if (ctx->exception == nullptr) {
+            VMException* exception = (VMException *)safeCalloc(1, sizeof(VMException));
+            exception->message = safeStrdup("array_sort with unresolvable comparator function");
+            ctx->exception = exception;
+        }
+        scc->aborted = true;
+        return 0;
+    }
+    RValue_free(&callArgs[0]);
+    RValue_free(&callArgs[1]);
+    if (ctx->exception != nullptr) {
+        RValue_free(&result);
+        scc->aborted = true;
+        return 0;
+    }
+    GMLReal r = RValue_toReal(result);
+    RValue_free(&result);
+    if (isnan(r)) return 0;
+    return r < 0 ? -1 : (r > 0 ? 1 : 0);
+}
+#endif
+
 // ===[ DS_LIST FUNCTIONS ]===
 
 static RValue builtin_ds_list_create(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -4896,6 +5054,18 @@ static RValue builtin_ds_list_find_index(VMContext* ctx, RValue* args, MAYBE_UNU
         }
     }
     return RValue_makeReal(-1.0);
+}
+
+static RValue builtin_ds_list_sort(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+    Runner* runner = ctx->runner;
+    int32_t id = RValue_toInt32(args[0]);
+    bool ascending = RValue_toBool(args[1]);
+    DsList* list = dsListGet(runner, id);
+    if (list == nullptr) return RValue_makeUndefined();
+    sortCompareEpsilon = false;
+    qsort(list->items, arrlen(list->items), sizeof(RValue), ascending ? sortCompareRValuesAsc : sortCompareRValuesDesc);
+    return RValue_makeUndefined();
 }
 
 static RValue builtin_ds_list_shuffle(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
@@ -6438,6 +6608,51 @@ static RValue builtin_array_set(MAYBE_UNUSED VMContext* ctx, RValue* args, MAYBE
     return RValue_makeUndefined();
 }
 
+// array_copy(dest, dest_index, src, src_index, length) - copy `length` elements from `src` at `src_index` to `dest` at `dest_index`
+static RValue builtin_array_copy(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (5 > argCount) return RValue_makeUndefined();
+    if (args[0].type != RVALUE_ARRAY || args[0].array == nullptr) return RValue_makeUndefined();
+    if (args[2].type != RVALUE_ARRAY || args[2].array == nullptr) return RValue_makeUndefined();
+    int32_t destIndex = (int32_t) RValue_toReal(args[1]);
+    int32_t srcIndex = (int32_t) RValue_toReal(args[3]);
+    int32_t length = (int32_t) RValue_toReal(args[4]);
+    if (0 > destIndex || 0 > srcIndex || 0 > length) return RValue_makeUndefined();
+    if (length == 0) return RValue_makeUndefined();
+    GMLArray* dest = args[0].array;
+    GMLArray* src = args[2].array;
+    RValue* temp = (RValue*) safeMalloc((size_t) length * sizeof(RValue));
+    {
+    repeat(length, i) {
+        RValue* slot = GMLArray_slot(src, srcIndex + i);
+        temp[i] = (slot != nullptr) ? RValue_makeIndependent(*slot) : RValue_makeUndefined();
+    }
+    }
+    int32_t oldLen = GMLArray_length1D(dest);
+    int32_t endIndex = destIndex + length;
+    if (endIndex > oldLen) {
+        GMLArray_growTo(dest, endIndex);
+        {
+        for (int32_t i = oldLen; endIndex > i; i++) {
+            RValue* gap = GMLArray_slot(dest, i);
+            if (gap != nullptr) { RValue_free(gap); *gap = RValue_makeReal(0.0); }
+        }
+        }
+    }
+    {
+    repeat(length, i) {
+        RValue* slot = GMLArray_slot(dest, destIndex + i);
+        if (slot != nullptr) {
+            RValue_free(slot);
+            *slot = temp[i];
+        } else {
+            RValue_free(&temp[i]);
+        }
+    }
+    }
+    free(temp);
+    return RValue_makeUndefined();
+}
+
 // array_push(array, values...) - append one or more values to the end of the array (row 0). BC17+ arrays are mutable references; mutate in place.
 static RValue builtin_array_push(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
     if (1 > argCount) return RValue_makeUndefined();
@@ -6574,6 +6789,62 @@ static RValue builtin_array_delete(MAYBE_UNUSED VMContext* ctx, RValue* args, in
     int32_t tailLen = len - tailStart;
     if (tailLen > 0) memmove(&data[pos], &data[tailStart], (size_t) tailLen * sizeof(RValue));
     arr->modern.length -= count;
+    return RValue_makeUndefined();
+}
+
+// Sorts an array's 1D contents with a qsort comparator - modern arrays sort in place while legacy arrays copy to a temp buffer.
+static void arraySortWith(GMLArray* arr, int (*cmp)(const void*, const void*)) {
+    if (arr->type == GML_MODERN_ARRAY) {
+        if (arr->modern.length > 1) {
+            qsort(arr->modern.data, (size_t) arr->modern.length, sizeof(RValue), cmp);
+        }
+        return;
+    }
+    int32_t len = GMLArray_length1D(arr);
+    if (len > 1) {
+        RValue* temp = (RValue*) safeMalloc((size_t) len * sizeof(RValue));
+        {
+        repeat(len, i) {
+            RValue* slot = GMLArray_slot(arr, i);
+            temp[i] = (slot != nullptr) ? *slot : RValue_makeUndefined();
+        }
+        }
+        qsort(temp, (size_t) len, sizeof(RValue), cmp);
+        {
+        repeat(len, i) {
+            RValue* slot = GMLArray_slot(arr, i);
+            if (slot != nullptr) {
+                RValue_free(slot);
+                *slot = temp[i];
+            } else {
+                RValue_free(&temp[i]);
+            }
+        }
+        }
+        free(temp);
+    }
+}
+
+// array_sort(array, sorttype_or_function) - sorts an array in place. sorttype is a bool (true = ascending, false = descending) or a comparator method func(a, b) returning -1/0/1.
+static RValue builtin_array_sort(MAYBE_UNUSED VMContext* ctx, RValue* args, int32_t argCount) {
+    if (2 > argCount) return RValue_makeUndefined();
+    if (args[0].type != RVALUE_ARRAY || args[0].array == nullptr) return RValue_makeUndefined();
+    GMLArray* arr = args[0].array;
+    RValue sorttype = args[1];
+    if (sorttype.type == RVALUE_BOOL) {
+        sortCompareEpsilon = true;
+        arraySortWith(arr, RValue_toBool(sorttype) ? sortCompareRValuesAsc : sortCompareRValuesDesc);
+    }
+#if IS_WAD17_OR_HIGHER_ENABLED
+    else if (sorttype.type == RVALUE_METHOD && sorttype.method != nullptr) {
+        SortCustomContext saved = sortCustomCtx;
+        sortCustomCtx.ctx = ctx;
+        sortCustomCtx.method = sorttype.method;
+        sortCustomCtx.aborted = false;
+        arraySortWith(arr, sortCompareCustom);
+        sortCustomCtx = saved;
+    }
+#endif
     return RValue_makeUndefined();
 }
 
@@ -19504,6 +19775,7 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "ds_list_find_index", builtin_ds_list_find_index);
     VM_registerBuiltin(ctx, "ds_list_find_value", builtin_ds_list_find_value);
     VM_registerBuiltin(ctx, "ds_list_shuffle", builtin_ds_list_shuffle);
+    VM_registerBuiltin(ctx, "ds_list_sort", builtin_ds_list_sort);
     VM_registerBuiltin(ctx, "ds_list_clear", builtin_ds_list_clear);
     VM_registerBuiltin(ctx, "ds_list_write", builtin_ds_list_write);
     VM_registerBuiltin(ctx, "ds_list_read", builtin_ds_list_read);
@@ -19582,6 +19854,8 @@ void VMBuiltins_registerAll(VMContext* ctx) {
     VM_registerBuiltin(ctx, "array_delete", builtin_array_delete);
     VM_registerBuiltin(ctx, "array_insert", builtin_array_insert);
     VM_registerBuiltin(ctx, "array_create", builtin_array_create);
+    VM_registerBuiltin(ctx, "array_copy", builtin_array_copy);
+    VM_registerBuiltin(ctx, "array_sort", builtin_array_sort);
 
     // Steam stubs
     VM_registerBuiltin(ctx, "steam_initialised", builtin_steam_initialised);
