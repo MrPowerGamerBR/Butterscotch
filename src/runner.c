@@ -2541,7 +2541,7 @@ static void Runner_snapshotMap(Runner* runner, IntRValueHashMap* map, int32_t in
             continue;
         }
 
-        char* name = VM_getVariableNameByVarId(runner->vmContext, entry->key);
+        const char* name = VM_getVariableNameByVarId(runner->vmContext, entry->key);
         if (name == nullptr) {
             name = "<unnamed>";
         }
