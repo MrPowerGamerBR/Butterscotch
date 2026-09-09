@@ -1969,7 +1969,7 @@ static void gsDrawText(Renderer* renderer, const char* text, float x, float y, f
 
             if (glyph != nullptr) {
                 bool resolveOk = true;
-                if (glyph->sourceWidth > 0 && glyph->sourceHeight > 0) {
+                if (glyph->sourceWidth > 0 && glyph->sourceHeight > 0 && ch != ' ') {
                     GSTEXTURE glyphTex;
                     float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
                     float localX0, localY0;
@@ -2091,7 +2091,7 @@ static void gsDrawTextColor(Renderer* renderer, const char* text, float x, float
                 u64 textColor4 = GS_SETREG_RGBAQ(BGR_R(c4) >> 1, BGR_G(c4) >> 1, BGR_B(c4) >> 1, ga, 0x00);
 
                 bool resolveOk = true;
-                if (glyph->sourceWidth > 0 && glyph->sourceHeight > 0) {
+                if (glyph->sourceWidth > 0 && glyph->sourceHeight > 0 && ch != ' ') {
                     GSTEXTURE glyphTex;
                     float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
                     float localX0, localY0;
