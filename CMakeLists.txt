@@ -433,6 +433,7 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "gui" OR PLATFORM STREQUAL "vita
     if(PLATFORM STREQUAL "gui")
         add_compile_definitions(USE_QT6_HOST_WINDOW)
         target_sources(butterscotch PRIVATE
+            src/gui/qt_game_os_type.cpp
             src/gui/qt_game_process.cpp
             src/gui/qt_games_tab.cpp
             src/gui/qt_host.cpp

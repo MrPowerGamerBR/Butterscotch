@@ -17,6 +17,7 @@ namespace qt_game_process {
 extern QProcess* g_gameProcess;
 extern QString g_lastGamePath;
 extern QString g_lastSaveFolder;
+extern QString g_lastGameOsType;
 extern QString g_processOutputBuffer;
 extern bool g_variableSnapshotRequestPending;
 extern bool g_instanceSnapshotRequestPending;
@@ -30,7 +31,7 @@ inline constexpr int kLiveVariableRefreshMode = 0;
 inline constexpr int kEverySecondVariableRefreshMode = 1;
 
 QString resolveGameExecutablePath();
-QStringList makeHostChildLaunchArgs(const QString& gamePath, const QString& saveFolder = QString());
+QStringList makeHostChildLaunchArgs(const QString& gamePath, const QString& saveFolder = QString(), const QString& osType = QString());
 void requestVariableSnapshot();
 void requestInstanceSnapshot();
 void sendPauseCommand(bool paused);
@@ -38,6 +39,7 @@ void resetGameProcess();
 void stopGameProcess();
 void launchGameFromPathProcess(const QString& path,
                               const QString& saveFolder,
+                              const QString& osType,
                               VariablesTab* variablesTab,
                               GameLogTab* logTab,
                               QTabWidget* tabs,

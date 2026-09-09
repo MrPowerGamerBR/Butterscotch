@@ -13,6 +13,7 @@ namespace qt_game_process {
 QProcess* g_gameProcess = nullptr;
 QString g_lastGamePath;
 QString g_lastSaveFolder;
+QString g_lastGameOsType;
 QString g_processOutputBuffer;
 bool g_variableSnapshotRequestPending = false;
 bool g_instanceSnapshotRequestPending = false;
@@ -30,10 +31,13 @@ QString resolveGameExecutablePath() {
     return QStringLiteral("butterscotch");
 }
 
-QStringList makeHostChildLaunchArgs(const QString& gamePath, const QString& saveFolder) {
+QStringList makeHostChildLaunchArgs(const QString& gamePath, const QString& saveFolder, const QString& osType) {
     QStringList args{ gamePath, QStringLiteral("--host-child") };
     if (!saveFolder.isEmpty()) {
         args << QStringLiteral("--save-folder") << saveFolder;
+    }
+    if (!osType.isEmpty()) {
+        args << QStringLiteral("--os-type") << osType;
     }
     return args;
 }
@@ -90,7 +94,7 @@ void resetGameProcess() {
     }
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath, g_lastSaveFolder));
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(g_lastGamePath, g_lastSaveFolder, g_lastGameOsType));
 }
 
 void stopGameProcess() {
@@ -116,6 +120,7 @@ void stopGameProcess() {
 
 void launchGameFromPathProcess(const QString& path,
                               const QString& saveFolder,
+                              const QString& osType,
                               VariablesTab* variablesTab,
                               GameLogTab* logTab,
                               QTabWidget* tabs,
@@ -126,6 +131,7 @@ void launchGameFromPathProcess(const QString& path,
 
     g_lastGamePath = path;
     g_lastSaveFolder = saveFolder;
+    g_lastGameOsType = osType.isEmpty() ? QStringLiteral("windows") : osType;
     tabs->setCurrentWidget(logTab);
 
     stopGameProcess();
@@ -242,7 +248,7 @@ void launchGameFromPathProcess(const QString& path,
     });
 
     const QString executablePath = resolveGameExecutablePath();
-    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path, saveFolder));
+    g_gameProcess->start(executablePath, makeHostChildLaunchArgs(path, saveFolder, g_lastGameOsType));
 }
 
 } // namespace qt_game_process

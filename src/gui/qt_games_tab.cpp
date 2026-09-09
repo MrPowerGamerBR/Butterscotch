@@ -18,6 +18,7 @@
 #endif
 
 #include "qt_game_file_dialog.h"
+#include "qt_game_os_type.h"
 
 extern "C" {
 #include "data_win.h"
@@ -28,6 +29,7 @@ namespace {
 constexpr int kLastPlayedRole = Qt::UserRole + 1;
 constexpr int kTimePlayedSecondsRole = Qt::UserRole + 2;
 constexpr int kSaveFolderRole = Qt::UserRole + 3;
+constexpr int kOsTypeRole = Qt::UserRole + 4;
 
 QString gameTitleFromDataWin(const QString& path);
 
@@ -147,7 +149,7 @@ QString gameTitleFromDataWin(const QString& path) {
 
 } // namespace
 
-GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGame, QWidget* parent)
+GamesTab::GamesTab(std::function<void(const QString&, const QString&, const QString&)> launchGame, QWidget* parent)
     : QWidget(parent), launchGame_(std::move(launchGame)), gameTable_(new QTableWidget(this)) {
     gameTable_->setColumnCount(4);
     gameTable_->setHorizontalHeaderLabels({"Game", "Path", "Last played", "Time played"});
@@ -179,14 +181,16 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
             return;
         }
 
+        const QString osType = defaultGameOsType(path);
         const QString saveFolder = defaultGameSaveFolder(path);
         QDir().mkpath(saveFolder);
-        addGame(path, saveFolder);
+        addGame(path, saveFolder, osType);
     });
     connect(gameTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         const QString path = gameTable_->item(row, 0)->data(Qt::UserRole).toString();
         const QString saveFolder = gameTable_->item(row, 0)->data(kSaveFolderRole).toString();
-        launchGame_(path, saveFolder);
+        const QString osType = gameTable_->item(row, 0)->data(kOsTypeRole).toString();
+        launchGame_(path, saveFolder, osType);
     });
     connect(gameTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& position) {
         QTableWidgetItem* item = gameTable_->itemAt(position);
@@ -199,6 +203,7 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
         QMenu menu(this);
         QAction* renameAction = menu.addAction("Rename...");
         QAction* editSaveFolderAction = menu.addAction("Edit save folder...");
+        QAction* setOsTypeAction = menu.addAction("Set OS type...");
         QAction* removeAction = menu.addAction("Remove");
         QAction* selectedAction = menu.exec(gameTable_->viewport()->mapToGlobal(position));
         if (selectedAction == renameAction) {
@@ -219,6 +224,29 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
                 titleItem->setData(kSaveFolderRole, newSaveFolder);
                 saveGames();
             }
+        } else if (selectedAction == setOsTypeAction) {
+            QTableWidgetItem* titleItem = gameTable_->item(row, 0);
+            const QString currentOsType = titleItem->data(kOsTypeRole).toString();
+            const QStringList osTypes = allGameOsTypeNames();
+            const QString defaultOsType = defaultGameOsType(titleItem->data(Qt::UserRole).toString());
+            const QString currentDisplayOsType = prettyGameOsTypeName(currentOsType);
+            int currentIndex = osTypes.indexOf(currentDisplayOsType);
+            if (currentIndex < 0) {
+                currentIndex = osTypes.indexOf(prettyGameOsTypeName(defaultOsType));
+            }
+            bool accepted = false;
+            const QString selectedDisplayOsType = QInputDialog::getItem(this,
+                                                                        "Set OS type",
+                                                                        "OS type:",
+                                                                        osTypes,
+                                                                        std::max(currentIndex, 0),
+                                                                        false,
+                                                                        &accepted);
+            if (accepted && !selectedDisplayOsType.isEmpty()) {
+                const QString selectedCanonicalOsType = canonicalGameOsTypeName(selectedDisplayOsType);
+                titleItem->setData(kOsTypeRole, selectedCanonicalOsType);
+                saveGames();
+            }
         } else if (selectedAction == removeAction) {
             gameTable_->removeRow(row);
             saveGames();
@@ -228,7 +256,7 @@ GamesTab::GamesTab(std::function<void(const QString&, const QString&)> launchGam
     loadGames();
 }
 
-void GamesTab::addGame(const QString& path, const QString& saveFolder, const QString& name, const QString& lastPlayed, qint64 timePlayedSeconds, bool save) {
+void GamesTab::addGame(const QString& path, const QString& saveFolder, const QString& osType, const QString& name, const QString& lastPlayed, qint64 timePlayedSeconds, bool save) {
     if (path.isEmpty()) {
         return;
     }
@@ -242,6 +270,7 @@ void GamesTab::addGame(const QString& path, const QString& saveFolder, const QSt
 
     const QFileInfo gameFile(path);
     const QString gameTitle = name.isEmpty() ? gameTitleFromDataWin(path) : name;
+    const QString gameOsType = osType.isEmpty() ? defaultGameOsType(path) : osType;
     const int row = gameTable_->rowCount();
     gameTable_->insertRow(row);
     auto* titleItem = new QTableWidgetItem(gameTitle.isEmpty() ? gameFile.completeBaseName() : gameTitle);
@@ -249,6 +278,7 @@ void GamesTab::addGame(const QString& path, const QString& saveFolder, const QSt
     titleItem->setData(kLastPlayedRole, lastPlayed);
     titleItem->setData(kTimePlayedSecondsRole, timePlayedSeconds);
     titleItem->setData(kSaveFolderRole, saveFolder);
+    titleItem->setData(kOsTypeRole, gameOsType);
     titleItem->setToolTip(path);
     gameTable_->setItem(row, 0, titleItem);
     auto* pathItem = new QTableWidgetItem(path);
@@ -306,12 +336,17 @@ void GamesTab::loadGames() {
         const QString name = settings.value("name").toString();
         const QString path = settings.value("path").toString();
         QString saveFolder = settings.value("saveFolder").toString();
+        QString osType = settings.value("osType").toString();
         if (saveFolder.isEmpty() && !path.isEmpty()) {
             saveFolder = defaultGameSaveFolder(path);
             needsSave = true;
         }
+        if (osType.isEmpty()) {
+            osType = defaultGameOsType(path);
+            needsSave = true;
+        }
         needsSave |= name.isEmpty();
-        addGame(path, saveFolder, name, settings.value("lastPlayed").toString(),
+        addGame(path, saveFolder, osType, name, settings.value("lastPlayed").toString(),
             settings.value("timePlayedSeconds", 0).toLongLong(), false);
     }
     settings.endArray();
@@ -328,6 +363,7 @@ void GamesTab::saveGames() const {
         settings.setValue("name", gameTable_->item(row, 0)->text());
         settings.setValue("path", gameTable_->item(row, 0)->data(Qt::UserRole).toString());
         settings.setValue("saveFolder", gameTable_->item(row, 0)->data(kSaveFolderRole).toString());
+        settings.setValue("osType", gameTable_->item(row, 0)->data(kOsTypeRole).toString());
         settings.setValue("lastPlayed", gameTable_->item(row, 0)->data(kLastPlayedRole).toString());
         settings.setValue("timePlayedSeconds", gameTable_->item(row, 0)->data(kTimePlayedSecondsRole));
     }

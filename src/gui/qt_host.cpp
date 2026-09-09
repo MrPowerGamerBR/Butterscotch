@@ -142,8 +142,8 @@ int main(int argc, char* argv[]) {
     auto* instancesTab = new InstancesTab(&hostWindow);
     auto* gameLog = new GameLogTab(&hostWindow);
     auto* tabs = new QTabWidget(&hostWindow);
-    auto* gamesTab = new GamesTab([variablesTab, instancesTab, gameLog, tabs](const QString& path, const QString& saveFolder) {
-        qt_game_process::launchGameFromPathProcess(path, saveFolder, variablesTab, gameLog, tabs, instancesTab);
+    auto* gamesTab = new GamesTab([variablesTab, instancesTab, gameLog, tabs](const QString& path, const QString& saveFolder, const QString& osType) {
+        qt_game_process::launchGameFromPathProcess(path, saveFolder, osType, variablesTab, gameLog, tabs, instancesTab);
     }, &hostWindow);
     qt_game_process::g_gamesTab = gamesTab;
     tabs->addTab(gamesTab, "Games");
@@ -203,6 +203,7 @@ int main(int argc, char* argv[]) {
             if (!qt_game_process::g_lastGamePath.isEmpty()) {
                 qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath,
                                                           qt_game_process::g_lastSaveFolder,
+                                                          qt_game_process::g_lastGameOsType,
                                                           variablesTab,
                                                           gameLog,
                                                           tabs,
@@ -218,6 +219,7 @@ int main(int argc, char* argv[]) {
             if (!qt_game_process::g_lastGamePath.isEmpty()) {
                 qt_game_process::launchGameFromPathProcess(qt_game_process::g_lastGamePath,
                                                           qt_game_process::g_lastSaveFolder,
+                                                          qt_game_process::g_lastGameOsType,
                                                           variablesTab,
                                                           gameLog,
                                                           tabs,
@@ -336,8 +338,12 @@ int main(int argc, char* argv[]) {
             return;
         }
 
+        const QString defaultOsType = QFileInfo(resolvedPath).isDir() && QFileInfo(resolvedPath).completeSuffix().compare(QStringLiteral("app"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("macos")
+            : QStringLiteral("windows");
         qt_game_process::g_lastGamePath = resolvedPath;
-        qt_game_process::launchGameFromPathProcess(resolvedPath, QString(), variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::g_lastGameOsType = defaultOsType;
+        qt_game_process::launchGameFromPathProcess(resolvedPath, QString(), defaultOsType, variablesTab, gameLog, tabs, instancesTab);
     });
 
     hostWindow.show();
@@ -352,8 +358,12 @@ int main(int argc, char* argv[]) {
             return;
         }
 
+        const QString defaultOsType = QFileInfo(launchPath).isDir() && QFileInfo(launchPath).completeSuffix().compare(QStringLiteral("app"), Qt::CaseInsensitive) == 0
+            ? QStringLiteral("macos")
+            : QStringLiteral("windows");
         qt_game_process::g_lastGamePath = launchPath;
-        qt_game_process::launchGameFromPathProcess(launchPath, QString(), variablesTab, gameLog, tabs, instancesTab);
+        qt_game_process::g_lastGameOsType = defaultOsType;
+        qt_game_process::launchGameFromPathProcess(launchPath, QString(), defaultOsType, variablesTab, gameLog, tabs, instancesTab);
     });
 
     return app.exec();
