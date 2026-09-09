@@ -8,6 +8,8 @@
 // which enables miniaudio's built-in OGG Vorbis decoding support.
 #include "stb_vorbis.c"
 
+#define MA_NO_FLAC
+#define MA_NO_MP3
 #define MINIAUDIO_IMPLEMENTATION
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
