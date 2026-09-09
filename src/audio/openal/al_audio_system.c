@@ -438,10 +438,15 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
             return -1;
         }
     } else {
+        (void)alGetError(); // band-aid for the undertale 'thud'
         alGenSources(1, &slot->alSource);
+        ALenum srcErr = alGetError();
         alGenBuffers(1, &slot->alBuffer);
-        if (alGetError() != AL_NO_ERROR) {
-            logWarn("Audio: alGenSources/alGenBuffers failed for sound %d\n", soundIndex);
+        ALenum bufErr = alGetError();
+        if (srcErr != AL_NO_ERROR || bufErr != AL_NO_ERROR) {
+            if (srcErr == AL_NO_ERROR) alDeleteSources(1, &slot->alSource);
+            if (bufErr == AL_NO_ERROR) alDeleteBuffers(1, &slot->alBuffer);
+            logWarn("Audio: alGenSources/alGenBuffers failed for sound %d (srcErr=%d bufErr=%d)\n", soundIndex, srcErr, bufErr);
             return -1;
         }
         bool isRegular = (sound->flags & AUDIO_ENTRY_FLAG_REGULAR) == AUDIO_ENTRY_FLAG_REGULAR;
@@ -453,6 +458,8 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
            // Embedded audio: decode from AUDO chunk memory
             if (0 > sound->audioFile || (uint32_t) sound->audioFile >= ma->base.audioGroups[sound->audioGroup]->audo.count) {
                 logWarn("Audio: Invalid audio file index %d for sound '%s'\n", sound->audioFile, sound->name);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
 
@@ -464,17 +471,35 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
             uint32_t bitsPerSample = 0;
             const uint8_t* audioData = nullptr;
             uint32_t audioDataLen = 0;
-
+            int16_t* decodedData = nullptr;
+            
             if (!parseWavHeader(entry->data, entry->dataSize, &channels, &sampleRate, &bitsPerSample, &audioData, &audioDataLen)) {
-                channels = 2;
-                sampleRate = 44100;
+                // assume it's an ogg file and use stb_vorbis
+                int32_t vorbisChannels = 0;
+                int32_t vorbisSampleRate = 0;
+            
+                int decodedSamples = stb_vorbis_decode_memory(entry->data, entry->dataSize, &vorbisChannels, &vorbisSampleRate, &decodedData);
+                if (decodedSamples <= 0 || decodedData == nullptr
+                    || (vorbisChannels != 1 && vorbisChannels != 2) || vorbisSampleRate <= 0) {
+                    logWarn("Audio: Failed to decode Vorbis for '%s'\n", sound->name);
+                    free(decodedData);
+                    alDeleteSources(1, &slot->alSource);
+                    alDeleteBuffers(1, &slot->alBuffer);
+                    return -1;
+                }
+
+                channels = (uint32_t) vorbisChannels;
+                sampleRate = (uint32_t) vorbisSampleRate;
                 bitsPerSample = 16;
-                audioData = entry->data;
-                audioDataLen = entry->dataSize;
+                audioData = (uint8_t*) decodedData;
+                audioDataLen = decodedSamples * vorbisChannels * (uint32_t) sizeof(int16_t);
             }
 
             if (audioData == nullptr || audioDataLen == 0) {
                 logWarn("Audio: No audio data for '%s'\n", sound->name);
+                free(decodedData);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
 
@@ -511,14 +536,21 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
             if (alErr != AL_NO_ERROR) {
                 logWarn("Audio: alBufferData failed for '%s' format=0x%x len=%u rate=%u err=%d\n",
                     sound->name, format, audioDataLen, sampleRate, alErr);
+                free(decodedData);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
             alSourcei(slot->alSource, AL_BUFFER, slot->alBuffer);
+            free(decodedData);
+            decodedData = nullptr;
         } else {
             // External audio: load from file
             char* path = resolveExternalPath(ma, sound);
             if (path == nullptr) {
                 logWarn("Audio: Could not resolve path for sound '%s'\n", sound->name);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
 
@@ -529,6 +561,8 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
             if (len <= 0 || data == nullptr) {
                 logWarn("Audio: stb_vorbis_decode failed for '%s' path='%s' len=%d\n", sound->name, path, len);
                 free(path);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
             alBufferData(
@@ -542,6 +576,8 @@ static int32_t maPlaySound(AudioSystem* audio, int32_t soundIndex, int32_t prior
                 logWarn("Audio: alBufferData failed for external '%s'\n", sound->name);
                 free(data);
                 free(path);
+                alDeleteSources(1, &slot->alSource);
+                alDeleteBuffers(1, &slot->alBuffer);
                 return -1;
             }
             alSourcei(slot->alSource, AL_BUFFER, slot->alBuffer);
